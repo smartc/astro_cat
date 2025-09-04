@@ -1,0 +1,98 @@
+[
+  {
+    "raw_name": "_none_",
+    "proper_name": "None"
+  },
+  {
+    "raw_name": "Blue",
+    "proper_name": "B"
+  },
+  {
+    "raw_name": "Green", 
+    "proper_name": "G"
+  },
+  {
+    "raw_name": "Ha-3nm",
+    "proper_name": "Ha-3nm"
+  },
+  {
+    "raw_name": "Lum",
+    "proper_name": "L"
+  },
+  {
+    "raw_name": "Red",
+    "proper_name": "R"
+  },
+  {
+    "raw_name": "Ha-35nm",
+    "proper_name": "Ha-35nm"
+  },
+  {
+    "raw_name": "Ha-7nm", 
+    "proper_name": "Ha-7nm"
+  },
+  {
+    "raw_name": "OIII-7m",
+    "proper_name": "Oiii-7nm"
+  },
+  {
+    "raw_name": "SII-7nm",
+    "proper_name": "Sii-7nm"
+  },
+  {
+    "raw_name": "Oiii-3nm",
+    "proper_name": "Oiii-3nm"
+  },
+  {
+    "raw_name": "L-Pro",
+    "proper_name": "L-Pro"
+  },
+  {
+    "raw_name": "L-Xtreme",
+    "proper_name": "L-Xtreme"
+  },
+  {
+    "raw_name": "Oiii-7nm",
+    "proper_name": "Oiii-7nm"
+  },
+  {
+    "raw_name": "Ha-7",
+    "proper_name": "Ha-7nm"
+  },
+  {
+    "raw_name": "OIII",
+    "proper_name": "Oiii-7nm"
+  },
+  {
+    "raw_name": "SII",
+    "proper_name": "Sii-7nm"
+  },
+  {
+    "raw_name": "B",
+    "proper_name": "B"
+  },
+  {
+    "raw_name": "G", 
+    "proper_name": "G"
+  },
+  {
+    "raw_name": "R",
+    "proper_name": "R"
+  },
+  {
+    "raw_name": "L",
+    "proper_name": "L"
+  },
+  {
+    "raw_name": "Sii-3nm",
+    "proper_name": "Sii-3nm"
+  },
+  {
+    "raw_name": "Ha-35",
+    "proper_name": "Ha-35nm"
+  },
+  {
+    "raw_name": "No filter",
+    "proper_name": "None"
+  }
+]

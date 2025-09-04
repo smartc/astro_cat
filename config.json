@@ -1,0 +1,54 @@
+{
+  "paths": {
+    "quarantine_dir": "~/astro/quarantine",
+    "image_dir": "~/astro/images",
+    "database_path": "~/astro/fits_catalog.db",
+    "restore_folder": "~/astro/restore"
+  },
+  "database": {
+    "type": "sqlite",
+    "connection_string": "sqlite:///{{database_path}}",
+    "tables": {
+      "fits_files": "fits_files",
+      "process_log": "process_log",
+      "cameras": "cameras",
+      "telescopes": "telescopes"
+    }
+  },
+  "file_monitoring": {
+    "extensions": [
+      ".fits",
+      ".fit",
+      ".fts"
+    ],
+    "scan_interval_seconds": 30,
+    "auto_process": false
+  },
+  "cameras": [
+    {
+      "name": "ASI1600",
+      "x_pixels": 4656,
+      "y_pixels": 3520,
+      "pixel_size": 3.8
+    }
+  ],
+  "telescopes": [
+    {
+      "name": "ES127",
+      "focal_length": 952,
+      "aperture": 127
+    }
+  ],
+  "filter_mappings": {
+    "Red": "R",
+    "Green": "G",
+    "Blue": "B",
+    "Lum": "L"
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "fits_cataloger.log",
+    "max_bytes": 10485760,
+    "backup_count": 5
+  }
+}

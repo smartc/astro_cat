@@ -1,0 +1,37 @@
+[
+  {
+    "scope": "ES127",
+    "focal": 952,
+    "make": "Explore Scientific",
+    "type": "Refractor",
+    "comments": "127mm ED triplet refractor"
+  },
+  {
+    "scope": "ES127_REDUCER",
+    "focal": 666,
+    "make": "Explore Scientific", 
+    "type": "Refractor",
+    "comments": "ES127 with 0.7x reducer"
+  },
+  {
+    "scope": "ED80-T",
+    "focal": 480,
+    "make": "Sky-Watcher",
+    "type": "Refractor",
+    "comments": "80mm ED doublet refractor"
+  },
+  {
+    "scope": "ROKINON_135",
+    "focal": 135,
+    "make": "Rokinon",
+    "type": "Lens",
+    "comments": "135mm f/2.0 telephoto lens"
+  },
+  {
+    "scope": "ROKINON_FE14M",
+    "focal": 14,
+    "make": "Rokinon",
+    "type": "Lens", 
+    "comments": "14mm f/2.8 ultra-wide lens"
+  }
+]
