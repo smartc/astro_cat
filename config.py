@@ -90,7 +90,7 @@ class Config(BaseModel):
         if 'paths' in values and 'database_path' in values['paths']:
             v['connection_string'] = v['connection_string'].replace(
                 '{{database_path}}', 
-                values['paths']['database_path']
+                os.path.expanduser(os.path.expandvars(values['paths']['database_path']))
             )
         return v
 
@@ -160,6 +160,13 @@ def load_config(config_path: str = "config.json"):
         config_data = json.load(f)
     
     config = Config(**config_data)
+    
+    # Fix the database connection string after config creation
+    if '{{database_path}}' in config.database.connection_string:
+        config.database.connection_string = config.database.connection_string.replace(
+            '{{database_path}}', 
+            config.paths.database_path
+        )
     
     # Validate and create paths
     validate_and_create_paths(config)

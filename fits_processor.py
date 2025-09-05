@@ -179,7 +179,97 @@ class FitsProcessor:
                 if actual_y is None or camera.y == actual_y:  # Use 'y' field
                     return camera.camera  # Return 'camera' field
         
-        return "UNKNOWN"
+        # Camera not found - prompt user
+        return self._handle_unknown_camera(actual_x, actual_y)
+    
+    def _handle_unknown_camera(self, x_pixels: int, y_pixels: Optional[int]) -> str:
+        """Handle unknown camera by prompting user for action."""
+        print(f"\nUnknown camera detected: {x_pixels}x{y_pixels or '?'} pixels")
+        print("Existing cameras:")
+        for i, camera in enumerate(self.cameras.values(), 1):
+            print(f"  {i}. {camera.camera}: {camera.x}x{camera.y} ({camera.brand} {camera.type})")
+        
+        print("\nOptions:")
+        print("1. Add new camera")
+        print("2. Map to existing camera") 
+        print("3. Skip (mark as UNKNOWN)")
+        
+        while True:
+            choice = input("Choose option (1-3): ").strip()
+            
+            if choice == "1":
+                return self._add_new_camera(x_pixels, y_pixels)
+            elif choice == "2":
+                return self._map_to_existing_camera()
+            elif choice == "3":
+                return "UNKNOWN"
+            else:
+                print("Invalid choice. Please enter 1, 2, or 3.")
+    
+    def _add_new_camera(self, x_pixels: int, y_pixels: Optional[int]) -> str:
+        """Add a new camera to the configuration."""
+        print("\nAdding new camera:")
+        name = input("Camera name: ").strip()
+        brand = input("Brand: ").strip() or "Unknown"
+        cam_type = input("Type (CMOS/CCD): ").strip() or "CMOS"
+        pixel_size = input("Pixel size (microns): ").strip()
+        
+        try:
+            pixel_size = float(pixel_size) if pixel_size else 4.0
+        except ValueError:
+            pixel_size = 4.0
+        
+        new_camera = {
+            "camera": name,
+            "bin": 1,
+            "x": x_pixels,
+            "y": y_pixels or 0,
+            "type": cam_type,
+            "brand": brand,
+            "pixel": pixel_size,
+            "comments": "Auto-added during processing"
+        }
+        
+        # Save to cameras.json
+        self._save_new_camera(new_camera)
+        
+        # Add to current session
+        from config import Camera
+        camera_obj = Camera(**new_camera)
+        self.cameras[name] = camera_obj
+        
+        print(f"Added camera: {name}")
+        return name
+    
+    def _map_to_existing_camera(self) -> str:
+        """Map to an existing camera."""
+        cameras_list = list(self.cameras.values())
+        while True:
+            try:
+                choice = int(input(f"Select camera (1-{len(cameras_list)}): ")) - 1
+                if 0 <= choice < len(cameras_list):
+                    return cameras_list[choice].camera
+                else:
+                    print(f"Please enter a number between 1 and {len(cameras_list)}")
+            except ValueError:
+                print("Please enter a valid number")
+    
+    def _save_new_camera(self, camera_data: dict):
+        """Save new camera to cameras.json file."""
+        import json
+        from pathlib import Path
+        
+        cameras_file = Path("cameras.json")
+        if cameras_file.exists():
+            with open(cameras_file, 'r') as f:
+                cameras = json.load(f)
+        else:
+            cameras = []
+        
+        cameras.append(camera_data)
+        
+        with open(cameras_file, 'w') as f:
+            json.dump(cameras, f, indent=2)
     
     def _identify_telescope(self, focal_length: Optional[float]) -> str:
         """Identify telescope based on focal length."""
@@ -203,7 +293,91 @@ class FitsProcessor:
                 min_diff = diff
                 best_match = telescope.scope  # Return 'scope' field
         
-        return best_match if best_match else "UNKNOWN"
+        if best_match:
+            return best_match
+        
+        # Telescope not found - prompt user
+        return self._handle_unknown_telescope(focal_length)
+    
+    def _handle_unknown_telescope(self, focal_length: float) -> str:
+        """Handle unknown telescope by prompting user for action."""
+        print(f"\nUnknown telescope detected: {focal_length}mm focal length")
+        print("Existing telescopes:")
+        for i, telescope in enumerate(self.telescopes.values(), 1):
+            print(f"  {i}. {telescope.scope}: {telescope.focal}mm ({telescope.make} {telescope.type})")
+        
+        print("\nOptions:")
+        print("1. Add new telescope")
+        print("2. Map to existing telescope")
+        print("3. Skip (mark as UNKNOWN)")
+        
+        while True:
+            choice = input("Choose option (1-3): ").strip()
+            
+            if choice == "1":
+                return self._add_new_telescope(focal_length)
+            elif choice == "2":
+                return self._map_to_existing_telescope()
+            elif choice == "3":
+                return "UNKNOWN"
+            else:
+                print("Invalid choice. Please enter 1, 2, or 3.")
+    
+    def _add_new_telescope(self, focal_length: float) -> str:
+        """Add a new telescope to the configuration."""
+        print("\nAdding new telescope:")
+        name = input("Telescope name: ").strip()
+        make = input("Manufacturer: ").strip() or "Unknown"
+        tel_type = input("Type (Refractor/Reflector/Lens): ").strip() or "Unknown"
+        
+        new_telescope = {
+            "scope": name,
+            "focal": int(focal_length),
+            "make": make,
+            "type": tel_type,
+            "comments": "Auto-added during processing"
+        }
+        
+        # Save to telescopes.json
+        self._save_new_telescope(new_telescope)
+        
+        # Add to current session
+        from config import Telescope
+        telescope_obj = Telescope(**new_telescope)
+        self.telescopes[name] = telescope_obj
+        
+        print(f"Added telescope: {name}")
+        return name
+    
+    def _map_to_existing_telescope(self) -> str:
+        """Map to an existing telescope."""
+        telescopes_list = list(self.telescopes.values())
+        while True:
+            try:
+                choice = int(input(f"Select telescope (1-{len(telescopes_list)}): ")) - 1
+                if 0 <= choice < len(telescopes_list):
+                    return telescopes_list[choice].scope
+                else:
+                    print(f"Please enter a number between 1 and {len(telescopes_list)}")
+            except ValueError:
+                print("Please enter a valid number")
+    
+    def _save_new_telescope(self, telescope_data: dict):
+        """Save new telescope to telescopes.json file."""
+        import json
+        from pathlib import Path
+        
+        telescopes_file = Path("telescopes.json")
+        if telescopes_file.exists():
+            with open(telescopes_file, 'r') as f:
+                telescopes = json.load(f)
+        else:
+            telescopes = []
+        
+        telescopes.append(telescope_data)
+        
+        with open(telescopes_file, 'w') as f:
+            json.dump(telescopes, f, indent=2)
     
     def _generate_session_id(self, obs_date: Optional[datetime], 
                            camera: str, telescope: str) -> str:

@@ -142,29 +142,31 @@ class DatabaseService:
     
     def add_fits_file(self, fits_data: dict) -> Optional[FitsFile]:
         """Add a new FITS file record."""
-        with self.db_manager.get_session() as session:
-            try:
-                # Check for existing file by MD5
-                existing = session.query(FitsFile).filter_by(
-                    md5sum=fits_data.get('md5sum')
-                ).first()
-                
-                if existing:
-                    existing.instances += 1
-                    existing.duplicate = True
-                    session.commit()
-                    return existing
-                
-                # Create new record
-                fits_file = FitsFile(**fits_data)
-                session.add(fits_file)
+        session = self.db_manager.get_session()
+        try:
+            # Check for existing file by MD5
+            existing = session.query(FitsFile).filter_by(
+                md5sum=fits_data.get('md5sum')
+            ).first()
+            
+            if existing:
+                existing.instances += 1
+                existing.duplicate = True
                 session.commit()
-                session.refresh(fits_file)
-                return fits_file
-                
-            except Exception as e:
-                session.rollback()
-                raise e
+                return existing
+            
+            # Create new record
+            fits_file = FitsFile(**fits_data)
+            session.add(fits_file)
+            session.commit()
+            # Don't refresh - just return the object
+            return fits_file
+            
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
     
     def get_cameras(self) -> List[Camera]:
         """Get all cameras."""

@@ -2,36 +2,82 @@
   {
     "scope": "ES127",
     "focal": 952,
+    "aperture": 127,
     "make": "Explore Scientific",
     "type": "Refractor",
+    "subtype": "Triplet APO",
     "comments": "127mm ED triplet refractor"
   },
   {
     "scope": "ES127_REDUCER",
     "focal": 666,
+    "aperture": 127,
     "make": "Explore Scientific", 
     "type": "Refractor",
+    "subtype": "Triplet APO",
     "comments": "ES127 with 0.7x reducer"
   },
   {
     "scope": "ED80-T",
     "focal": 480,
-    "make": "Sky-Watcher",
+    "aperture": 80,
+    "make": "Orion",
     "type": "Refractor",
+    "subtype": "Triplet APO",
     "comments": "80mm ED doublet refractor"
   },
   {
     "scope": "ROKINON_135",
     "focal": 135,
+    "aperture": "",
     "make": "Rokinon",
     "type": "Lens",
+    "subtype": "MF",
     "comments": "135mm f/2.0 telephoto lens"
   },
   {
     "scope": "ROKINON_FE14M",
     "focal": 14,
+    "aperture": "",
     "make": "Rokinon",
-    "type": "Lens", 
+    "type": "Lens",
+    "subtype": "MF", 
     "comments": "14mm f/2.8 ultra-wide lens"
+  },
+  {
+    "scope": "FF130",
+    "focal": 1000,
+    "aperture": 130,
+    "make": "ZWO",
+    "type": "Refractor",
+    "subtype": "Petzval",
+    "comments": ""
+  },
+  {
+    "scope": "ORION_RC8",
+    "focal": 1600,
+    "aperture": 203,
+    "make": "Orion",
+    "type": "Reflector",
+    "subtype": "Richtey Chretien",
+    "comments": ""
+  },
+  {
+    "scope": "CELESTRON_C8",
+    "focal": 2032,
+    "aperture": 203,
+    "make": "Celestron",
+    "type": "Reflector",
+    "subtype": "Schmidt Cassegrain",
+    "comments": ""
+  },
+  {
+    "scope": "CELESTRON_C8_REDUCER",
+    "focal": 1219,
+    "aperture": 203,
+    "make": "Celestron",
+    "type": "Reflector",
+    "subtype": "Schmidt Cassegrain",
+    "comments": "C8 w/ 0.6x Reducer"
   }
 ]
