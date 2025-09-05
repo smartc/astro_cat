@@ -54,13 +54,14 @@ class FitsCataloger:
     """Main FITS cataloging application."""
     
     def __init__(self, config_path: str = "config.json"):
-        self.config = load_config(config_path)
+        # Load config and equipment data
+        self.config, self.cameras, self.telescopes, self.filter_mappings = load_config(config_path)
         self.logger = logging.getLogger(__name__)
         
         # Initialize components
         self.db_manager = DatabaseManager(self.config.database.connection_string)
         self.db_service = DatabaseService(self.db_manager)
-        self.fits_processor = FitsProcessor(self.config)
+        self.fits_processor = FitsProcessor(self.config, self.cameras, self.telescopes, self.filter_mappings)
         self.file_monitor = None
         
         # Set up database
@@ -72,11 +73,28 @@ class FitsCataloger:
             self.logger.info("Initializing database...")
             self.db_manager.create_tables()
             
+            # Convert equipment data to database format (matching original field names)
+            camera_data = []
+            for cam in self.cameras:
+                camera_data.append({
+                    'name': cam.camera,  # Map 'camera' to 'name'
+                    'x_pixels': cam.x,   # Map 'x' to 'x_pixels'
+                    'y_pixels': cam.y,   # Map 'y' to 'y_pixels'
+                    'pixel_size': cam.pixel  # Map 'pixel' to 'pixel_size'
+                })
+            
+            telescope_data = []
+            for tel in self.telescopes:
+                telescope_data.append({
+                    'name': tel.scope,    # Map 'scope' to 'name'
+                    'focal_length': tel.focal  # Map 'focal' to 'focal_length'
+                })
+            
             # Initialize equipment from config
             self.db_service.initialize_equipment(
-                cameras=[cam.dict() for cam in self.config.cameras],
-                telescopes=[tel.dict() for tel in self.config.telescopes],
-                filter_mappings=self.config.filter_mappings
+                cameras=camera_data,
+                telescopes=telescope_data,
+                filter_mappings=self.filter_mappings
             )
             
             self.logger.info("Database initialized successfully")
@@ -307,7 +325,8 @@ def test_db(ctx):
         
         with db_manager.get_session() as session:
             # Simple query to test connection
-            result = session.execute("SELECT 1").scalar()
+            from sqlalchemy import text
+            result = session.execute(text("SELECT 1")).scalar()
             
         db_manager.close()
         

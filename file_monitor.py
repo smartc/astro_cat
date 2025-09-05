@@ -129,8 +129,10 @@ class QuarantineMonitor:
     def scan_existing_files(self) -> List[str]:
         """Scan for existing files in quarantine directory."""
         from fits_processor import FitsProcessor
+        from config import load_config
         
-        processor = FitsProcessor(self.config)
+        config, cameras, telescopes, filter_mappings = load_config()
+        processor = FitsProcessor(config, cameras, telescopes, filter_mappings)
         return processor.find_fits_files(self.config.paths.quarantine_dir)
 
 

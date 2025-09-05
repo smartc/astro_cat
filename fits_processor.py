@@ -11,8 +11,6 @@ from astropy.io import fits
 from astropy.time import Time
 import polars as pl
 
-from config import Config, Camera, Telescope
-
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +18,11 @@ logger = logging.getLogger(__name__)
 class FitsProcessor:
     """FITS file processing and metadata extraction."""
     
-    def __init__(self, config: Config):
+    def __init__(self, config, cameras: List, telescopes: List, filter_mappings: Dict[str, str]):
         self.config = config
-        self.cameras = {cam.name: cam for cam in config.cameras}
-        self.telescopes = {tel.name: tel for tel in config.telescopes}
-        self.filter_mappings = config.filter_mappings
+        self.cameras = {cam.camera: cam for cam in cameras}  # Use 'camera' field
+        self.telescopes = {tel.scope: tel for tel in telescopes}  # Use 'scope' field
+        self.filter_mappings = filter_mappings
     
     def get_file_md5(self, filepath: str) -> str:
         """Calculate MD5 hash of file."""
@@ -176,10 +174,10 @@ class FitsProcessor:
         actual_x = x_pixels * binning
         actual_y = y_pixels * binning if y_pixels else None
         
-        for camera in self.config.cameras:
-            if camera.x_pixels == actual_x:
-                if actual_y is None or camera.y_pixels == actual_y:
-                    return camera.name
+        for camera in self.cameras.values():
+            if camera.x == actual_x:  # Use 'x' field
+                if actual_y is None or camera.y == actual_y:  # Use 'y' field
+                    return camera.camera  # Return 'camera' field
         
         return "UNKNOWN"
     
@@ -189,21 +187,21 @@ class FitsProcessor:
             return "UNKNOWN"
         
         # Find exact match first
-        for telescope in self.config.telescopes:
-            if abs(telescope.focal_length - focal_length) < 0.1:
-                return telescope.name
+        for telescope in self.telescopes.values():
+            if abs(telescope.focal - focal_length) < 0.1:  # Use 'focal' field
+                return telescope.scope  # Return 'scope' field
         
         # Find closest match within 5% tolerance
         best_match = None
         min_diff = float('inf')
         
-        for telescope in self.config.telescopes:
-            diff = abs(telescope.focal_length - focal_length)
-            tolerance = telescope.focal_length * 0.05
+        for telescope in self.telescopes.values():
+            diff = abs(telescope.focal - focal_length)  # Use 'focal' field
+            tolerance = telescope.focal * 0.05
             
             if diff < tolerance and diff < min_diff:
                 min_diff = diff
-                best_match = telescope.name
+                best_match = telescope.scope  # Return 'scope' field
         
         return best_match if best_match else "UNKNOWN"
     
@@ -287,15 +285,15 @@ class FitsProcessor:
         return self.process_files(fits_files)
 
 
-def calculate_image_scale(camera: Camera, telescope: Telescope) -> Tuple[float, float]:
+def calculate_image_scale(camera, telescope) -> Tuple[float, float]:
     """Calculate image scale in arcseconds per pixel."""
-    if not camera.pixel_size or not telescope.focal_length:
+    if not camera.pixel or not telescope.focal:
         return 0.0, 0.0
     
     # Formula: pixel_scale = (pixel_size / focal_length) * 206265
-    pixel_scale = (camera.pixel_size / telescope.focal_length) * 206.265
+    pixel_scale = (camera.pixel / telescope.focal) * 206.265
     
-    x_scale = pixel_scale * camera.x_pixels / 60  # arcminutes
-    y_scale = pixel_scale * camera.y_pixels / 60  # arcminutes
+    x_scale = pixel_scale * camera.x / 60  # arcminutes
+    y_scale = pixel_scale * camera.y / 60  # arcminutes
     
     return x_scale, y_scale

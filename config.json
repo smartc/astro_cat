@@ -1,12 +1,12 @@
 {
   "paths": {
-    "quarantine_dir": "~/astro/quarantine",
-    "image_dir": "~/astro/images",
-    "database_path": "~/astro/fits_catalog.db",
-    "restore_folder": "~/astro/restore"
+    "quarantine_dir": "/mnt/calisto/Astro/Quarantine",
+    "image_dir": "/mnt/calisto/Astro/Images",
+    "database_path": "/mnt/calisto/Astro/fits_catalog.db",
+    "restore_folder": "/mnt/calisto/Astro/.tmp/restore"
   },
   "database": {
-    "type": "sqlite",
+    "type": "sqlite", 
     "connection_string": "sqlite:///{{database_path}}",
     "tables": {
       "fits_files": "fits_files",
@@ -16,34 +16,14 @@
     }
   },
   "file_monitoring": {
-    "extensions": [
-      ".fits",
-      ".fit",
-      ".fts"
-    ],
+    "extensions": [".fits", ".fit", ".fts"],
     "scan_interval_seconds": 30,
     "auto_process": false
   },
-  "cameras": [
-    {
-      "name": "ASI1600",
-      "x_pixels": 4656,
-      "y_pixels": 3520,
-      "pixel_size": 3.8
-    }
-  ],
-  "telescopes": [
-    {
-      "name": "ES127",
-      "focal_length": 952,
-      "aperture": 127
-    }
-  ],
-  "filter_mappings": {
-    "Red": "R",
-    "Green": "G",
-    "Blue": "B",
-    "Lum": "L"
+  "equipment": {
+    "cameras_file": "cameras.json",
+    "telescopes_file": "telescopes.json", 
+    "filters_file": "filters.json"
   },
   "logging": {
     "level": "INFO",
