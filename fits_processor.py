@@ -4,6 +4,7 @@ import hashlib
 import os
 import logging
 import re
+import math
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -81,6 +82,13 @@ class FitsProcessor:
                     'exposure': self._get_header_value(header, ['EXPOSURE', 'EXPTIME'], float),
                 })
                 
+                # Extract location data
+                metadata.update({
+                    'latitude': self._parse_coordinate(header, ['SITELAT', 'LAT-OBS', 'LATITUDE']),
+                    'longitude': self._parse_coordinate(header, ['SITELONG', 'LONG-OBS', 'LONGITUDE']),
+                    'elevation': self._get_header_value(header, ['SITEELEV', 'ALT-OBS', 'ELEVATION'], float),
+                })
+                
                 # Extract additional headers for session ID generation (don't add to metadata)
                 instrument = self._get_header_value(header, ['INSTRUME'])
                 filter_wheel = self._get_header_value(header, ['FWHEEL'])
@@ -88,16 +96,18 @@ class FitsProcessor:
                 site_name = self._get_header_value(header, ['SITENAME'])
                 binning = self._get_header_value(header, ['XBINNING', 'BINNING'], int, 1)
                 
-                # Extract location data for sessions
-                latitude = self._get_header_value(header, ['SITELAT', 'LAT-OBS'], float)
-                longitude = self._get_header_value(header, ['SITELONG', 'LONG-OBS'], float) 
-                elevation = self._get_header_value(header, ['SITEELEV', 'ALT-OBS'], float)
-                
                 # Identify camera and telescope
                 metadata['camera'] = self._identify_camera_enhanced(
                     metadata['x'], metadata['y'], instrument, binning
                 )
                 metadata['telescope'] = self._identify_telescope(metadata['focal_length'])
+                
+                # Calculate field of view and pixel scale
+                fov_data = self._calculate_field_of_view(
+                    metadata['camera'], metadata['telescope'], 
+                    metadata['x'], metadata['y'], binning
+                )
+                metadata.update(fov_data)
                 
                 # Generate session ID using extra fields (no binning)
                 metadata['session_id'] = self._generate_session_id_with_hash(
@@ -112,9 +122,9 @@ class FitsProcessor:
                     'telescope': metadata['telescope'],
                     'camera': metadata['camera'],
                     'site_name': site_name,
-                    'latitude': latitude,
-                    'longitude': longitude,
-                    'elevation': elevation,
+                    'latitude': metadata['latitude'],
+                    'longitude': metadata['longitude'],
+                    'elevation': metadata['elevation'],
                     'observer': observer,
                     'notes': None
                 }
@@ -125,6 +135,101 @@ class FitsProcessor:
         except Exception as e:
             logger.error(f"Error processing FITS file {filepath}: {e}")
             return None
+
+    def _calculate_field_of_view(self, camera_name: str, telescope_name: str, 
+                                x_pixels: Optional[int], y_pixels: Optional[int], 
+                                binning: int = 1) -> Dict[str, Optional[float]]:
+        """Calculate field of view and pixel scale."""
+        result = {
+            'fov_x': None,
+            'fov_y': None,
+            'pixel_scale': None
+        }
+        
+        # Get camera and telescope objects
+        camera = self.cameras.get(camera_name)
+        telescope = self.telescopes.get(telescope_name)
+        
+        if not camera or not telescope:
+            logger.debug(f"Cannot calculate FOV: camera={camera_name}, telescope={telescope_name}")
+            return result
+        
+        # Check if we have required parameters
+        if not (camera.pixel and telescope.focal and x_pixels and y_pixels):
+            logger.debug("Missing required parameters for FOV calculation")
+            return result
+        
+        try:
+            # Adjust pixel size for binning
+            effective_pixel_size = camera.pixel * binning
+            
+            # Calculate pixel scale in arcseconds per pixel
+            # Formula: pixel_scale = (pixel_size_microns / focal_length_mm) * 206.265
+            pixel_scale_arcsec = (effective_pixel_size / telescope.focal) * 206.265
+            
+            # Calculate field of view in arcminutes
+            fov_x_arcmin = (pixel_scale_arcsec * x_pixels) / 60.0
+            fov_y_arcmin = (pixel_scale_arcsec * y_pixels) / 60.0
+            
+            result = {
+                'fov_x': round(fov_x_arcmin, 2),
+                'fov_y': round(fov_y_arcmin, 2),
+                'pixel_scale': round(pixel_scale_arcsec, 3)
+            }
+            
+            logger.debug(f"Calculated FOV: {fov_x_arcmin:.2f}' x {fov_y_arcmin:.2f}', "
+                        f"pixel scale: {pixel_scale_arcsec:.3f}\"/px")
+            
+        except Exception as e:
+            logger.error(f"Error calculating field of view: {e}")
+        
+        return result
+
+    def _parse_coordinate(self, header, keys: List[str]) -> Optional[float]:
+        """Parse coordinate from header, handling DMS format."""
+        for key in keys:
+            if key in header:
+                try:
+                    value = header[key]
+                    logger.debug(f"Found coordinate key '{key}' with value: {value}")
+                    
+                    if isinstance(value, (int, float)):
+                        # Already decimal degrees
+                        return float(value)
+                    
+                    if isinstance(value, str):
+                        # Parse DMS format: "50 41 57.800" or "-114 0 20.500"
+                        value = value.strip()
+                        
+                        # Handle negative sign
+                        negative = value.startswith('-')
+                        if negative:
+                            value = value[1:]
+                        
+                        # Split degrees, minutes, seconds
+                        parts = value.split()
+                        if len(parts) >= 3:
+                            degrees = float(parts[0])
+                            minutes = float(parts[1])
+                            seconds = float(parts[2])
+                            
+                            # Convert to decimal degrees
+                            decimal = degrees + minutes/60.0 + seconds/3600.0
+                            if negative:
+                                decimal = -decimal
+                                
+                            logger.debug(f"Parsed coordinate: {value} -> {decimal}")
+                            return decimal
+                        
+                        # Try direct float conversion as fallback
+                        return float(value)
+                        
+                except (ValueError, TypeError, IndexError) as e:
+                    logger.debug(f"Failed to parse coordinate '{key}' value '{value}': {e}")
+                    continue
+        
+        logger.debug(f"No coordinate found for keys: {keys}")
+        return None
 
     def _get_header_value(self, header, keys: List[str], 
                          value_type=str, default=None):

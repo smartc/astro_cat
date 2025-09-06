@@ -36,6 +36,16 @@ class FitsFile(Base):
     telescope = Column(String(50))
     md5sum = Column(String(32), unique=True, index=True)
     
+    # Location data
+    latitude = Column(Float)  # Site latitude in degrees
+    longitude = Column(Float)  # Site longitude in degrees
+    elevation = Column(Float)  # Site elevation in meters
+    
+    # Field of view data
+    fov_x = Column(Float)  # Field of view in arcminutes (X axis)
+    fov_y = Column(Float)  # Field of view in arcminutes (Y axis)
+    pixel_scale = Column(Float)  # Pixel scale in arcseconds per pixel
+    
     # File management fields
     bad = Column(Boolean, default=False)
     file_not_found = Column(Boolean, default=False)
@@ -54,6 +64,7 @@ class FitsFile(Base):
         Index('idx_camera_telescope', 'camera', 'telescope'),
         Index('idx_frame_type_filter', 'frame_type', 'filter'),
         Index('idx_session', 'session_id'),
+        Index('idx_location', 'latitude', 'longitude'),
     )
 
 
