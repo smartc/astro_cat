@@ -88,17 +88,36 @@ class FitsProcessor:
                 site_name = self._get_header_value(header, ['SITENAME'])
                 binning = self._get_header_value(header, ['XBINNING', 'BINNING'], int, 1)
                 
+                # Extract location data for sessions
+                latitude = self._get_header_value(header, ['SITELAT', 'LAT-OBS'], float)
+                longitude = self._get_header_value(header, ['SITELONG', 'LONG-OBS'], float) 
+                elevation = self._get_header_value(header, ['SITEELEV', 'ALT-OBS'], float)
+                
                 # Identify camera and telescope
                 metadata['camera'] = self._identify_camera_enhanced(
                     metadata['x'], metadata['y'], instrument, binning
                 )
                 metadata['telescope'] = self._identify_telescope(metadata['focal_length'])
                 
-                # Generate session ID using extra fields
+                # Generate session ID using extra fields (no binning)
                 metadata['session_id'] = self._generate_session_id_with_hash(
                     metadata['obs_date'], instrument, metadata['focal_length'],
                     metadata['x'], metadata['y'], filter_wheel, observer, site_name
                 )
+                
+                # Store session data for later extraction
+                metadata['_session_data'] = {
+                    'session_id': metadata['session_id'],
+                    'session_date': obs_date,
+                    'telescope': metadata['telescope'],
+                    'camera': metadata['camera'],
+                    'site_name': site_name,
+                    'latitude': latitude,
+                    'longitude': longitude,
+                    'elevation': elevation,
+                    'observer': observer,
+                    'notes': None
+                }
                 
                 logger.debug(f"Successfully processed metadata for {filepath}")
                 return metadata
@@ -106,6 +125,7 @@ class FitsProcessor:
         except Exception as e:
             logger.error(f"Error processing FITS file {filepath}: {e}")
             return None
+
 
     def _get_header_value(self, header, keys: List[str], 
                          value_type=str, default=None):
@@ -544,11 +564,12 @@ class FitsProcessor:
         filename = os.path.basename(filepath)
         bad_markers = ['BAD_', 'CORRUPT_', 'ERROR_']
         return any(marker in filename.upper() for marker in bad_markers)
-    
-    def process_files(self, filepaths: List[str]) -> pl.DataFrame:
-        """Process multiple FITS files and return metadata DataFrame."""
+        
+    def process_files(self, filepaths: List[str]) -> Tuple[pl.DataFrame, List[dict]]:
+        """Process multiple FITS files and return metadata DataFrame and session data."""
         results = []
         failed_files = []
+        sessions = {}
         
         logger.info(f"Processing {len(filepaths)} files...")
         
@@ -556,6 +577,11 @@ class FitsProcessor:
             try:
                 metadata = self.extract_fits_metadata(filepath)
                 if metadata:
+                    # Extract session data
+                    session_data = metadata.pop('_session_data', None)
+                    if session_data and session_data['session_id'] != 'UNKNOWN':
+                        sessions[session_data['session_id']] = session_data
+                    
                     results.append(metadata)
                 else:
                     failed_files.append(filepath)
@@ -569,11 +595,12 @@ class FitsProcessor:
         if results:
             df = pl.DataFrame(results)
             logger.info(f"Successfully processed {len(results)} files")
-            return df
+            logger.info(f"Found {len(sessions)} unique sessions")
+            return df, list(sessions.values())
         else:
             logger.warning("No files were successfully processed")
-            return pl.DataFrame()
-    
+            return pl.DataFrame(), []
+                
     def scan_quarantine(self) -> pl.DataFrame:
         """Scan quarantine directory for new FITS files."""
         logger.info(f"Scanning quarantine directory: {self.config.paths.quarantine_dir}")

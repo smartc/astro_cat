@@ -22,8 +22,8 @@ class FitsFile(Base):
     file = Column(String(255), nullable=False)
     folder = Column(String(500), nullable=False)
     object = Column(String(100))
-    obs_date = Column(String(10))  # Date only: YYYY-MM-DD (shifted by 12h)
-    obs_timestamp = Column(DateTime)  # Timestamp truncated to minute
+    obs_date = Column(String(10))
+    obs_timestamp = Column(DateTime)
     ra = Column(String(20))
     dec = Column(String(20))
     x = Column(Integer)
@@ -37,8 +37,6 @@ class FitsFile(Base):
     md5sum = Column(String(32), unique=True, index=True)
     
     # File management fields
-    duplicate = Column(Boolean, default=False)
-    instances = Column(Integer, default=1)
     purged = Column(Boolean, default=False)
     bad = Column(Boolean, default=False)
     file_not_found = Column(Boolean, default=False)
@@ -50,9 +48,8 @@ class FitsFile(Base):
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    session_id = Column(String(50))  # For grouping images from same session
+    session_id = Column(String(50))
 
-    # Indexes
     __table_args__ = (
         Index('idx_object_date', 'object', 'obs_date'),
         Index('idx_camera_telescope', 'camera', 'telescope'),
@@ -156,9 +153,7 @@ class DatabaseService:
             ).first()
             
             if existing:
-                existing.instances += 1
-                existing.duplicate = True
-                session.commit()
+                # Skip duplicate - don't update database
                 return True, True  # success=True, is_duplicate=True
             
             # Create new record
@@ -172,7 +167,7 @@ class DatabaseService:
             raise e
         finally:
             session.close()
-    
+        
     def get_cameras(self) -> List[Camera]:
         """Get all cameras."""
         session = self.db_manager.get_session()
@@ -265,11 +260,94 @@ class DatabaseService:
             ).group_by(FitsFile.telescope).all()
             stats['by_telescope'] = {tel: count for tel, count in telescope_counts}
             
-            # Duplicates
-            duplicate_count = session.query(FitsFile).filter_by(duplicate=True).count()
-            stats['duplicates'] = duplicate_count
-            
             return stats
             
         finally:
             session.close()
+
+    def add_session(self, session_data: dict) -> bool:
+        """Add a new session record."""
+        session = self.db_manager.get_session()
+        try:
+            # Check if session already exists
+            existing = session.query(Session).filter_by(
+                session_id=session_data['session_id']
+            ).first()
+            
+            if existing:
+                # Update existing session with any new data
+                for key, value in session_data.items():
+                    if hasattr(existing, key) and value is not None:
+                        setattr(existing, key, value)
+                existing.updated_at = datetime.utcnow()
+            else:
+                # Create new session
+                new_session = Session(**session_data)
+                session.add(new_session)
+            
+            session.commit()
+            return True
+            
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
+    def get_sessions(self) -> List[Session]:
+        """Get all sessions."""
+        session = self.db_manager.get_session()
+        try:
+            return session.query(Session).order_by(Session.session_date.desc()).all()
+        finally:
+            session.close()
+
+    def extract_session_data(self, fits_files_df) -> List[dict]:
+        """Extract unique sessions from processed FITS files."""
+        sessions = {}
+        
+        for row in fits_files_df.iter_rows(named=True):
+            session_id = row.get('session_id')
+            if not session_id or session_id == 'UNKNOWN':
+                continue
+                
+            if session_id not in sessions:
+                sessions[session_id] = {
+                    'session_id': session_id,
+                    'session_date': row.get('obs_date'),
+                    'telescope': row.get('telescope'),
+                    'camera': row.get('camera'),
+                    'site_name': None,  # Will be extracted from headers if available
+                    'latitude': None,
+                    'longitude': None, 
+                    'elevation': None,
+                    'observer': None,  # Will be extracted from headers if available
+                    'notes': None
+                }
+        
+        return list(sessions.values())
+
+class Session(Base):
+    """Imaging sessions table."""
+    __tablename__ = 'sessions'
+
+    session_id = Column(String(50), primary_key=True)  # Hash-based ID from fits_processor
+    session_date = Column(String(10), nullable=False)  # YYYY-MM-DD (observation night)
+    telescope = Column(String(50))
+    camera = Column(String(50))
+    site_name = Column(String(100))
+    latitude = Column(Float)
+    longitude = Column(Float)
+    elevation = Column(Float)  # in meters
+    observer = Column(String(100))
+    notes = Column(Text)  # Markdown-formatted notes
+    
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Indexes
+    __table_args__ = (
+        Index('idx_session_date', 'session_date'),
+        Index('idx_session_telescope_camera', 'telescope', 'camera'),
+    )

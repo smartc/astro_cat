@@ -111,8 +111,8 @@ class FitsCataloger:
         self.logger.info(f"Processing {len(filepaths)} new files")
         
         try:
-            # Extract metadata from files
-            df = self.fits_processor.process_files(filepaths)
+            # Extract metadata and session data from files
+            df, session_data = self.fits_processor.process_files(filepaths)
             
             if df.is_empty():
                 self.logger.warning("No valid metadata extracted from files")
@@ -123,7 +123,7 @@ class FitsCataloger:
             duplicate_count = 0
             error_count = 0
             
-            with tqdm(total=len(df), desc="Adding to database") as pbar:
+            with tqdm(total=len(df), desc="Adding files to database") as pbar:
                 for row in df.iter_rows(named=True):
                     try:
                         success, is_duplicate = self.db_service.add_fits_file(row)
@@ -141,14 +141,26 @@ class FitsCataloger:
                         error_count += 1
                         pbar.update(1)
             
+            # Add sessions to database
+            session_added_count = 0
+            if session_data:
+                self.logger.info(f"Processing {len(session_data)} sessions")
+                for session in session_data:
+                    try:
+                        self.db_service.add_session(session)
+                        session_added_count += 1
+                    except Exception as e:
+                        self.logger.error(f"Failed to add session {session['session_id']}: {e}")
+            
             self.logger.info(
                 f"Database update complete: {added_count} new files, "
-                f"{duplicate_count} duplicates, {error_count} errors"
+                f"{duplicate_count} duplicates, {error_count} file errors, "
+                f"{session_added_count} sessions processed"
             )
             
         except Exception as e:
             self.logger.error(f"Error processing files: {e}")
-    
+
     def scan_quarantine_once(self):
         """Perform a one-time scan of the quarantine directory."""
         self.logger.info("Performing one-time quarantine scan...")
@@ -214,6 +226,37 @@ class FitsCataloger:
         """Clean up resources."""
         if self.db_manager:
             self.db_manager.close()
+
+    def get_session_stats(self) -> dict:
+        """Get session statistics."""
+        try:
+            sessions = self.db_service.get_sessions()
+            stats = {
+                "total_sessions": len(sessions),
+                "sessions_by_camera": {},
+                "sessions_by_telescope": {},
+                "sessions_by_date": {}
+            }
+            
+            for session in sessions:
+                # Count by camera
+                camera = session.camera or "Unknown"
+                stats["sessions_by_camera"][camera] = stats["sessions_by_camera"].get(camera, 0) + 1
+                
+                # Count by telescope
+                telescope = session.telescope or "Unknown"
+                stats["sessions_by_telescope"][telescope] = stats["sessions_by_telescope"].get(telescope, 0) + 1
+                
+                # Count by date
+                date = session.session_date or "Unknown"
+                stats["sessions_by_date"][date] = stats["sessions_by_date"].get(date, 0) + 1
+            
+            return stats
+            
+        except Exception as e:
+            self.logger.error(f"Error getting session stats: {e}")
+            return {"total_sessions": 0, "sessions_by_camera": {}, "sessions_by_telescope": {}, "sessions_by_date": {}}
+
 
 
 @click.group()
@@ -300,26 +343,28 @@ def stats(ctx):
         setup_logging(config)
         
         cataloger = FitsCataloger(config_path)
-        stats = cataloger.get_stats()
+        file_stats = cataloger.get_stats()
+        session_stats = cataloger.get_session_stats()
         cataloger.cleanup()
         
         click.echo("Database Statistics:")
-        click.echo(f"  Total files: {stats['total_files']}")
-        click.echo(f"  Duplicates: {stats['duplicates']}")
+        click.echo(f"  Total files: {file_stats['total_files']}")
+        click.echo(f"  Duplicates: {file_stats['duplicates']}")
+        click.echo(f"  Total sessions: {session_stats['total_sessions']}")
         
-        if stats['by_frame_type']:
+        if file_stats['by_frame_type']:
             click.echo("  By frame type:")
-            for frame_type, count in stats['by_frame_type'].items():
+            for frame_type, count in file_stats['by_frame_type'].items():
                 click.echo(f"    {frame_type}: {count}")
         
-        if stats['by_camera']:
-            click.echo("  By camera:")
-            for camera, count in stats['by_camera'].items():
+        if session_stats['sessions_by_camera']:
+            click.echo("  Sessions by camera:")
+            for camera, count in session_stats['sessions_by_camera'].items():
                 click.echo(f"    {camera}: {count}")
         
-        if stats['by_telescope']:
-            click.echo("  By telescope:")
-            for telescope, count in stats['by_telescope'].items():
+        if session_stats['sessions_by_telescope']:
+            click.echo("  Sessions by telescope:")
+            for telescope, count in session_stats['sessions_by_telescope'].items():
                 click.echo(f"    {telescope}: {count}")
         
     except Exception as e:
