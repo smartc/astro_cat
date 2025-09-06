@@ -55,10 +55,8 @@ class FitsProcessor:
                 
                 # Calculate observation date (shifted by 12 hours)
                 if obs_timestamp:
-                    # Shift by 12 hours to get the "night" the observation belongs to
                     shifted_time = obs_timestamp - timedelta(hours=12)
                     obs_date = shifted_time.strftime('%Y-%m-%d')
-                    # Truncate timestamp to minute precision
                     obs_timestamp_truncated = obs_timestamp.replace(second=0, microsecond=0)
                 else:
                     obs_date = None
@@ -67,8 +65,8 @@ class FitsProcessor:
                 # Extract header values with fallbacks
                 metadata.update({
                     'object': self._get_header_value(header, ['OBJECT', 'TARGET']),
-                    'obs_date': obs_date,  # String: YYYY-MM-DD (shifted by 12h)
-                    'obs_timestamp': obs_timestamp_truncated,  # Datetime: truncated to minute
+                    'obs_date': obs_date,
+                    'obs_timestamp': obs_timestamp_truncated,
                     'ra': self._get_header_value(header, ['RA', 'OBJCTRA', 'CRVAL1']),
                     'dec': self._get_header_value(header, ['DEC', 'OBJCTDEC', 'CRVAL2']),
                     'x': self._get_header_value(header, ['NAXIS1'], int),
@@ -83,26 +81,23 @@ class FitsProcessor:
                     'exposure': self._get_header_value(header, ['EXPOSURE', 'EXPTIME'], float),
                 })
                 
-                # Extract additional headers for enhanced session identification
-                metadata.update({
-                    'instrument': self._get_header_value(header, ['INSTRUME']),
-                    'filter_wheel': self._get_header_value(header, ['FWHEEL']),
-                    'observer': self._get_header_value(header, ['OBSERVER']),
-                    'site_name': self._get_header_value(header, ['SITENAME']),
-                })
+                # Extract additional headers for session ID generation (don't add to metadata)
+                instrument = self._get_header_value(header, ['INSTRUME'])
+                filter_wheel = self._get_header_value(header, ['FWHEEL'])
+                observer = self._get_header_value(header, ['OBSERVER'])
+                site_name = self._get_header_value(header, ['SITENAME'])
+                binning = self._get_header_value(header, ['XBINNING', 'BINNING'], int, 1)
                 
-                # Identify camera and telescope using enhanced logic
+                # Identify camera and telescope
                 metadata['camera'] = self._identify_camera_enhanced(
-                    metadata['x'], metadata['y'], metadata['instrument'],
-                    self._get_header_value(header, ['XBINNING', 'BINNING'], int, 1)
+                    metadata['x'], metadata['y'], instrument, binning
                 )
                 metadata['telescope'] = self._identify_telescope(metadata['focal_length'])
                 
-                # Generate hash-based session ID
+                # Generate session ID using extra fields
                 metadata['session_id'] = self._generate_session_id_with_hash(
-                    metadata['obs_date'], metadata['instrument'], metadata['focal_length'],
-                    metadata['x'], metadata['y'], metadata['filter_wheel'],
-                    metadata['observer'], metadata['site_name']
+                    metadata['obs_date'], instrument, metadata['focal_length'],
+                    metadata['x'], metadata['y'], filter_wheel, observer, site_name
                 )
                 
                 logger.debug(f"Successfully processed metadata for {filepath}")
@@ -111,7 +106,7 @@ class FitsProcessor:
         except Exception as e:
             logger.error(f"Error processing FITS file {filepath}: {e}")
             return None
-    
+
     def _get_header_value(self, header, keys: List[str], 
                          value_type=str, default=None):
         """Get value from header with multiple possible key names."""
@@ -229,118 +224,82 @@ class FitsProcessor:
         return filter_name.upper()
     
     def _identify_camera_enhanced(self, x_pixels: Optional[int], y_pixels: Optional[int], 
-                                 instrument: Optional[str], binning: int = 1) -> str:
-        """Enhanced camera identification using INSTRUME header and dimensions."""
+                             instrument: Optional[str], binning: int = 1) -> str:
+        """Enhanced camera identification - dimension-based with INSTRUME as fallback."""
         logger.debug(f"Identifying camera: dimensions={x_pixels}x{y_pixels}, instrument='{instrument}', binning={binning}")
         
-        # First try to identify from INSTRUME header
+        # PRIMARY: Try dimension-based identification first (most reliable)
+        if x_pixels:
+            # Adjust for binning
+            actual_x = x_pixels * binning
+            actual_y = y_pixels * binning if y_pixels else None
+            
+            logger.debug(f"Looking for camera with dimensions {actual_x}x{actual_y}")
+            
+            # Check against config cameras
+            for camera in self.cameras.values():
+                logger.debug(f"Checking camera {camera.camera}: {camera.x}x{camera.y}")
+                if camera.x == actual_x:
+                    if actual_y is None or camera.y == actual_y:
+                        logger.debug(f"Matched camera by dimensions: {camera.camera}")
+                        return camera.camera
+        
+        # FALLBACK: Try to match INSTRUME header directly to camera names
         if instrument and instrument not in ['N/A', 'None', 'ERROR', 'UNKNOWN']:
-            camera_name = self._clean_instrument_name(instrument)
-            logger.debug(f"Camera identified from INSTRUME header: {camera_name}")
-            return camera_name
-        
-        # Fallback to dimension-based identification using config only
-        if not x_pixels:
-            return "UNKNOWN"
-        
-        # Adjust for binning
-        actual_x = x_pixels * binning
-        actual_y = y_pixels * binning if y_pixels else None
-        
-        logger.debug(f"Looking for camera with dimensions {actual_x}x{actual_y}")
-        
-        # Check against config cameras (NO hard-coded mappings)
-        for camera in self.cameras.values():
-            logger.debug(f"Checking camera {camera.camera}: {camera.x}x{camera.y}")
-            if camera.x == actual_x:  # Use 'x' field
-                if actual_y is None or camera.y == actual_y:  # Use 'y' field
-                    logger.debug(f"Matched camera: {camera.camera}")
-                    return camera.camera  # Return 'camera' field
+            # Try exact match first
+            if instrument in self.cameras:
+                logger.debug(f"Exact INSTRUME match: {instrument}")
+                return instrument
+            
+            # Try partial matches (case insensitive)
+            instrument_upper = instrument.upper()
+            for camera_name in self.cameras.keys():
+                if camera_name.upper() in instrument_upper or instrument_upper in camera_name.upper():
+                    logger.debug(f"Partial INSTRUME match: {camera_name}")
+                    return camera_name
         
         # Camera not found - prompt user
-        logger.warning(f"Camera not found for dimensions {actual_x}x{actual_y}, instrument '{instrument}'")
-        return self._handle_unknown_camera(actual_x, actual_y)
-    
-    def _clean_instrument_name(self, instrument: str) -> str:
-        """Clean and normalize instrument names - NO HARD-CODED MAPPINGS."""
-        if not instrument or instrument in ['N/A', 'None', 'ERROR']:
-            return "UNKNOWN"
-        
-        # Extract model number from ZWO cameras
-        zwo_match = re.search(r'ZWO ASI(\d+)', instrument, re.IGNORECASE)
-        if zwo_match:
-            return f"ASI{zwo_match.group(1)}"
-        
-        # Extract ASI model from generic names
-        asi_match = re.search(r'ASI.*?(\d+)', instrument, re.IGNORECASE)
-        if asi_match:
-            return f"ASI{asi_match.group(1)}"
-        
-        # Extract other camera patterns (Canon, Nikon, etc.)
-        canon_match = re.search(r'(EOS|Canon).*?([A-Z0-9]+)', instrument, re.IGNORECASE)
-        if canon_match:
-            return f"CANON_{canon_match.group(2)}"
-        
-        # Extract QSI cameras
-        qsi_match = re.search(r'QSI.*?(\d+)', instrument, re.IGNORECASE)
-        if qsi_match:
-            return f"QSI{qsi_match.group(1)}"
-        
-        # Fallback: clean the string and truncate
-        cleaned = re.sub(r'[^\w]', '', instrument).upper()
-        return cleaned[:12]  # Limit length
+        logger.warning(f"Camera not found for dimensions {x_pixels}x{y_pixels}, instrument '{instrument}'")
+        return self._handle_unknown_camera(x_pixels or 0, y_pixels)
     
     def _generate_rig_hash(self, instrument: Optional[str], focal_length: Optional[float],
-                          filter_wheel: Optional[str], observer: Optional[str], 
-                          site_name: Optional[str], naxis1: Optional[int], 
-                          naxis2: Optional[int]) -> str:
-        """
-        Generate a hash to uniquely identify an imaging rig.
-        
-        Uses multiple header fields to create a unique identifier that can
-        distinguish between multiple identical camera/telescope combinations.
-        """
-        # Collect identifying components
+                      filter_wheel: Optional[str], observer: Optional[str], 
+                      site_name: Optional[str], naxis1: Optional[int], 
+                      naxis2: Optional[int]) -> str:
+        """Generate hash using RAW uncleaned values for maximum uniqueness."""
         components = []
         
-        # Camera identifier (prefer INSTRUME, fallback to dimensions)
+        # Use RAW instrument name (don't clean it)
         if instrument and instrument not in ['N/A', 'None', 'ERROR']:
-            components.append(f"INST:{instrument}")
+            components.append(f"INST:{instrument}")  # Raw value
         elif naxis1 and naxis2:
             components.append(f"DIM:{naxis1}x{naxis2}")
         
-        # Telescope identifier
         if focal_length:
             components.append(f"FL:{int(focal_length)}")
         
-        # Filter wheel (can distinguish identical setups)
         if filter_wheel and filter_wheel not in ['N/A', 'None', 'ERROR']:
             components.append(f"FW:{filter_wheel}")
         
-        # Observer (helps distinguish different users/setups)
         if observer and observer not in ['N/A', 'None', 'ERROR']:
             components.append(f"OBS:{observer}")
         
-        # Site name (allows multiple rigs at different locations)
         if site_name and site_name not in ['N/A', 'None', 'ERROR']:
             components.append(f"SITE:{site_name}")
         
-        # Create the hash input string
-        hash_input = "|".join(sorted(components))  # Sort for consistency
-        
+        hash_input = "|".join(sorted(components))
         logger.debug(f"Rig hash input: {hash_input}")
         
         if not hash_input:
             logger.warning("No identifying components found for rig hash")
             return "UNKNOWN"
         
-        # Generate short hash (8 characters should be enough for most cases)
         full_hash = hashlib.md5(hash_input.encode()).hexdigest()
         short_hash = full_hash[:8].upper()
         
         logger.debug(f"Generated rig hash: {short_hash}")
         return short_hash
-    
+        
     def _generate_session_id_with_hash(self, obs_date: Optional[str], 
                                       instrument: str, focal_length: Optional[float],
                                       naxis1: Optional[int] = None, naxis2: Optional[int] = None,
@@ -371,7 +330,7 @@ class FitsProcessor:
         
         logger.debug(f"Generated hash-based session ID: {session_id}")
         return session_id
-    
+
     def _identify_telescope(self, focal_length: Optional[float]) -> str:
         """Identify telescope based on EXACT focal length match."""
         if not focal_length:
