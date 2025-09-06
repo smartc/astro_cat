@@ -1,4 +1,4 @@
-"""FITS file processing and metadata extraction."""
+"""FITS file processing and metadata extraction with hash-based session IDs."""
 
 import hashlib
 import os
@@ -50,10 +50,25 @@ class FitsProcessor:
                     'md5sum': self.get_file_md5(filepath),
                 }
                 
+                # Parse observation timestamp
+                obs_timestamp = self._parse_observation_date(header)
+                
+                # Calculate observation date (shifted by 12 hours)
+                if obs_timestamp:
+                    # Shift by 12 hours to get the "night" the observation belongs to
+                    shifted_time = obs_timestamp - timedelta(hours=12)
+                    obs_date = shifted_time.strftime('%Y-%m-%d')
+                    # Truncate timestamp to minute precision
+                    obs_timestamp_truncated = obs_timestamp.replace(second=0, microsecond=0)
+                else:
+                    obs_date = None
+                    obs_timestamp_truncated = None
+                
                 # Extract header values with fallbacks
                 metadata.update({
                     'object': self._get_header_value(header, ['OBJECT', 'TARGET']),
-                    'obs_date': self._parse_observation_date(header),
+                    'obs_date': obs_date,  # String: YYYY-MM-DD (shifted by 12h)
+                    'obs_timestamp': obs_timestamp_truncated,  # Datetime: truncated to minute
                     'ra': self._get_header_value(header, ['RA', 'OBJCTRA', 'CRVAL1']),
                     'dec': self._get_header_value(header, ['DEC', 'OBJCTDEC', 'CRVAL2']),
                     'x': self._get_header_value(header, ['NAXIS1'], int),
@@ -68,19 +83,29 @@ class FitsProcessor:
                     'exposure': self._get_header_value(header, ['EXPOSURE', 'EXPTIME'], float),
                 })
                 
-                # Identify camera and telescope
-                metadata['camera'] = self._identify_camera(
-                    metadata['x'], metadata['y'], 
+                # Extract additional headers for enhanced session identification
+                metadata.update({
+                    'instrument': self._get_header_value(header, ['INSTRUME']),
+                    'filter_wheel': self._get_header_value(header, ['FWHEEL']),
+                    'observer': self._get_header_value(header, ['OBSERVER']),
+                    'site_name': self._get_header_value(header, ['SITENAME']),
+                })
+                
+                # Identify camera and telescope using enhanced logic
+                metadata['camera'] = self._identify_camera_enhanced(
+                    metadata['x'], metadata['y'], metadata['instrument'],
                     self._get_header_value(header, ['XBINNING', 'BINNING'], int, 1)
                 )
                 metadata['telescope'] = self._identify_telescope(metadata['focal_length'])
                 
-                # Generate session ID
-                logger.debug(f"About to generate session_id with obs_date={metadata['obs_date']} (type: {type(metadata['obs_date'])})")
-                metadata['session_id'] = self._generate_session_id(
-                    metadata['obs_date'], metadata['camera'], metadata['telescope']
+                # Generate hash-based session ID
+                metadata['session_id'] = self._generate_session_id_with_hash(
+                    metadata['obs_date'], metadata['instrument'], metadata['focal_length'],
+                    metadata['x'], metadata['y'], metadata['filter_wheel'],
+                    metadata['observer'], metadata['site_name']
                 )
                 
+                logger.debug(f"Successfully processed metadata for {filepath}")
                 return metadata
                 
         except Exception as e:
@@ -169,7 +194,7 @@ class FitsProcessor:
         
         frame_type = frame_type.upper().strip()
         
-        # Common mappings
+        # Standard FITS frame type mappings - these are FITS standard, not user-specific
         mappings = {
             'LIGHT': 'LIGHT',
             'SCIENCE': 'LIGHT',
@@ -203,9 +228,18 @@ class FitsProcessor:
         # Return original if no mapping found
         return filter_name.upper()
     
-    def _identify_camera(self, x_pixels: Optional[int], y_pixels: Optional[int], 
-                        binning: int = 1) -> str:
-        """Identify camera based on image dimensions."""
+    def _identify_camera_enhanced(self, x_pixels: Optional[int], y_pixels: Optional[int], 
+                                 instrument: Optional[str], binning: int = 1) -> str:
+        """Enhanced camera identification using INSTRUME header and dimensions."""
+        logger.debug(f"Identifying camera: dimensions={x_pixels}x{y_pixels}, instrument='{instrument}', binning={binning}")
+        
+        # First try to identify from INSTRUME header
+        if instrument and instrument not in ['N/A', 'None', 'ERROR', 'UNKNOWN']:
+            camera_name = self._clean_instrument_name(instrument)
+            logger.debug(f"Camera identified from INSTRUME header: {camera_name}")
+            return camera_name
+        
+        # Fallback to dimension-based identification using config only
         if not x_pixels:
             return "UNKNOWN"
         
@@ -213,13 +247,149 @@ class FitsProcessor:
         actual_x = x_pixels * binning
         actual_y = y_pixels * binning if y_pixels else None
         
+        logger.debug(f"Looking for camera with dimensions {actual_x}x{actual_y}")
+        
+        # Check against config cameras (NO hard-coded mappings)
         for camera in self.cameras.values():
+            logger.debug(f"Checking camera {camera.camera}: {camera.x}x{camera.y}")
             if camera.x == actual_x:  # Use 'x' field
                 if actual_y is None or camera.y == actual_y:  # Use 'y' field
+                    logger.debug(f"Matched camera: {camera.camera}")
                     return camera.camera  # Return 'camera' field
         
         # Camera not found - prompt user
+        logger.warning(f"Camera not found for dimensions {actual_x}x{actual_y}, instrument '{instrument}'")
         return self._handle_unknown_camera(actual_x, actual_y)
+    
+    def _clean_instrument_name(self, instrument: str) -> str:
+        """Clean and normalize instrument names - NO HARD-CODED MAPPINGS."""
+        if not instrument or instrument in ['N/A', 'None', 'ERROR']:
+            return "UNKNOWN"
+        
+        # Extract model number from ZWO cameras
+        zwo_match = re.search(r'ZWO ASI(\d+)', instrument, re.IGNORECASE)
+        if zwo_match:
+            return f"ASI{zwo_match.group(1)}"
+        
+        # Extract ASI model from generic names
+        asi_match = re.search(r'ASI.*?(\d+)', instrument, re.IGNORECASE)
+        if asi_match:
+            return f"ASI{asi_match.group(1)}"
+        
+        # Extract other camera patterns (Canon, Nikon, etc.)
+        canon_match = re.search(r'(EOS|Canon).*?([A-Z0-9]+)', instrument, re.IGNORECASE)
+        if canon_match:
+            return f"CANON_{canon_match.group(2)}"
+        
+        # Extract QSI cameras
+        qsi_match = re.search(r'QSI.*?(\d+)', instrument, re.IGNORECASE)
+        if qsi_match:
+            return f"QSI{qsi_match.group(1)}"
+        
+        # Fallback: clean the string and truncate
+        cleaned = re.sub(r'[^\w]', '', instrument).upper()
+        return cleaned[:12]  # Limit length
+    
+    def _generate_rig_hash(self, instrument: Optional[str], focal_length: Optional[float],
+                          filter_wheel: Optional[str], observer: Optional[str], 
+                          site_name: Optional[str], naxis1: Optional[int], 
+                          naxis2: Optional[int]) -> str:
+        """
+        Generate a hash to uniquely identify an imaging rig.
+        
+        Uses multiple header fields to create a unique identifier that can
+        distinguish between multiple identical camera/telescope combinations.
+        """
+        # Collect identifying components
+        components = []
+        
+        # Camera identifier (prefer INSTRUME, fallback to dimensions)
+        if instrument and instrument not in ['N/A', 'None', 'ERROR']:
+            components.append(f"INST:{instrument}")
+        elif naxis1 and naxis2:
+            components.append(f"DIM:{naxis1}x{naxis2}")
+        
+        # Telescope identifier
+        if focal_length:
+            components.append(f"FL:{int(focal_length)}")
+        
+        # Filter wheel (can distinguish identical setups)
+        if filter_wheel and filter_wheel not in ['N/A', 'None', 'ERROR']:
+            components.append(f"FW:{filter_wheel}")
+        
+        # Observer (helps distinguish different users/setups)
+        if observer and observer not in ['N/A', 'None', 'ERROR']:
+            components.append(f"OBS:{observer}")
+        
+        # Site name (allows multiple rigs at different locations)
+        if site_name and site_name not in ['N/A', 'None', 'ERROR']:
+            components.append(f"SITE:{site_name}")
+        
+        # Create the hash input string
+        hash_input = "|".join(sorted(components))  # Sort for consistency
+        
+        logger.debug(f"Rig hash input: {hash_input}")
+        
+        if not hash_input:
+            logger.warning("No identifying components found for rig hash")
+            return "UNKNOWN"
+        
+        # Generate short hash (8 characters should be enough for most cases)
+        full_hash = hashlib.md5(hash_input.encode()).hexdigest()
+        short_hash = full_hash[:8].upper()
+        
+        logger.debug(f"Generated rig hash: {short_hash}")
+        return short_hash
+    
+    def _generate_session_id_with_hash(self, obs_date: Optional[str], 
+                                      instrument: str, focal_length: Optional[float],
+                                      naxis1: Optional[int] = None, naxis2: Optional[int] = None,
+                                      filter_wheel: Optional[str] = None,
+                                      observer: Optional[str] = None,
+                                      site_name: Optional[str] = None) -> str:
+        """
+        Generate session ID using rig hash approach.
+        
+        Format: {night_date}_{rig_hash}
+        Example: 20250824_A1B2C3D4
+        """
+        if not obs_date:
+            logger.debug("No observation date for session ID")
+            return "UNKNOWN"
+        
+        # Get night date (already shifted by 12 hours in obs_date)
+        date_str = obs_date.replace('-', '')  # YYYYMMDD
+        
+        # Generate rig hash from multiple identifying fields
+        rig_hash = self._generate_rig_hash(
+            instrument, focal_length, filter_wheel, 
+            observer, site_name, naxis1, naxis2
+        )
+        
+        # Session ID format: date_righash
+        session_id = f"{date_str}_{rig_hash}"
+        
+        logger.debug(f"Generated hash-based session ID: {session_id}")
+        return session_id
+    
+    def _identify_telescope(self, focal_length: Optional[float]) -> str:
+        """Identify telescope based on EXACT focal length match."""
+        if not focal_length:
+            logger.debug("No focal length provided")
+            return "UNKNOWN"
+        
+        logger.debug(f"Looking for telescope with EXACT focal length {focal_length}mm")
+        
+        # EXACT match only - no tolerance
+        for telescope in self.telescopes.values():
+            logger.debug(f"Checking telescope {telescope.scope}: {telescope.focal}mm")
+            if telescope.focal == focal_length:  # Exact match only
+                logger.debug(f"Exact match found: {telescope.scope}")
+                return telescope.scope
+        
+        # No exact match found
+        logger.warning(f"No exact telescope match found for focal length {focal_length}mm")
+        return self._handle_unknown_telescope(focal_length)
     
     def _handle_unknown_camera(self, x_pixels: int, y_pixels: Optional[int]) -> str:
         """Handle unknown camera by prompting user for action."""
@@ -310,34 +480,6 @@ class FitsProcessor:
         with open(cameras_file, 'w') as f:
             json.dump(cameras, f, indent=2)
     
-    def _identify_telescope(self, focal_length: Optional[float]) -> str:
-        """Identify telescope based on focal length."""
-        if not focal_length:
-            return "UNKNOWN"
-        
-        # Find exact match first
-        for telescope in self.telescopes.values():
-            if abs(telescope.focal - focal_length) < 0.1:  # Use 'focal' field
-                return telescope.scope  # Return 'scope' field
-        
-        # Find closest match within 5% tolerance
-        best_match = None
-        min_diff = float('inf')
-        
-        for telescope in self.telescopes.values():
-            diff = abs(telescope.focal - focal_length)  # Use 'focal' field
-            tolerance = telescope.focal * 0.05
-            
-            if diff < tolerance and diff < min_diff:
-                min_diff = diff
-                best_match = telescope.scope  # Return 'scope' field
-        
-        if best_match:
-            return best_match
-        
-        # Telescope not found - prompt user
-        return self._handle_unknown_telescope(focal_length)
-    
     def _handle_unknown_telescope(self, focal_length: float) -> str:
         """Handle unknown telescope by prompting user for action."""
         print(f"\nUnknown telescope detected: {focal_length}mm focal length")
@@ -417,17 +559,6 @@ class FitsProcessor:
         
         with open(telescopes_file, 'w') as f:
             json.dump(telescopes, f, indent=2)
-    
-    def _generate_session_id(self, obs_date: Optional[str], 
-                           camera: str, telescope: str) -> str:
-        """Generate a session ID for grouping related images."""
-        if not obs_date:
-            return "UNKNOWN"
-        
-        # obs_date is already in YYYY-MM-DD format and shifted
-        date_str = obs_date.replace('-', '')  # YYYYMMDD
-        
-        return f"{date_str}_{camera}_{telescope}"
     
     def find_fits_files(self, directory: str) -> List[str]:
         """Find all FITS files in directory and subdirectories."""
