@@ -126,7 +126,6 @@ class FitsProcessor:
             logger.error(f"Error processing FITS file {filepath}: {e}")
             return None
 
-
     def _get_header_value(self, header, keys: List[str], 
                          value_type=str, default=None):
         """Get value from header with multiple possible key names."""
@@ -564,7 +563,7 @@ class FitsProcessor:
         filename = os.path.basename(filepath)
         bad_markers = ['BAD_', 'CORRUPT_', 'ERROR_']
         return any(marker in filename.upper() for marker in bad_markers)
-        
+    
     def process_files(self, filepaths: List[str]) -> Tuple[pl.DataFrame, List[dict]]:
         """Process multiple FITS files and return metadata DataFrame and session data."""
         results = []
@@ -600,8 +599,8 @@ class FitsProcessor:
         else:
             logger.warning("No files were successfully processed")
             return pl.DataFrame(), []
-                
-    def scan_quarantine(self) -> pl.DataFrame:
+    
+    def scan_quarantine(self) -> Tuple[pl.DataFrame, List[dict]]:
         """Scan quarantine directory for new FITS files."""
         logger.info(f"Scanning quarantine directory: {self.config.paths.quarantine_dir}")
         
@@ -609,7 +608,7 @@ class FitsProcessor:
         
         if not fits_files:
             logger.info("No FITS files found in quarantine")
-            return pl.DataFrame()
+            return pl.DataFrame(), []
         
         return self.process_files(fits_files)
 

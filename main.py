@@ -165,15 +165,16 @@ class FitsCataloger:
         """Perform a one-time scan of the quarantine directory."""
         self.logger.info("Performing one-time quarantine scan...")
         
-        # Find FITS files
-        fits_files = self.fits_processor.find_fits_files(self.config.paths.quarantine_dir)
+        # Find FITS files and extract session data
+        df, session_data = self.fits_processor.scan_quarantine()
         
-        if not fits_files:
+        if df.is_empty():
             self.logger.info("No files found in quarantine directory")
             return
         
         # Process files directly
-        self.process_new_files(fits_files)
+        filepaths = [str(Path(row['folder']) / row['file']) for row in df.iter_rows(named=True)]
+        self.process_new_files(filepaths)
     
     async def start_monitoring(self):
         """Start continuous monitoring of quarantine directory."""
@@ -218,15 +219,9 @@ class FitsCataloger:
                 "total_files": 0,
                 "by_camera": {},
                 "by_telescope": {},
-                "by_frame_type": {},
-                "duplicates": 0
+                "by_frame_type": {}
             }
     
-    def cleanup(self):
-        """Clean up resources."""
-        if self.db_manager:
-            self.db_manager.close()
-
     def get_session_stats(self) -> dict:
         """Get session statistics."""
         try:
@@ -256,7 +251,11 @@ class FitsCataloger:
         except Exception as e:
             self.logger.error(f"Error getting session stats: {e}")
             return {"total_sessions": 0, "sessions_by_camera": {}, "sessions_by_telescope": {}, "sessions_by_date": {}}
-
+    
+    def cleanup(self):
+        """Clean up resources."""
+        if self.db_manager:
+            self.db_manager.close()
 
 
 @click.group()
@@ -349,7 +348,6 @@ def stats(ctx):
         
         click.echo("Database Statistics:")
         click.echo(f"  Total files: {file_stats['total_files']}")
-        click.echo(f"  Duplicates: {file_stats['duplicates']}")
         click.echo(f"  Total sessions: {session_stats['total_sessions']}")
         
         if file_stats['by_frame_type']:

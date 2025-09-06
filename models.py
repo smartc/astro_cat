@@ -37,7 +37,6 @@ class FitsFile(Base):
     md5sum = Column(String(32), unique=True, index=True)
     
     # File management fields
-    purged = Column(Boolean, default=False)
     bad = Column(Boolean, default=False)
     file_not_found = Column(Boolean, default=False)
     
@@ -110,6 +109,32 @@ class FilterMapping(Base):
     filter_type = Column(String(20))  # broadband, narrowband, etc.
     bandpass = Column(String(20))  # wavelength info
     notes = Column(Text)
+
+
+class Session(Base):
+    """Imaging sessions table."""
+    __tablename__ = 'sessions'
+
+    session_id = Column(String(50), primary_key=True)  # Hash-based ID from fits_processor
+    session_date = Column(String(10), nullable=False)  # YYYY-MM-DD (observation night)
+    telescope = Column(String(50))
+    camera = Column(String(50))
+    site_name = Column(String(100))
+    latitude = Column(Float)
+    longitude = Column(Float)
+    elevation = Column(Float)  # in meters
+    observer = Column(String(100))
+    notes = Column(Text)  # Markdown-formatted notes
+    
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Indexes
+    __table_args__ = (
+        Index('idx_session_date', 'session_date'),
+        Index('idx_session_telescope_camera', 'telescope', 'camera'),
+    )
 
 
 class DatabaseManager:
@@ -301,53 +326,3 @@ class DatabaseService:
             return session.query(Session).order_by(Session.session_date.desc()).all()
         finally:
             session.close()
-
-    def extract_session_data(self, fits_files_df) -> List[dict]:
-        """Extract unique sessions from processed FITS files."""
-        sessions = {}
-        
-        for row in fits_files_df.iter_rows(named=True):
-            session_id = row.get('session_id')
-            if not session_id or session_id == 'UNKNOWN':
-                continue
-                
-            if session_id not in sessions:
-                sessions[session_id] = {
-                    'session_id': session_id,
-                    'session_date': row.get('obs_date'),
-                    'telescope': row.get('telescope'),
-                    'camera': row.get('camera'),
-                    'site_name': None,  # Will be extracted from headers if available
-                    'latitude': None,
-                    'longitude': None, 
-                    'elevation': None,
-                    'observer': None,  # Will be extracted from headers if available
-                    'notes': None
-                }
-        
-        return list(sessions.values())
-
-class Session(Base):
-    """Imaging sessions table."""
-    __tablename__ = 'sessions'
-
-    session_id = Column(String(50), primary_key=True)  # Hash-based ID from fits_processor
-    session_date = Column(String(10), nullable=False)  # YYYY-MM-DD (observation night)
-    telescope = Column(String(50))
-    camera = Column(String(50))
-    site_name = Column(String(100))
-    latitude = Column(Float)
-    longitude = Column(Float)
-    elevation = Column(Float)  # in meters
-    observer = Column(String(100))
-    notes = Column(Text)  # Markdown-formatted notes
-    
-    # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Indexes
-    __table_args__ = (
-        Index('idx_session_date', 'session_date'),
-        Index('idx_session_telescope_camera', 'telescope', 'camera'),
-    )
