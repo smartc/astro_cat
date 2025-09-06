@@ -3,6 +3,7 @@
 import hashlib
 import os
 import logging
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -75,6 +76,7 @@ class FitsProcessor:
                 metadata['telescope'] = self._identify_telescope(metadata['focal_length'])
                 
                 # Generate session ID
+                logger.debug(f"About to generate session_id with obs_date={metadata['obs_date']} (type: {type(metadata['obs_date'])})")
                 metadata['session_id'] = self._generate_session_id(
                     metadata['obs_date'], metadata['camera'], metadata['telescope']
                 )
@@ -92,36 +94,73 @@ class FitsProcessor:
             if key in header:
                 try:
                     value = header[key]
+                    logger.debug(f"Found header key '{key}' with value: {value}")
                     if value_type and value is not None:
-                        return value_type(value)
+                        converted = value_type(value)
+                        logger.debug(f"Converted to {value_type.__name__}: {converted}")
+                        return converted
                     return value
-                except (ValueError, TypeError):
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"Failed to convert header key '{key}' value '{value}' to {value_type.__name__}: {e}")
                     continue
+        logger.debug(f"No header keys found from {keys}, returning default: {default}")
         return default
     
     def _parse_observation_date(self, header) -> Optional[datetime]:
         """Parse observation date from various possible formats."""
         date_keys = ['DATE-OBS', 'DATE_OBS', 'DATEOBS']
         
+        logger.debug(f"Looking for date keys: {date_keys}")
+        
         for key in date_keys:
             if key in header:
                 try:
                     date_str = header[key]
+                    logger.debug(f"Found date key '{key}' with value: {date_str}")
                     if isinstance(date_str, str):
                         # Try ISO format first
                         if 'T' in date_str:
-                            return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                            # Handle microseconds with more than 6 digits
+                            date_str = self._normalize_microseconds(date_str)
+                            result = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                            logger.debug(f"Parsed date: {result}")
+                            return result
                         else:
                             # Try date only
-                            return datetime.strptime(date_str, '%Y-%m-%d')
+                            result = datetime.strptime(date_str, '%Y-%m-%d')
+                            logger.debug(f"Parsed date (date only): {result}")
+                            return result
                     elif hasattr(date_str, 'datetime'):
                         # Astropy Time object
-                        return date_str.datetime
+                        result = date_str.datetime
+                        logger.debug(f"Extracted from astropy Time: {result}")
+                        return result
                 except Exception as e:
                     logger.warning(f"Could not parse date {date_str}: {e}")
                     continue
         
+        logger.debug("No date headers found")
         return None
+    
+    def _normalize_microseconds(self, timestamp_str: str) -> str:
+        """Normalize microseconds to max 6 digits for datetime parsing."""
+        # Pattern to match timestamp with microseconds
+        pattern = r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.(\d+)'
+        match = re.match(pattern, timestamp_str)
+        
+        if match:
+            base_time = match.group(1)
+            microseconds = match.group(2)
+            
+            # Truncate or pad microseconds to 6 digits
+            if len(microseconds) > 6:
+                microseconds = microseconds[:6]
+            elif len(microseconds) < 6:
+                microseconds = microseconds.ljust(6, '0')
+            
+            return f"{base_time}.{microseconds}"
+        
+        return timestamp_str
     
     def _normalize_frame_type(self, frame_type: str) -> str:
         """Normalize frame type names."""
@@ -379,15 +418,14 @@ class FitsProcessor:
         with open(telescopes_file, 'w') as f:
             json.dump(telescopes, f, indent=2)
     
-    def _generate_session_id(self, obs_date: Optional[datetime], 
+    def _generate_session_id(self, obs_date: Optional[str], 
                            camera: str, telescope: str) -> str:
         """Generate a session ID for grouping related images."""
         if not obs_date:
             return "UNKNOWN"
         
-        # Adjust date by 12 hours to get observation night
-        session_date = obs_date - timedelta(hours=12)
-        date_str = session_date.strftime('%Y%m%d')
+        # obs_date is already in YYYY-MM-DD format and shifted
+        date_str = obs_date.replace('-', '')  # YYYYMMDD
         
         return f"{date_str}_{camera}_{telescope}"
     

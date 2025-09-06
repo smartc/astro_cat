@@ -121,24 +121,29 @@ class FitsCataloger:
             # Add files to database
             added_count = 0
             duplicate_count = 0
+            error_count = 0
             
             with tqdm(total=len(df), desc="Adding to database") as pbar:
                 for row in df.iter_rows(named=True):
                     try:
-                        fits_file = self.db_service.add_fits_file(row)
-                        if fits_file.duplicate:
-                            duplicate_count += 1
+                        success, is_duplicate = self.db_service.add_fits_file(row)
+                        if success:
+                            if is_duplicate:
+                                duplicate_count += 1
+                            else:
+                                added_count += 1
                         else:
-                            added_count += 1
+                            error_count += 1
                         pbar.update(1)
                         
                     except Exception as e:
                         self.logger.error(f"Failed to add file to database: {e}")
+                        error_count += 1
                         pbar.update(1)
             
             self.logger.info(
                 f"Database update complete: {added_count} new files, "
-                f"{duplicate_count} duplicates"
+                f"{duplicate_count} duplicates, {error_count} errors"
             )
             
         except Exception as e:
@@ -148,19 +153,15 @@ class FitsCataloger:
         """Perform a one-time scan of the quarantine directory."""
         self.logger.info("Performing one-time quarantine scan...")
         
-        df = self.fits_processor.scan_quarantine()
+        # Find FITS files
+        fits_files = self.fits_processor.find_fits_files(self.config.paths.quarantine_dir)
         
-        if df.is_empty():
+        if not fits_files:
             self.logger.info("No files found in quarantine directory")
             return
         
-        # Convert DataFrame to list of file paths for processing
-        filepaths = [
-            str(Path(row['folder']) / row['file']) 
-            for row in df.iter_rows(named=True)
-        ]
-        
-        self.process_new_files(filepaths)
+        # Process files directly
+        self.process_new_files(fits_files)
     
     async def start_monitoring(self):
         """Start continuous monitoring of quarantine directory."""
@@ -197,14 +198,17 @@ class FitsCataloger:
     
     def get_stats(self) -> dict:
         """Get database statistics."""
-        # This would query the database for summary stats
-        # Implementation depends on specific queries needed
-        return {
-            "total_files": 0,  # Placeholder
-            "by_camera": {},
-            "by_telescope": {},
-            "by_frame_type": {}
-        }
+        try:
+            return self.db_service.get_database_stats()
+        except Exception as e:
+            self.logger.error(f"Error getting database stats: {e}")
+            return {
+                "total_files": 0,
+                "by_camera": {},
+                "by_telescope": {},
+                "by_frame_type": {},
+                "duplicates": 0
+            }
     
     def cleanup(self):
         """Clean up resources."""
@@ -301,7 +305,22 @@ def stats(ctx):
         
         click.echo("Database Statistics:")
         click.echo(f"  Total files: {stats['total_files']}")
-        # Add more stats display as needed
+        click.echo(f"  Duplicates: {stats['duplicates']}")
+        
+        if stats['by_frame_type']:
+            click.echo("  By frame type:")
+            for frame_type, count in stats['by_frame_type'].items():
+                click.echo(f"    {frame_type}: {count}")
+        
+        if stats['by_camera']:
+            click.echo("  By camera:")
+            for camera, count in stats['by_camera'].items():
+                click.echo(f"    {camera}: {count}")
+        
+        if stats['by_telescope']:
+            click.echo("  By telescope:")
+            for telescope, count in stats['by_telescope'].items():
+                click.echo(f"    {telescope}: {count}")
         
     except Exception as e:
         click.echo(f"Error getting stats: {e}")
@@ -323,11 +342,14 @@ def test_db(ctx):
         db_manager = DatabaseManager(config.database.connection_string)
         db_manager.create_tables()
         
-        with db_manager.get_session() as session:
+        session = db_manager.get_session()
+        try:
             # Simple query to test connection
             from sqlalchemy import text
             result = session.execute(text("SELECT 1")).scalar()
-            
+        finally:
+            session.close()
+        
         db_manager.close()
         
         click.echo("✓ Database connection successful!")

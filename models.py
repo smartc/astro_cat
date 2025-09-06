@@ -1,7 +1,7 @@
 """Database models for FITS Cataloger."""
 
 from datetime import datetime
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 
 from sqlalchemy import (
     Boolean, DateTime, Float, Integer, String, Text, 
@@ -22,7 +22,8 @@ class FitsFile(Base):
     file = Column(String(255), nullable=False)
     folder = Column(String(500), nullable=False)
     object = Column(String(100))
-    obs_date = Column(DateTime)
+    obs_date = Column(String(10))  # Date only: YYYY-MM-DD (shifted by 12h)
+    obs_timestamp = Column(DateTime)  # Timestamp truncated to minute
     ra = Column(String(20))
     dec = Column(String(20))
     x = Column(Integer)
@@ -140,8 +141,13 @@ class DatabaseService:
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
     
-    def add_fits_file(self, fits_data: dict) -> Optional[FitsFile]:
-        """Add a new FITS file record."""
+    def add_fits_file(self, fits_data: dict) -> Tuple[bool, bool]:
+        """
+        Add a new FITS file record.
+        
+        Returns:
+            Tuple[bool, bool]: (success, is_duplicate)
+        """
         session = self.db_manager.get_session()
         try:
             # Check for existing file by MD5
@@ -153,14 +159,13 @@ class DatabaseService:
                 existing.instances += 1
                 existing.duplicate = True
                 session.commit()
-                return existing
+                return True, True  # success=True, is_duplicate=True
             
             # Create new record
             fits_file = FitsFile(**fits_data)
             session.add(fits_file)
             session.commit()
-            # Don't refresh - just return the object
-            return fits_file
+            return True, False  # success=True, is_duplicate=False
             
         except Exception as e:
             session.rollback()
@@ -170,24 +175,34 @@ class DatabaseService:
     
     def get_cameras(self) -> List[Camera]:
         """Get all cameras."""
-        with self.db_manager.get_session() as session:
+        session = self.db_manager.get_session()
+        try:
             return session.query(Camera).filter_by(active=True).all()
+        finally:
+            session.close()
     
     def get_telescopes(self) -> List[Telescope]:
         """Get all telescopes."""
-        with self.db_manager.get_session() as session:
+        session = self.db_manager.get_session()
+        try:
             return session.query(Telescope).filter_by(active=True).all()
+        finally:
+            session.close()
     
     def get_filter_mappings(self) -> Dict[str, str]:
         """Get filter name mappings."""
-        with self.db_manager.get_session() as session:
+        session = self.db_manager.get_session()
+        try:
             mappings = session.query(FilterMapping).all()
             return {m.raw_name: m.standard_name for m in mappings}
+        finally:
+            session.close()
     
     def initialize_equipment(self, cameras: List[dict], telescopes: List[dict], 
                            filter_mappings: Dict[str, str]):
         """Initialize equipment tables from config."""
-        with self.db_manager.get_session() as session:
+        session = self.db_manager.get_session()
+        try:
             # Add cameras
             for cam_data in cameras:
                 existing = session.query(Camera).filter_by(name=cam_data['name']).first()
@@ -213,3 +228,48 @@ class DatabaseService:
                     session.add(mapping)
             
             session.commit()
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+    
+    def get_database_stats(self) -> Dict:
+        """Get database statistics."""
+        session = self.db_manager.get_session()
+        try:
+            stats = {}
+            
+            # Total files
+            total_files = session.query(FitsFile).count()
+            stats['total_files'] = total_files
+            
+            # Files by frame type
+            frame_type_counts = session.query(
+                FitsFile.frame_type, 
+                func.count(FitsFile.id)
+            ).group_by(FitsFile.frame_type).all()
+            stats['by_frame_type'] = {ft: count for ft, count in frame_type_counts}
+            
+            # Files by camera
+            camera_counts = session.query(
+                FitsFile.camera, 
+                func.count(FitsFile.id)
+            ).group_by(FitsFile.camera).all()
+            stats['by_camera'] = {cam: count for cam, count in camera_counts}
+            
+            # Files by telescope
+            telescope_counts = session.query(
+                FitsFile.telescope, 
+                func.count(FitsFile.id)
+            ).group_by(FitsFile.telescope).all()
+            stats['by_telescope'] = {tel: count for tel, count in telescope_counts}
+            
+            # Duplicates
+            duplicate_count = session.query(FitsFile).filter_by(duplicate=True).count()
+            stats['duplicates'] = duplicate_count
+            
+            return stats
+            
+        finally:
+            session.close()
