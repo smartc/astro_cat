@@ -13,6 +13,16 @@ from sqlalchemy.sql import func
 
 Base = declarative_base()
 
+class ObjectProcessingLog(Base):
+    """Log of object name processing failures."""
+    __tablename__ = 'object_processing_log'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    filename = Column(String(255), nullable=False)
+    raw_object_name = Column(String(255))
+    proposed_object_name = Column(String(255))
+    error_message = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class FitsFile(Base):
     """Main table for FITS file metadata."""
@@ -324,6 +334,25 @@ class DatabaseService:
             session.commit()
             return True
             
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
+    def log_object_processing_failure(self, filename: str, raw_name: str, 
+                                     proposed_name: str = None, error: str = None):
+        """Log object name processing failure."""
+        session = self.db_manager.get_session()
+        try:
+            log_entry = ObjectProcessingLog(
+                filename=filename,
+                raw_object_name=raw_name,
+                proposed_object_name=proposed_name,
+                error_message=error
+            )
+            session.add(log_entry)
+            session.commit()
         except Exception as e:
             session.rollback()
             raise e

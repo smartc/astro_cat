@@ -61,11 +61,18 @@ class FitsCataloger:
         # Initialize components
         self.db_manager = DatabaseManager(self.config.database.connection_string)
         self.db_service = DatabaseService(self.db_manager)
-        self.fits_processor = FitsProcessor(self.config, self.cameras, self.telescopes, self.filter_mappings)
         self.file_monitor = None
         
         # Set up database
         self._initialize_database()
+
+        self.fits_processor = FitsProcessor(
+            self.config, 
+            self.cameras, 
+            self.telescopes, 
+            self.filter_mappings,
+            self.db_service  # Add this parameter
+        )
     
     def _initialize_database(self):
         """Initialize database and tables."""

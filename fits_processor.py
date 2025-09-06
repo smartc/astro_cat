@@ -16,15 +16,83 @@ import polars as pl
 
 logger = logging.getLogger(__name__)
 
+class ObjectNameProcessor:
+    """Simplified object name processor for integration."""
+    
+    def __init__(self):
+        self.catalog_patterns = {
+            'NGC': [r'ngc[-\s]*(\d+)', r'n[-\s]*(\d+)'],
+            'IC': [r'ic[-\s]*(\d+)', r'i[-\s]*(\d+)'],
+            'M': [r'm[-\s]*(\d+)', r'messier[-\s]*(\d+)'],
+            'SH2': [r'sh[-\s]*2?[-\s]*(\d+)', r'sharpless[-\s]*(\d+)'],
+            'Abell': [r'abell[-\s]*(\d+)', r'a[-\s]*(\d+)', r'aco[-\s]*(\d+)'],
+            'C': [r'c[-\s]*(\d+)', r'caldwell[-\s]*(\d+)'],
+            'B': [r'b[-\s]*(\d+)', r'barnard[-\s]*(\d+)'],
+            'LDN': [r'ldn[-\s]*(\d+)', r'lynds\s+dark[-\s]*(\d+)'],
+            'LBN': [r'lbn[-\s]*(\d+)', r'lynds\s+bright[-\s]*(\d+)'],
+            'VdB': [r'vdb[-\s]*(\d+)', r'van\s+den\s+bergh[-\s]*(\d+)'],
+            'Arp': [r'arp[-\s]*(\d+)'],
+            'RCW': [r'rcw[-\s]*(\d+)'],
+            'Gum': [r'gum[-\s]*(\d+)'],
+            'PK': [r'pk[-\s]*(\d+[-+]\d+\.\d+)', r'perek[-\s]*kohoutek[-\s]*(\d+[-+]\d+\.\d+)'],
+            'Ced': [r'ced[-\s]*(\d+)', r'cederblad[-\s]*(\d+)'],
+            'Stock': [r'stock[-\s]*(\d+)', r'st[-\s]*(\d+)'],
+            'Collinder': [r'collinder[-\s]*(\d+)', r'cr[-\s]*(\d+)', r'col[-\s]*(\d+)'],
+            'Melotte': [r'melotte[-\s]*(\d+)', r'mel[-\s]*(\d+)'],
+            'Trumpler': [r'trumpler[-\s]*(\d+)', r'tr[-\s]*(\d+)'],
+            'PGC': [r'pgc[-\s]*(\d+)'],
+            'UGC': [r'ugc[-\s]*(\d+)'],
+            'ESO': [r'eso[-\s]*(\d+[-]\d+)'],
+            'IRAS': [r'iras[-\s]*(\d{5}[+-]\d{4})'],
+        }
+    
+    def normalize_input(self, name: str) -> str:
+        if not name or name in ['nan', 'None', '', 'null']:
+            return ""
+        name = str(name).lower().strip()
+        name = re.sub(r'(flat\s+frame.*|save\s+to\s+disk|test\s+image)', '', name)
+        name = re.sub(r'[_\-\s]+', ' ', name).strip()
+        name = re.sub(r'[^\w\s\-\+]', ' ', name)
+        return name
+    
+    def extract_catalog_object(self, name: str) -> Optional[str]:
+        normalized = self.normalize_input(name)
+        for catalog, patterns in self.catalog_patterns.items():
+            for pattern in patterns:
+                match = re.search(pattern, normalized, re.IGNORECASE)
+                if match:
+                    number = match.group(1)
+                    return f"{catalog}{number}"
+        return None
+    
+    def process_object_name(self, raw_name: str, frame_type: str = "LIGHT") -> str:
+        if not raw_name or raw_name in ['nan', 'None', '', 'null']:
+            return None
+        
+        if frame_type.upper() in ['FLAT', 'DARK', 'BIAS']:
+            return 'CALIBRATION'
+        
+        catalog_obj = self.extract_catalog_object(raw_name)
+        if catalog_obj:
+            return catalog_obj
+        
+        cleaned = self.normalize_input(raw_name)
+        if cleaned and cleaned not in ['', 'unknown', 'test']:
+            return cleaned.title()
+        
+        return None
+
 
 class FitsProcessor:
     """FITS file processing and metadata extraction."""
     
-    def __init__(self, config, cameras: List, telescopes: List, filter_mappings: Dict[str, str]):
+    def __init__(self, config, cameras: List, telescopes: List, filter_mappings: Dict[str, str], db_service=None):
         self.config = config
-        self.cameras = {cam.camera: cam for cam in cameras}  # Use 'camera' field
-        self.telescopes = {tel.scope: tel for tel in telescopes}  # Use 'scope' field
+        self.cameras = {cam.camera: cam for cam in cameras}
+        self.telescopes = {tel.scope: tel for tel in telescopes}
         self.filter_mappings = filter_mappings
+        self.object_processor = ObjectNameProcessor()
+        self.db_service = db_service
     
     def get_file_md5(self, filepath: str) -> str:
         """Calculate MD5 hash of file."""
@@ -184,6 +252,38 @@ class FitsProcessor:
             logger.error(f"Error calculating field of view: {e}")
         
         return result
+
+    def _process_object_name_with_fallback(self, raw_object: str, frame_type: str, filename: str) -> str:
+        """Process object name with fallback and failure logging."""
+        if not raw_object:
+            return None
+            
+        try:
+            # Try to process with object name processor
+            processed = self.object_processor.process_object_name(raw_object, frame_type)
+            if processed:
+                logger.debug(f"Successfully processed object name: '{raw_object}' -> '{processed}'")
+                return processed
+            else:
+                # Processing returned None/empty, use raw name
+                logger.debug(f"Object processing returned None for '{raw_object}', using raw name")
+                return raw_object
+                
+        except Exception as e:
+            # Log failure to database if service available
+            if self.db_service:
+                try:
+                    self.db_service.log_object_processing_failure(
+                        filename=filename,
+                        raw_name=raw_object,
+                        proposed_name=None,
+                        error=str(e)
+                    )
+                except Exception as log_error:
+                    logger.error(f"Failed to log object processing failure: {log_error}")
+            
+            logger.warning(f"Object name processing failed for '{raw_object}' in {filename}: {e}")
+            return raw_object  # Fall back to raw name
 
     def _parse_coordinate(self, header, keys: List[str]) -> Optional[float]:
         """Parse coordinate from header, handling DMS format."""
