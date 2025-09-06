@@ -24,7 +24,7 @@ class ObjectNameProcessor:
             'NGC': [r'ngc[-\s]*(\d+)', r'n[-\s]*(\d+)'],
             'IC': [r'ic[-\s]*(\d+)', r'i[-\s]*(\d+)'],
             'M': [r'm[-\s]*(\d+)', r'messier[-\s]*(\d+)'],
-            'SH2': [r'sh[-\s]*2?[-\s]*(\d+)', r'sharpless[-\s]*(\d+)'],
+            'SH2': [r'sh\s*2\s*(\d+)', r'sharpless[-\s]*(\d+)'],
             'Abell': [r'abell[-\s]*(\d+)', r'a[-\s]*(\d+)', r'aco[-\s]*(\d+)'],
             'C': [r'c[-\s]*(\d+)', r'caldwell[-\s]*(\d+)'],
             'B': [r'b[-\s]*(\d+)', r'barnard[-\s]*(\d+)'],
@@ -62,6 +62,9 @@ class ObjectNameProcessor:
                 match = re.search(pattern, normalized, re.IGNORECASE)
                 if match:
                     number = match.group(1)
+                    # Special handling for SH2 to ensure proper formatting
+                    if catalog == 'SH2':
+                        return f"SH2-{number}"
                     return f"{catalog}{number}"
         return None
     
@@ -132,8 +135,9 @@ class FitsProcessor:
                     obs_timestamp_truncated = None
                 
                 # Extract header values with fallbacks
+                raw_object = self._get_header_value(header, ['OBJECT', 'TARGET'])
+                
                 metadata.update({
-                    'object': self._get_header_value(header, ['OBJECT', 'TARGET']),
                     'obs_date': obs_date,
                     'obs_timestamp': obs_timestamp_truncated,
                     'ra': self._get_header_value(header, ['RA', 'OBJCTRA', 'CRVAL1']),
@@ -149,6 +153,13 @@ class FitsProcessor:
                     'focal_length': self._get_header_value(header, ['FOCALLEN'], float),
                     'exposure': self._get_header_value(header, ['EXPOSURE', 'EXPTIME'], float),
                 })
+                
+                # Process object name
+                frame_type = metadata['frame_type']
+                processed_object = self._process_object_name_with_fallback(
+                    raw_object, frame_type, metadata['file']
+                )
+                metadata['object'] = processed_object
                 
                 # Extract location data
                 metadata.update({

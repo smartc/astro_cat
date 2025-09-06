@@ -1,4 +1,4 @@
-"""Main application for FITS Cataloger - Phase 1."""
+"""Main application for FITS Cataloger - Phase 1 with File Migration."""
 
 import asyncio
 import logging
@@ -14,6 +14,7 @@ from config import load_config, create_default_config, Config
 from models import DatabaseManager, DatabaseService
 from fits_processor import FitsProcessor
 from file_monitor import FileMonitorService
+from file_organizer import FileOrganizer
 
 
 # Global flag for graceful shutdown
@@ -62,6 +63,7 @@ class FitsCataloger:
         self.db_manager = DatabaseManager(self.config.database.connection_string)
         self.db_service = DatabaseService(self.db_manager)
         self.file_monitor = None
+        self.file_organizer = FileOrganizer(self.config, self.db_service)
         
         # Set up database
         self._initialize_database()
@@ -216,6 +218,14 @@ class FitsCataloger:
             if self.file_monitor:
                 self.file_monitor.stop()
     
+    def migrate_files(self, limit: int = None) -> dict:
+        """Migrate files from quarantine to organized structure."""
+        return self.file_organizer.migrate_files(limit)
+    
+    def preview_migration(self, limit: int = 10) -> List[str]:
+        """Preview migration without moving files."""
+        return self.file_organizer.create_folder_structure_preview(limit)
+    
     def get_stats(self) -> dict:
         """Get database statistics."""
         try:
@@ -335,6 +345,47 @@ def monitor(ctx):
         
     except Exception as e:
         click.echo(f"Error during monitoring: {e}")
+        sys.exit(1)
+
+
+@cli.command()
+@click.option('--limit', '-l', type=int, help='Maximum number of files to migrate')
+@click.option('--dry-run', is_flag=True, help='Preview migration without moving files')
+@click.pass_context
+def migrate(ctx, limit, dry_run):
+    """Migrate files from quarantine to organized library structure."""
+    config_path = ctx.obj['config_path']
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config)
+        
+        cataloger = FitsCataloger(config_path)
+        
+        if dry_run:
+            preview_paths = cataloger.preview_migration(limit or 20)
+            if preview_paths:
+                click.echo("Migration preview (showing destination paths):")
+                for path in preview_paths:
+                    click.echo(f"  {path}")
+                click.echo(f"\nShowing {len(preview_paths)} files. Use --limit to change.")
+            else:
+                click.echo("No files found to migrate.")
+        else:
+            if not click.confirm(f"Migrate files from quarantine to organized structure?{' (limit: ' + str(limit) + ')' if limit else ''}"):
+                return
+                
+            stats = cataloger.migrate_files(limit)
+            click.echo("Migration completed!")
+            click.echo(f"  Files processed: {stats['processed']}")
+            click.echo(f"  Files moved: {stats['moved']}")
+            click.echo(f"  Errors: {stats['errors']}")
+            click.echo(f"  Skipped: {stats['skipped']}")
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error during migration: {e}")
         sys.exit(1)
 
 
