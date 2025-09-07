@@ -175,88 +175,89 @@ class FileOrganizer:
             
             if not files_to_process:
                 logger.info("No files found in quarantine to migrate")
-                return stats
-            
-            logger.info(f"Found {len(files_to_process)} files to migrate")
-            
-            # Convert to dict format for processing
-            file_records = []
-            for file_obj in files_to_process:
-                record = {
-                    'id': file_obj.id,
-                    'file': file_obj.file,
-                    'folder': file_obj.folder,
-                    'object': file_obj.object,
-                    'frame_type': file_obj.frame_type,
-                    'camera': file_obj.camera,
-                    'telescope': file_obj.telescope,
-                    'filter': file_obj.filter,
-                    'exposure': file_obj.exposure,
-                    'obs_date': file_obj.obs_date,
-                    'obs_timestamp': file_obj.obs_timestamp,
-                    'mosaic': getattr(file_obj, 'mosaic', None)  # May not exist in all schemas
-                }
-                file_records.append(record)
-            
-            # Group files by destination for sequential numbering
-            file_groups = self.group_files_by_destination(file_records)
-            
-            # Get starting catalog ID
-            next_catalog_id = self.get_next_catalog_id()
-            current_catalog_id = next_catalog_id
-            
-            # Process each group
-            for dest_path, group_files in file_groups.items():
-                logger.info(f"Processing {len(group_files)} files for {dest_path}")
+            else:
+                logger.info(f"Found {len(files_to_process)} files to migrate")
                 
-                # Create destination directory
-                os.makedirs(dest_path, exist_ok=True)
+                # Convert to dict format for processing
+                file_records = []
+                for file_obj in files_to_process:
+                    record = {
+                        'id': file_obj.id,
+                        'file': file_obj.file,
+                        'folder': file_obj.folder,
+                        'object': file_obj.object,
+                        'frame_type': file_obj.frame_type,
+                        'camera': file_obj.camera,
+                        'telescope': file_obj.telescope,
+                        'filter': file_obj.filter,
+                        'exposure': file_obj.exposure,
+                        'obs_date': file_obj.obs_date,
+                        'obs_timestamp': file_obj.obs_timestamp,
+                        'mosaic': getattr(file_obj, 'mosaic', None)  # May not exist in all schemas
+                    }
+                    file_records.append(record)
                 
-                # Process files in sequence
-                for seq_num, file_record in enumerate(group_files, 1):
-                    try:
-                        stats['processed'] += 1
-                        
-                        # Current file paths
-                        old_filepath = Path(file_record['folder']) / file_record['file']
-                        
-                        # Skip if source file doesn't exist
-                        if not old_filepath.exists():
-                            logger.warning(f"Source file not found: {old_filepath}")
-                            stats['skipped'] += 1
+                # Group files by destination for sequential numbering
+                file_groups = self.group_files_by_destination(file_records)
+                
+                # Get starting catalog ID
+                next_catalog_id = self.get_next_catalog_id()
+                current_catalog_id = next_catalog_id
+                
+                # Process each group
+                for dest_path, group_files in file_groups.items():
+                    logger.info(f"Processing {len(group_files)} files for {dest_path}")
+                    
+                    # Create destination directory
+                    os.makedirs(dest_path, exist_ok=True)
+                    
+                    # Process files in sequence
+                    for seq_num, file_record in enumerate(group_files, 1):
+                        try:
+                            stats['processed'] += 1
+                            
+                            # Current file paths
+                            old_filepath = Path(file_record['folder']) / file_record['file']
+                            
+                            # Skip if source file doesn't exist
+                            if not old_filepath.exists():
+                                logger.warning(f"Source file not found: {old_filepath}")
+                                stats['skipped'] += 1
+                                continue
+                            
+                            # Generate new filename
+                            new_filename = self.generate_standardized_filename(file_record, seq_num)
+                            new_filepath = Path(dest_path) / new_filename
+                            
+                            # Store original filename (stripped of catalog prefix)
+                            orig_filename = self.strip_catalog_prefix(file_record['file'])
+                            
+                            # Move file
+                            logger.debug(f"Moving {old_filepath} -> {new_filepath}")
+                            shutil.move(str(old_filepath), str(new_filepath))
+                            
+                            # Update database record
+                            file_obj = session.query(FitsFile).filter_by(id=file_record['id']).first()
+                            if file_obj:
+                                file_obj.id = current_catalog_id
+                                file_obj.file = new_filename
+                                file_obj.folder = dest_path
+                                file_obj.orig_file = orig_filename
+                                file_obj.orig_folder = file_record['folder']
+                                
+                                current_catalog_id += 1
+                                
+                            stats['moved'] += 1
+                            
+                        except Exception as e:
+                            logger.error(f"Error processing file {file_record['file']}: {e}")
+                            stats['errors'] += 1
                             continue
-                        
-                        # Generate new filename
-                        new_filename = self.generate_standardized_filename(file_record, seq_num)
-                        new_filepath = Path(dest_path) / new_filename
-                        
-                        # Store original filename (stripped of catalog prefix)
-                        orig_filename = self.strip_catalog_prefix(file_record['file'])
-                        
-                        # Move file
-                        logger.debug(f"Moving {old_filepath} -> {new_filepath}")
-                        shutil.move(str(old_filepath), str(new_filepath))
-                        
-                        # Update database record
-                        file_obj = session.query(FitsFile).filter_by(id=file_record['id']).first()
-                        if file_obj:
-                            file_obj.id = current_catalog_id
-                            file_obj.file = new_filename
-                            file_obj.folder = dest_path
-                            file_obj.orig_file = orig_filename
-                            file_obj.orig_folder = file_record['folder']
-                            
-                            current_catalog_id += 1
-                            
-                        stats['moved'] += 1
-                        
-                    except Exception as e:
-                        logger.error(f"Error processing file {file_record['file']}: {e}")
-                        stats['errors'] += 1
-                        continue
-            
-            # Commit all database changes
-            session.commit()
+                
+                # Commit all database changes
+                session.commit()
+                
+                logger.info(f"Migration complete: {stats['moved']} moved, {stats['errors']} errors, {stats['skipped']} skipped")
             
         except Exception as e:
             logger.error(f"Error during migration: {e}")
@@ -265,9 +266,7 @@ class FileOrganizer:
         finally:
             session.close()
         
-        logger.info(f"Migration complete: {stats['moved']} moved, {stats['errors']} errors, {stats['skipped']} skipped")
-        
-        # Clean up empty folders in quarantine after successful migration
+        # Always run cleanup regardless of migration results
         try:
             logger.info("Cleaning up empty folders in quarantine...")
             removed_count = self._cleanup_empty_folders()
