@@ -808,14 +808,36 @@ class FitsProcessor:
             logger.warning(f"Failed to process {len(failed_files)} files")
         
         if results:
-            df = pl.DataFrame(results)
+            # Create DataFrame with improved schema handling
+            try:
+                # Try with extended schema inference first
+                df = pl.DataFrame(results, infer_schema_length=None)
+            except Exception as e:
+                logger.warning(f"Schema inference failed, using fallback method: {e}")
+                try:
+                    # Fallback: scan more rows for schema inference
+                    df = pl.DataFrame(results, infer_schema_length=min(len(results), 1000))
+                except Exception as e2:
+                    logger.warning(f"Extended schema inference failed, forcing string types: {e2}")
+                    # Last resort: convert problematic columns to strings
+                    # First create with basic inference
+                    df = pl.DataFrame(results, infer_schema_length=10)
+                    
+                    # Convert any problematic numeric columns to strings if needed
+                    for col in df.columns:
+                        if df[col].dtype == pl.Object:  # Mixed types become Object
+                            try:
+                                df = df.with_columns(pl.col(col).cast(pl.Utf8))
+                            except:
+                                pass  # Keep as-is if conversion fails
+            
             logger.info(f"Successfully processed {len(results)} files")
             logger.info(f"Found {len(sessions)} unique sessions")
             return df, list(sessions.values())
         else:
             logger.warning("No files were successfully processed")
             return pl.DataFrame(), []
-    
+        
     def scan_quarantine(self) -> Tuple[pl.DataFrame, List[dict]]:
         """Scan quarantine directory for new FITS files."""
         logger.info(f"Scanning quarantine directory: {self.config.paths.quarantine_dir}")

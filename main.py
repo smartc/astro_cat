@@ -21,23 +21,38 @@ from file_organizer import FileOrganizer
 shutdown_flag = False
 
 
-def setup_logging(config: Config):
-    """Set up logging configuration."""
-    log_level = getattr(logging, config.logging.level.upper())
+def setup_logging(config: Config, verbose: bool = False):
+    """Set up logging with separate file and console levels."""
     
     # Create logs directory if it doesn't exist
     log_file = Path(config.logging.file)
     log_file.parent.mkdir(parents=True, exist_ok=True)
     
-    # Configure logging
-    logging.basicConfig(
-        level=log_level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(config.logging.file),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
+    # Clear any existing handlers
+    root_logger = logging.getLogger()
+    root_logger.handlers = []
+    
+    # File handler - detailed logging
+    file_handler = logging.FileHandler(config.logging.file)
+    file_handler.setLevel(logging.DEBUG)
+    file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(file_formatter)
+    
+    # Console handler - clean output
+    console_handler = logging.StreamHandler(sys.stdout)
+    if verbose:
+        console_handler.setLevel(logging.INFO)
+        console_formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
+    else:
+        console_handler.setLevel(logging.WARNING)
+        console_formatter = logging.Formatter('%(message)s')
+    console_handler.setFormatter(console_formatter)
+    
+    # Root logger setup
+    log_level = getattr(logging, config.logging.level.upper())
+    root_logger.setLevel(logging.DEBUG)  # Capture everything for file
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
     
     # Set astropy logging to WARNING to reduce noise
     logging.getLogger('astropy').setLevel(logging.WARNING)
@@ -117,6 +132,7 @@ class FitsCataloger:
         if not filepaths:
             return
         
+        click.echo(f"Processing {len(filepaths)} new files...")
         self.logger.info(f"Processing {len(filepaths)} new files")
         
         try:
@@ -124,6 +140,7 @@ class FitsCataloger:
             df, session_data = self.fits_processor.process_files(filepaths)
             
             if df.is_empty():
+                click.echo("No valid metadata extracted from files")
                 self.logger.warning("No valid metadata extracted from files")
                 return
             
@@ -132,7 +149,7 @@ class FitsCataloger:
             duplicate_count = 0
             error_count = 0
             
-            with tqdm(total=len(df), desc="Adding files to database") as pbar:
+            with tqdm(total=len(df), desc="Adding to database", disable=False) as pbar:
                 for row in df.iter_rows(named=True):
                     try:
                         success, is_duplicate = self.db_service.add_fits_file(row)
@@ -153,6 +170,7 @@ class FitsCataloger:
             # Add sessions to database
             session_added_count = 0
             if session_data:
+                click.echo(f"Processing {len(session_data)} sessions...")
                 self.logger.info(f"Processing {len(session_data)} sessions")
                 for session in session_data:
                     try:
@@ -161,6 +179,11 @@ class FitsCataloger:
                     except Exception as e:
                         self.logger.error(f"Failed to add session {session['session_id']}: {e}")
             
+            # Report results
+            click.echo(f"Scan complete: {added_count} new files, {duplicate_count} duplicates, {error_count} errors")
+            if session_added_count > 0:
+                click.echo(f"Sessions processed: {session_added_count}")
+                
             self.logger.info(
                 f"Database update complete: {added_count} new files, "
                 f"{duplicate_count} duplicates, {error_count} file errors, "
@@ -168,27 +191,30 @@ class FitsCataloger:
             )
             
         except Exception as e:
+            click.echo(f"Error processing files: {e}")
             self.logger.error(f"Error processing files: {e}")
 
     def scan_quarantine_once(self):
         """Perform a one-time scan of the quarantine directory."""
+        click.echo("Scanning quarantine directory...")
         self.logger.info("Performing one-time quarantine scan...")
         
-        # Find FITS files and extract session data
-        df, session_data = self.fits_processor.scan_quarantine()
+        # Just find FITS files, don't process them yet
+        fits_files = self.fits_processor.find_fits_files(self.config.paths.quarantine_dir)
         
-        if df.is_empty():
+        if not fits_files:
+            click.echo("No files found in quarantine directory")
             self.logger.info("No files found in quarantine directory")
             return
         
-        # Process files directly
-        filepaths = [str(Path(row['folder']) / row['file']) for row in df.iter_rows(named=True)]
-        self.process_new_files(filepaths)
-    
+        # Process files with progress reporting
+        self.process_new_files(fits_files) 
+
     async def start_monitoring(self):
         """Start continuous monitoring of quarantine directory."""
         global shutdown_flag
         
+        click.echo("Starting quarantine monitoring...")
         self.logger.info("Starting quarantine monitoring...")
         
         # Set up file monitor
@@ -199,20 +225,24 @@ class FitsCataloger:
             self.file_monitor.start()
             
             # Perform initial scan
+            click.echo("Performing initial scan...")
             self.logger.info("Performing initial scan...")
             existing_files = self.file_monitor.scan_existing()
             if existing_files:
                 self.process_new_files(existing_files)
             
             # Keep running until shutdown signal
+            click.echo("Monitoring active. Press Ctrl+C to stop.")
             self.logger.info("Monitoring active. Press Ctrl+C to stop.")
             
             while not shutdown_flag:
                 await asyncio.sleep(1)
                 
         except KeyboardInterrupt:
+            click.echo("Keyboard interrupt received")
             self.logger.info("Keyboard interrupt received")
         except Exception as e:
+            click.echo(f"Error during monitoring: {e}")
             self.logger.error(f"Error during monitoring: {e}")
         finally:
             if self.file_monitor:
@@ -277,11 +307,13 @@ class FitsCataloger:
 
 @click.group()
 @click.option('--config', '-c', default='config.json', help='Configuration file path')
+@click.option('--verbose', '-v', is_flag=True, help='Show detailed logging on console')
 @click.pass_context
-def cli(ctx, config):
+def cli(ctx, config, verbose):
     """FITS Cataloger - Astronomical image management tool."""
     ctx.ensure_object(dict)
     ctx.obj['config_path'] = config
+    ctx.obj['verbose'] = verbose
 
 
 @cli.command()
@@ -305,10 +337,11 @@ def init_config(ctx):
 def scan(ctx):
     """Perform a one-time scan of the quarantine directory."""
     config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
     
     try:
         config, cameras, telescopes, filter_mappings = load_config(config_path)
-        setup_logging(config)
+        setup_logging(config, verbose)
         
         cataloger = FitsCataloger(config_path)
         cataloger.scan_quarantine_once()
@@ -326,10 +359,11 @@ def scan(ctx):
 def monitor(ctx):
     """Start continuous monitoring of quarantine directory."""
     config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
     
     try:
         config, cameras, telescopes, filter_mappings = load_config(config_path)
-        setup_logging(config)
+        setup_logging(config, verbose)
         
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, signal_handler)
@@ -355,17 +389,18 @@ def monitor(ctx):
 def migrate(ctx, limit, dry_run):
     """Migrate files from quarantine to organized library structure."""
     config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
     
     try:
         config, cameras, telescopes, filter_mappings = load_config(config_path)
-        setup_logging(config)
+        setup_logging(config, verbose)
         
         cataloger = FitsCataloger(config_path)
         
         if dry_run:
+            click.echo("Migration preview (showing destination paths):")
             preview_paths = cataloger.preview_migration(limit or 20)
             if preview_paths:
-                click.echo("Migration preview (showing destination paths):")
                 for path in preview_paths:
                     click.echo(f"  {path}")
                 click.echo(f"\nShowing {len(preview_paths)} files. Use --limit to change.")
@@ -377,11 +412,12 @@ def migrate(ctx, limit, dry_run):
                 
             stats = cataloger.migrate_files(limit)
             click.echo("Migration completed!")
-            click.echo(f"  Files processed: {stats['processed']}")
-            click.echo(f"  Files moved: {stats['moved']}")
-            click.echo(f"  Duplicates handled: {stats.get('duplicates_moved', 0)}")
-            click.echo(f"  Errors: {stats['errors']}")
-            click.echo(f"  Skipped: {stats['skipped']}")
+            click.echo(f"  Files processed:     {stats['processed']:>8}")
+            click.echo(f"  Files moved:         {stats['moved']:>8}")
+            click.echo(f"  Duplicates handled:  {stats.get('duplicates_moved', 0):>8}")
+            click.echo(f"  Bad files handled:   {stats.get('bad_files_moved', 0):>8}")
+            click.echo(f"  Errors:              {stats['errors']:>8}")
+            click.echo(f"  Skipped:             {stats['skipped']:>8}")
         
         cataloger.cleanup()
         
@@ -395,10 +431,11 @@ def migrate(ctx, limit, dry_run):
 def stats(ctx):
     """Show database statistics."""
     config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
     
     try:
         config, cameras, telescopes, filter_mappings = load_config(config_path)
-        setup_logging(config)
+        setup_logging(config, verbose)
         
         cataloger = FitsCataloger(config_path)
         file_stats = cataloger.get_stats()
@@ -434,10 +471,11 @@ def stats(ctx):
 def test_db(ctx):
     """Test database connection and setup."""
     config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
     
     try:
         config, cameras, telescopes, filter_mappings = load_config(config_path)
-        setup_logging(config)
+        setup_logging(config, verbose)
         
         click.echo("Testing database connection...")
         
