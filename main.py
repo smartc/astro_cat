@@ -379,6 +379,7 @@ def migrate(ctx, limit, dry_run):
             click.echo("Migration completed!")
             click.echo(f"  Files processed: {stats['processed']}")
             click.echo(f"  Files moved: {stats['moved']}")
+            click.echo(f"  Duplicates handled: {stats.get('duplicates_moved', 0)}")
             click.echo(f"  Errors: {stats['errors']}")
             click.echo(f"  Skipped: {stats['skipped']}")
         

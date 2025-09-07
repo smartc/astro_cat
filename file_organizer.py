@@ -158,12 +158,18 @@ class FileOrganizer:
             'processed': 0,
             'moved': 0,
             'errors': 0,
-            'skipped': 0
+            'skipped': 0,
+            'duplicates_moved': 0
         }
         
-        # Get files from database that are still in quarantine
+        # Create duplicates folder
+        duplicates_folder = Path(self.config.paths.quarantine_dir) / "Duplicates"
+        duplicates_folder.mkdir(exist_ok=True)
+        
+        # Get files from database that are still in quarantine AND any physical files in quarantine
         session = self.db_service.db_manager.get_session()
         try:
+            # First, get files that have database records in quarantine
             query = session.query(FitsFile).filter(
                 FitsFile.folder.like(f"%{self.config.paths.quarantine_dir}%")
             )
@@ -171,7 +177,41 @@ class FileOrganizer:
             if limit:
                 query = query.limit(limit)
             
-            files_to_process = query.all()
+            files_in_db = query.all()
+            
+            # Also check for physical files in quarantine (INCLUDING duplicates folder)
+            quarantine_path = Path(self.config.paths.quarantine_dir)
+            physical_files = []
+            for ext in ['.fits', '.fit', '.fts']:
+                physical_files.extend(quarantine_path.rglob(f"*{ext}"))
+            
+            # Handle physical files that might be duplicates
+            for physical_file in physical_files:
+                md5_hash = self._get_file_md5(str(physical_file))
+                existing_record = session.query(FitsFile).filter_by(md5sum=md5_hash).first()
+                
+                # Check if file is already in Duplicates folder
+                is_in_duplicates = "Duplicates" in str(physical_file)
+                
+                if existing_record:
+                    # This is a duplicate - check if original still exists
+                    original_path = Path(existing_record.folder) / existing_record.file
+                    
+                    if original_path.exists() and not is_in_duplicates:
+                        # Original exists and this isn't already in duplicates, move to duplicates folder
+                        duplicate_dest = duplicates_folder / physical_file.name
+                        logger.info(f"Moving duplicate file to: {duplicate_dest}")
+                        shutil.move(str(physical_file), str(duplicate_dest))
+                        stats['duplicates_moved'] += 1
+                    elif not original_path.exists():
+                        # Original missing, treat as normal file for migration (even if in Duplicates)
+                        logger.info(f"Original file missing, migrating duplicate: {physical_file}")
+                        existing_record.folder = str(physical_file.parent)
+                        existing_record.file = physical_file.name
+                        files_in_db.append(existing_record)
+                    # If original exists and file is already in Duplicates, leave it there
+            
+            files_to_process = files_in_db
             
             if not files_to_process:
                 logger.info("No files found in quarantine to migrate")
@@ -277,8 +317,24 @@ class FileOrganizer:
         except Exception as e:
             logger.error(f"Error during folder cleanup: {e}")
         
-        return stats
-    
+        # Check for any remaining duplicates and prompt for deletion
+        remaining_duplicates = list(duplicates_folder.glob("*.fit*")) if duplicates_folder.exists() else []
+        
+        if remaining_duplicates:
+            logger.info(f"Found {len(remaining_duplicates)} duplicate files in {duplicates_folder}")
+            try:
+                response = input(f"\nFound {len(remaining_duplicates)} duplicate files in {duplicates_folder}.\nDelete duplicates? (y/N): ").lower().strip()
+                if response == 'y':
+                    self._delete_duplicates_folder()
+                    logger.info("Duplicate files deleted.")
+                else:
+                    logger.info("Duplicate files kept for manual review.")
+            except KeyboardInterrupt:
+                logger.info("User interrupted. Duplicate files kept for manual review.")
+        
+        return stats    
+
+        
     def create_folder_structure_preview(self, limit: int = 10) -> List[str]:
         """Preview the folder structure that would be created without moving files."""
         session = self.db_service.db_manager.get_session()
@@ -346,3 +402,23 @@ class FileOrganizer:
                 continue
         
         return removed_count
+    
+    def _get_file_md5(self, filepath: str) -> str:
+        """Calculate MD5 hash of file."""
+        import hashlib
+        hash_md5 = hashlib.md5()
+        try:
+            with open(filepath, "rb") as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hash_md5.update(chunk)
+            return hash_md5.hexdigest()
+        except Exception as e:
+            logger.error(f"Error calculating MD5 for {filepath}: {e}")
+            return ""
+    
+    def _delete_duplicates_folder(self):
+        """Delete the duplicates folder and all its contents."""
+        duplicates_folder = Path(self.config.paths.quarantine_dir) / "Duplicates"
+        if duplicates_folder.exists():
+            shutil.rmtree(duplicates_folder)
+            logger.debug(f"Deleted duplicates folder: {duplicates_folder}")
