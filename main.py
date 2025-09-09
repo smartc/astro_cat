@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from config import load_config, create_default_config, Config
 from models import DatabaseManager, DatabaseService
-from fits_processor import FitsProcessor
+from fits_processor import OptimizedFitsProcessor
 from file_monitor import FileMonitorService
 from file_organizer import FileOrganizer
 
@@ -83,7 +83,7 @@ class FitsCataloger:
         # Set up database
         self._initialize_database()
 
-        self.fits_processor = FitsProcessor(
+        self.fits_processor = OptimizedFitsProcessor(
             self.config, 
             self.cameras, 
             self.telescopes, 
@@ -137,7 +137,7 @@ class FitsCataloger:
         
         try:
             # Extract metadata and session data from files
-            df, session_data = self.fits_processor.process_files(filepaths)
+            df, session_data = self.fits_processor.process_files_optimized(filepaths)
             
             if df.is_empty():
                 click.echo("No valid metadata extracted from files")
