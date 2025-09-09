@@ -110,7 +110,7 @@ class FitsProcessor:
             return ""
     
     def extract_fits_metadata(self, filepath: str) -> Optional[Dict]:
-        """Extract metadata from a FITS file."""
+        """Extract metadata from a FITS file with enhanced equipment context."""
         try:
             with fits.open(filepath) as hdul:
                 header = hdul[0].header
@@ -136,6 +136,11 @@ class FitsProcessor:
                 
                 # Extract header values with fallbacks
                 raw_object = self._get_header_value(header, ['OBJECT', 'TARGET'])
+                instrument = self._get_header_value(header, ['INSTRUME'])
+                filter_wheel = self._get_header_value(header, ['FWHEEL'])
+                observer = self._get_header_value(header, ['OBSERVER'])
+                site_name = self._get_header_value(header, ['SITENAME'])
+                binning = self._get_header_value(header, ['XBINNING', 'BINNING'], int, 1)
                 
                 metadata.update({
                     'obs_date': obs_date,
@@ -168,18 +173,32 @@ class FitsProcessor:
                     'elevation': self._get_header_value(header, ['SITEELEV', 'ALT-OBS', 'ELEVATION'], float),
                 })
                 
-                # Extract additional headers for session ID generation (don't add to metadata)
-                instrument = self._get_header_value(header, ['INSTRUME'])
-                filter_wheel = self._get_header_value(header, ['FWHEEL'])
-                observer = self._get_header_value(header, ['OBSERVER'])
-                site_name = self._get_header_value(header, ['SITENAME'])
-                binning = self._get_header_value(header, ['XBINNING', 'BINNING'], int, 1)
+                # Create context for equipment identification
+                equipment_context = {
+                    'filename': os.path.basename(filepath),
+                    'obs_date': obs_date,
+                    'observer': observer,
+                    'site_name': site_name,
+                    'instrument': instrument,
+                    'filter_wheel': filter_wheel,
+                    'latitude': metadata['latitude'],
+                    'longitude': metadata['longitude'],
+                    'elevation': metadata['elevation'],
+                    'focal_length': metadata['focal_length']
+                }
                 
-                # Identify camera and telescope
+                # Identify camera and telescope with context
                 metadata['camera'] = self._identify_camera_enhanced(
-                    metadata['x'], metadata['y'], instrument, binning
+                    metadata['x'], metadata['y'], instrument, binning, equipment_context
                 )
-                metadata['telescope'] = self._identify_telescope(metadata['focal_length'])
+                
+                # Add camera info to telescope context
+                equipment_context['camera'] = metadata['camera']
+                
+                metadata['telescope'] = self._identify_telescope(metadata['focal_length'], equipment_context)
+                
+                # Update context with telescope info
+                equipment_context['telescope'] = metadata['telescope']
                 
                 # Calculate field of view and pixel scale
                 fov_data = self._calculate_field_of_view(
@@ -193,6 +212,9 @@ class FitsProcessor:
                     metadata['obs_date'], instrument, metadata['focal_length'],
                     metadata['x'], metadata['y'], filter_wheel, observer, site_name
                 )
+                
+                # Update context with session ID for any subsequent equipment prompts
+                equipment_context['session_id'] = metadata['session_id']
                 
                 # Store session data for later extraction
                 metadata['_session_data'] = {
@@ -214,7 +236,7 @@ class FitsProcessor:
         except Exception as e:
             logger.error(f"Error processing FITS file {filepath}: {e}")
             return None
-
+        
     def _calculate_field_of_view(self, camera_name: str, telescope_name: str, 
                                 x_pixels: Optional[int], y_pixels: Optional[int], 
                                 binning: int = 1) -> Dict[str, Optional[float]]:
@@ -458,9 +480,10 @@ class FitsProcessor:
         # Return original if no mapping found
         return filter_name.upper()
     
-    def _identify_camera_enhanced(self, x_pixels: Optional[int], y_pixels: Optional[int], 
-                             instrument: Optional[str], binning: int = 1) -> str:
-        """Enhanced camera identification - dimension-based with INSTRUME as fallback."""
+    def _identify_camera_enhanced(self, x_pixels: Optional[int], y_pixels: Optional[int],
+                                    instrument: Optional[str], binning: int = 1, 
+                                    context: Optional[Dict] = None) -> str:
+        """Enhanced camera identification with context for unknown equipment."""
         logger.debug(f"Identifying camera: dimensions={x_pixels}x{y_pixels}, instrument='{instrument}', binning={binning}")
         
         # PRIMARY: Try dimension-based identification first (most reliable)
@@ -493,9 +516,9 @@ class FitsProcessor:
                     logger.debug(f"Partial INSTRUME match: {camera_name}")
                     return camera_name
         
-        # Camera not found - prompt user
+        # Camera not found - prompt user with context
         logger.warning(f"Camera not found for dimensions {x_pixels}x{y_pixels}, instrument '{instrument}'")
-        return self._handle_unknown_camera(x_pixels or 0, y_pixels)
+        return self._handle_unknown_camera(x_pixels or 0, y_pixels, instrument, context)
     
     def _generate_rig_hash(self, instrument: Optional[str], focal_length: Optional[float],
                       filter_wheel: Optional[str], observer: Optional[str], 
@@ -566,8 +589,8 @@ class FitsProcessor:
         logger.debug(f"Generated hash-based session ID: {session_id}")
         return session_id
 
-    def _identify_telescope(self, focal_length: Optional[float]) -> str:
-        """Identify telescope based on EXACT focal length match."""
+    def _identify_telescope(self, focal_length: Optional[float], context: Optional[Dict] = None) -> str:
+        """Identify telescope based on EXACT focal length match with context for unknown equipment."""
         if not focal_length:
             logger.debug("No focal length provided")
             return "UNKNOWN"
@@ -583,34 +606,69 @@ class FitsProcessor:
         
         # No exact match found
         logger.warning(f"No exact telescope match found for focal length {focal_length}mm")
-        return self._handle_unknown_telescope(focal_length)
+        return self._handle_unknown_telescope(focal_length, context)
+
     
-    def _handle_unknown_camera(self, x_pixels: int, y_pixels: Optional[int]) -> str:
-        """Handle unknown camera by prompting user for action."""
-        print(f"\nUnknown camera detected: {x_pixels}x{y_pixels or '?'} pixels")
-        print("Existing cameras:")
+    def _handle_unknown_camera(self, x_pixels: int, y_pixels: Optional[int], 
+                              instrument: Optional[str], context: Optional[Dict] = None) -> str:
+        """Handle unknown camera by showing context and prompting user for action."""
+        
+        print(f"\n{'='*70}")
+        print(f"UNKNOWN CAMERA DETECTED")
+        print(f"{'='*70}")
+        
+        # Core camera info
+        print(f"Camera Details:")
+        print(f"  Dimensions: {x_pixels} x {y_pixels or '?'} pixels")
+        print(f"  Instrument: {instrument or 'Not specified'}")
+        
+        # Session context if available
+        if context:
+            print(f"\nSession Context:")
+            if context.get('obs_date'):
+                print(f"  Observation Date: {context['obs_date']}")
+            if context.get('observer'):
+                print(f"  Observer: {context['observer']}")
+            if context.get('site_name'):
+                print(f"  Site: {context['site_name']}")
+            if context.get('telescope'):
+                print(f"  Telescope: {context['telescope']}")
+            if context.get('focal_length'):
+                print(f"  Focal Length: {context['focal_length']}mm")
+            if context.get('filter_wheel'):
+                print(f"  Filter Wheel: {context['filter_wheel']}")
+            if context.get('session_id'):
+                print(f"  Session ID: {context['session_id']}")
+            
+            # Sample filename if available
+            if context.get('filename'):
+                print(f"  Sample File: {context['filename']}")
+        
+        print(f"\nExisting cameras:")
         for i, camera in enumerate(self.cameras.values(), 1):
             print(f"  {i}. {camera.camera}: {camera.x}x{camera.y} ({camera.brand} {camera.type})")
         
-        print("\nOptions:")
-        print("1. Add new camera")
-        print("2. Map to existing camera") 
-        print("3. Skip (mark as UNKNOWN)")
+        print(f"\nOptions:")
+        print(f"1. Add new camera")
+        print(f"2. Map to existing camera") 
+        print(f"3. Skip (mark as UNKNOWN)")
         
         while True:
             choice = input("Choose option (1-3): ").strip()
             
             if choice == "1":
-                return self._add_new_camera(x_pixels, y_pixels)
+                return self._add_new_camera(x_pixels, y_pixels, instrument, context)
             elif choice == "2":
                 return self._map_to_existing_camera()
             elif choice == "3":
                 return "UNKNOWN"
             else:
                 print("Invalid choice. Please enter 1, 2, or 3.")
+
     
-    def _add_new_camera(self, x_pixels: int, y_pixels: Optional[int]) -> str:
-        """Add a new camera to the configuration."""
+    def _add_new_camera(self, x_pixels: int, y_pixels: Optional[int], 
+                       instrument: Optional[str], context: Optional[Dict] = None) -> str:
+        """Add a new camera to the configuration with context info."""
         print("\nAdding new camera:")
         name = input("Camera name: ").strip()
         brand = input("Brand: ").strip() or "Unknown"
@@ -622,6 +680,18 @@ class FitsProcessor:
         except ValueError:
             pixel_size = 4.0
         
+        # Generate helpful comment
+        comment_parts = []
+        if context:
+            if context.get('obs_date'):
+                comment_parts.append(f"Added {context['obs_date']}")
+            if context.get('session_id'):
+                comment_parts.append(f"Session: {context['session_id']}")
+            if context.get('telescope'):
+                comment_parts.append(f"Telescope: {context['telescope']}")
+        
+        comment = ", ".join(comment_parts) if comment_parts else "Manually added during processing"
+        
         new_camera = {
             "camera": name,
             "bin": 1,
@@ -630,7 +700,7 @@ class FitsProcessor:
             "type": cam_type,
             "brand": brand,
             "pixel": pixel_size,
-            "comments": "Auto-added during processing"
+            "comments": comment
         }
         
         # Save to cameras.json
@@ -674,43 +744,92 @@ class FitsProcessor:
         with open(cameras_file, 'w') as f:
             json.dump(cameras, f, indent=2)
     
-    def _handle_unknown_telescope(self, focal_length: float) -> str:
-        """Handle unknown telescope by prompting user for action."""
-        print(f"\nUnknown telescope detected: {focal_length}mm focal length")
-        print("Existing telescopes:")
+    def _handle_unknown_telescope(self, focal_length: float, context: Optional[Dict] = None) -> str:
+        """Handle unknown telescope by showing context and prompting user for action."""
+        
+        print(f"\n{'='*70}")
+        print(f"UNKNOWN TELESCOPE DETECTED")
+        print(f"{'='*70}")
+        
+        # Core telescope info
+        print(f"Telescope Details:")
+        print(f"  Focal Length: {focal_length}mm")
+        
+        # Session context if available
+        if context:
+            print(f"\nSession Context:")
+            if context.get('obs_date'):
+                print(f"  Observation Date: {context['obs_date']}")
+            if context.get('observer'):
+                print(f"  Observer: {context['observer']}")
+            if context.get('site_name'):
+                print(f"  Site: {context['site_name']}")
+            if context.get('camera'):
+                print(f"  Camera: {context['camera']}")
+            if context.get('instrument'):
+                print(f"  Instrument: {context['instrument']}")
+            if context.get('filter_wheel'):
+                print(f"  Filter Wheel: {context['filter_wheel']}")
+            if context.get('session_id'):
+                print(f"  Session ID: {context['session_id']}")
+            
+            # Location info if available
+            if context.get('latitude') and context.get('longitude'):
+                print(f"  Location: {context['latitude']:.4f}, {context['longitude']:.4f}")
+            if context.get('elevation'):
+                print(f"  Elevation: {context['elevation']}m")
+            
+            # Sample filename if available
+            if context.get('filename'):
+                print(f"  Sample File: {context['filename']}")
+        
+        print(f"\nExisting telescopes:")
         for i, telescope in enumerate(self.telescopes.values(), 1):
             print(f"  {i}. {telescope.scope}: {telescope.focal}mm ({telescope.make} {telescope.type})")
         
-        print("\nOptions:")
-        print("1. Add new telescope")
-        print("2. Map to existing telescope")
-        print("3. Skip (mark as UNKNOWN)")
+        print(f"\nOptions:")
+        print(f"1. Add new telescope")
+        print(f"2. Map to existing telescope")
+        print(f"3. Skip (mark as UNKNOWN)")
         
         while True:
             choice = input("Choose option (1-3): ").strip()
             
             if choice == "1":
-                return self._add_new_telescope(focal_length)
+                return self._add_new_telescope(focal_length, context)
             elif choice == "2":
                 return self._map_to_existing_telescope()
             elif choice == "3":
                 return "UNKNOWN"
             else:
                 print("Invalid choice. Please enter 1, 2, or 3.")
+
     
-    def _add_new_telescope(self, focal_length: float) -> str:
-        """Add a new telescope to the configuration."""
+    def _add_new_telescope(self, focal_length: float, context: Optional[Dict] = None) -> str:
+        """Add a new telescope to the configuration with context info."""
         print("\nAdding new telescope:")
         name = input("Telescope name: ").strip()
         make = input("Manufacturer: ").strip() or "Unknown"
         tel_type = input("Type (Refractor/Reflector/Lens): ").strip() or "Unknown"
+        
+        # Generate helpful comment
+        comment_parts = []
+        if context:
+            if context.get('obs_date'):
+                comment_parts.append(f"Added {context['obs_date']}")
+            if context.get('session_id'):
+                comment_parts.append(f"Session: {context['session_id']}")
+            if context.get('camera'):
+                comment_parts.append(f"Camera: {context['camera']}")
+        
+        comment = ", ".join(comment_parts) if comment_parts else "Manually added during processing"
         
         new_telescope = {
             "scope": name,
             "focal": int(focal_length),
             "make": make,
             "type": tel_type,
-            "comments": "Auto-added during processing"
+            "comments": comment
         }
         
         # Save to telescopes.json

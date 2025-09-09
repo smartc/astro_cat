@@ -1,6 +1,6 @@
 {
   "paths": {
-    "quarantine_dir": "/home/corey/tmp/Astro.Quarantine",
+    "quarantine_dir": "/mnt/calisto/NEW_Astro",
     "image_dir": "/mnt/calisto/Astro/Images",
     "database_path": "/mnt/calisto/Astro/fits_catalog.db",
     "restore_folder": "/mnt/calisto/Astro/.tmp/restore"

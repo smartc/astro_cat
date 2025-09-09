@@ -172,7 +172,7 @@ class FileOrganizer:
             shutil.rmtree(bad_files_folder)
             logger.debug(f"Deleted bad files folder: {bad_files_folder}")
     
-    def migrate_files(self, limit: Optional[int] = None) -> Dict[str, int]:
+    def migrate_files(self, limit: Optional[int] = None, auto_cleanup: bool = False) -> Dict[str, int]:
         """
         Migrate files from quarantine to organized structure with database-first approach.
         
@@ -397,30 +397,38 @@ class FileOrganizer:
         # STEP 4: Handle duplicates folder cleanup prompt
         remaining_duplicates = list(duplicates_folder.glob("*.fit*")) if duplicates_folder.exists() else []
         remaining_bad_files = list(bad_files_folder.glob("*.fit*")) if bad_files_folder.exists() else []
-        
+
         if remaining_duplicates:
             click.echo(f"Found {len(remaining_duplicates)} files in duplicates folder")
-            try:
-                response = input(f"\nDelete {len(remaining_duplicates)} duplicate files? (y/N): ").lower().strip()
-                if response == 'y':
-                    self._delete_duplicates_folder()
-                    click.echo("Duplicate files deleted")
-                else:
-                    click.echo("Duplicate files kept for manual review")
-            except KeyboardInterrupt:
-                click.echo("User interrupted. Duplicate files kept for manual review")
-        
+            if auto_cleanup:
+                self._delete_duplicates_folder()
+                click.echo("Duplicate files deleted automatically")
+            else:
+                try:
+                    response = input(f"\nDelete {len(remaining_duplicates)} duplicate files? (y/N): ").lower().strip()
+                    if response == 'y':
+                        self._delete_duplicates_folder()
+                        click.echo("Duplicate files deleted")
+                    else:
+                        click.echo("Duplicate files kept for manual review")
+                except KeyboardInterrupt:
+                    click.echo("User interrupted. Duplicate files kept for manual review")
+
         if remaining_bad_files:
             click.echo(f"Found {len(remaining_bad_files)} files in bad files folder")
-            try:
-                response = input(f"\nDelete {len(remaining_bad_files)} bad files? (y/N): ").lower().strip()
-                if response == 'y':
-                    self._delete_bad_files_folder()
-                    click.echo("Bad files deleted")
-                else:
-                    click.echo("Bad files kept for manual review")
-            except KeyboardInterrupt:
-                click.echo("User interrupted. Bad files kept for manual review")
+            if auto_cleanup:
+                self._delete_bad_files_folder()
+                click.echo("Bad files deleted automatically")
+            else:
+                try:
+                    response = input(f"\nDelete {len(remaining_bad_files)} bad files? (y/N): ").lower().strip()
+                    if response == 'y':
+                        self._delete_bad_files_folder()
+                        click.echo("Bad files deleted")
+                    else:
+                        click.echo("Bad files kept for manual review")
+                except KeyboardInterrupt:
+                    click.echo("User interrupted. Bad files kept for manual review")
         
         return stats
     

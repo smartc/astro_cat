@@ -248,9 +248,9 @@ class FitsCataloger:
             if self.file_monitor:
                 self.file_monitor.stop()
     
-    def migrate_files(self, limit: int = None) -> dict:
+    def migrate_files(self, limit: int = None, auto_cleanup: bool = False) -> dict:
         """Migrate files from quarantine to organized structure."""
-        return self.file_organizer.migrate_files(limit)
+        return self.file_organizer.migrate_files(limit, auto_cleanup)
     
     def preview_migration(self, limit: int = 10) -> List[str]:
         """Preview migration without moving files."""
@@ -385,8 +385,9 @@ def monitor(ctx):
 @cli.command()
 @click.option('--limit', '-l', type=int, help='Maximum number of files to migrate')
 @click.option('--dry-run', is_flag=True, help='Preview migration without moving files')
+@click.option('--auto-cleanup', is_flag=True, help='Automatically delete duplicates and bad files without prompting')
 @click.pass_context
-def migrate(ctx, limit, dry_run):
+def migrate(ctx, limit, dry_run, auto_cleanup):
     """Migrate files from quarantine to organized library structure."""
     config_path = ctx.obj['config_path']
     verbose = ctx.obj['verbose']
@@ -410,14 +411,14 @@ def migrate(ctx, limit, dry_run):
             if not click.confirm(f"Migrate files from quarantine to organized structure?{' (limit: ' + str(limit) + ')' if limit else ''}"):
                 return
                 
-            stats = cataloger.migrate_files(limit)
+            stats = cataloger.migrate_files(limit, auto_cleanup=auto_cleanup)
             click.echo("Migration completed!")
-            click.echo(f"  Files processed:     {stats['processed']:>8}")
-            click.echo(f"  Files moved:         {stats['moved']:>8}")
-            click.echo(f"  Duplicates handled:  {stats.get('duplicates_moved', 0):>8}")
-            click.echo(f"  Bad files handled:   {stats.get('bad_files_moved', 0):>8}")
-            click.echo(f"  Errors:              {stats['errors']:>8}")
-            click.echo(f"  Skipped:             {stats['skipped']:>8}")
+            click.echo(f"  Files processed:     {stats['processed']:>6}")
+            click.echo(f"  Files moved:         {stats['moved']:>6}")
+            click.echo(f"  Duplicates handled:  {stats.get('duplicates_moved', 0):>6}")
+            click.echo(f"  Bad files handled:   {stats.get('bad_files_moved', 0):>6}")
+            click.echo(f"  Errors:              {stats['errors']:>6}")
+            click.echo(f"  Skipped:             {stats['skipped']:>6}")
         
         cataloger.cleanup()
         
