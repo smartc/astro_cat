@@ -1,4 +1,4 @@
-"""FITS file processing and metadata extraction with hash-based session IDs."""
+"""FITS file processing and metadata extraction with auto-unknown equipment handling."""
 
 import hashlib
 import os
@@ -8,6 +8,7 @@ import math
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from tqdm import tqdm
 
 from astropy.io import fits
 from astropy.time import Time
@@ -87,7 +88,7 @@ class ObjectNameProcessor:
 
 
 class FitsProcessor:
-    """FITS file processing and metadata extraction."""
+    """FITS file processing and metadata extraction with auto-unknown equipment."""
     
     def __init__(self, config, cameras: List, telescopes: List, filter_mappings: Dict[str, str], db_service=None):
         self.config = config
@@ -108,7 +109,177 @@ class FitsProcessor:
         except Exception as e:
             logger.error(f"Error calculating MD5 for {filepath}: {e}")
             return ""
-    
+
+    def _find_next_unknown_camera_sequence(self) -> int:
+        """Find the next available UNKNOWN-XXX sequence number for cameras."""
+        max_sequence = 0
+        unknown_pattern = re.compile(r'^UNKNOWN-(\d{3})$')
+        
+        for camera_name in self.cameras.keys():
+            match = unknown_pattern.match(camera_name)
+            if match:
+                sequence = int(match.group(1))
+                max_sequence = max(max_sequence, sequence)
+        
+        return max_sequence + 1
+
+    def _find_next_unknown_telescope_sequence(self) -> int:
+        """Find the next available UNKNOWN-XXX sequence number for telescopes."""
+        max_sequence = 0
+        unknown_pattern = re.compile(r'^UNKNOWN-(\d{3})$')
+        
+        for telescope_name in self.telescopes.keys():
+            match = unknown_pattern.match(telescope_name)
+            if match:
+                sequence = int(match.group(1))
+                max_sequence = max(max_sequence, sequence)
+        
+        return max_sequence + 1
+
+    def _create_auto_unknown_camera(self, x_pixels: int, y_pixels: Optional[int], 
+                                   instrument: Optional[str], context: Optional[Dict] = None) -> str:
+        """Create an auto-generated unknown camera entry."""
+        
+        # Generate sequence number and name
+        sequence = self._find_next_unknown_camera_sequence()
+        camera_name = f"UNKNOWN-{sequence:03d}"
+        
+        # Determine likely camera type and brand from context
+        brand = "Unknown"
+        cam_type = "CMOS"  # Default to CMOS as most modern cameras are
+        pixel_size = 4.0   # Reasonable default
+        
+        # Try to extract some info from instrument if available
+        if instrument and instrument not in ['N/A', 'None', 'ERROR', 'UNKNOWN']:
+            # Look for common brands in instrument name
+            instrument_upper = instrument.upper()
+            if any(brand_name in instrument_upper for brand_name in ['ZWO', 'ASI']):
+                brand = "ZWO"
+            elif any(brand_name in instrument_upper for brand_name in ['QSI', 'QHY', 'SBIG']):
+                if 'QSI' in instrument_upper:
+                    brand = "QSI"
+                    cam_type = "CCD"  # QSI cameras are typically CCD
+                elif 'QHY' in instrument_upper:
+                    brand = "QHY"
+                elif 'SBIG' in instrument_upper:
+                    brand = "SBIG"
+                    cam_type = "CCD"
+            elif any(brand_name in instrument_upper for brand_name in ['CANON', 'EOS']):
+                brand = "Canon"
+                cam_type = "CMOS"
+                pixel_size = 4.3  # Typical for Canon DSLRs
+        
+        # Build helpful comment
+        comment_parts = [f"Auto-generated {datetime.now().strftime('%Y-%m-%d')}"]
+        
+        if context:
+            if context.get('session_id'):
+                comment_parts.append(f"Session: {context['session_id']}")
+            if context.get('telescope'):
+                comment_parts.append(f"Telescope: {context['telescope']}")
+            if context.get('obs_date'):
+                comment_parts.append(f"Date: {context['obs_date']}")
+            if context.get('observer'):
+                comment_parts.append(f"Observer: {context['observer']}")
+        
+        if instrument:
+            comment_parts.append(f"Instrument: {instrument}")
+        
+        comment = ", ".join(comment_parts)
+        
+        # Create camera data structure
+        new_camera = {
+            "camera": camera_name,
+            "bin": 1,
+            "x": x_pixels,
+            "y": y_pixels or 0,
+            "type": cam_type,
+            "brand": brand,
+            "pixel": pixel_size,
+            "comments": comment
+        }
+        
+        # Save to file and add to current session
+        self._save_new_camera(new_camera)
+        
+        # Add to current session
+        from config import Camera
+        camera_obj = Camera(**new_camera)
+        self.cameras[camera_name] = camera_obj
+        
+        logger.info(f"Auto-created unknown camera: {camera_name} ({x_pixels}x{y_pixels or '?'}, {brand} {cam_type})")
+        print(f"Auto-created unknown camera: {camera_name}")
+        
+        return camera_name
+
+    def _create_auto_unknown_telescope(self, focal_length: float, context: Optional[Dict] = None) -> str:
+        """Create an auto-generated unknown telescope entry."""
+        
+        # Generate sequence number and name
+        sequence = self._find_next_unknown_telescope_sequence()
+        telescope_name = f"UNKNOWN-{sequence:03d}"
+        
+        # Determine likely telescope type based on focal length
+        make = "Unknown"
+        tel_type = "Unknown"
+        
+        if focal_length:
+            if focal_length < 50:
+                tel_type = "Lens"
+                make = "Camera Lens"
+            elif focal_length < 200:
+                tel_type = "Lens"  
+                make = "Telephoto Lens"
+            elif focal_length < 600:
+                tel_type = "Refractor"
+            elif focal_length < 1200:
+                tel_type = "Refractor"
+            elif focal_length < 2000:
+                tel_type = "Reflector"
+            else:
+                tel_type = "Reflector"
+                make = "SCT/RC"
+        
+        # Build helpful comment
+        comment_parts = [f"Auto-generated {datetime.now().strftime('%Y-%m-%d')}"]
+        
+        if context:
+            if context.get('session_id'):
+                comment_parts.append(f"Session: {context['session_id']}")
+            if context.get('camera'):
+                comment_parts.append(f"Camera: {context['camera']}")
+            if context.get('obs_date'):
+                comment_parts.append(f"Date: {context['obs_date']}")
+            if context.get('observer'):
+                comment_parts.append(f"Observer: {context['observer']}")
+            if context.get('site_name'):
+                comment_parts.append(f"Site: {context['site_name']}")
+        
+        comment_parts.append(f"Focal Length: {focal_length}mm")
+        comment = ", ".join(comment_parts)
+        
+        # Create telescope data structure
+        new_telescope = {
+            "scope": telescope_name,
+            "focal": int(focal_length),
+            "make": make,
+            "type": tel_type,
+            "comments": comment
+        }
+        
+        # Save to file and add to current session
+        self._save_new_telescope(new_telescope)
+        
+        # Add to current session
+        from config import Telescope
+        telescope_obj = Telescope(**new_telescope)
+        self.telescopes[telescope_name] = telescope_obj
+        
+        logger.info(f"Auto-created unknown telescope: {telescope_name} ({focal_length}mm)")
+        print(f"Auto-created unknown telescope: {telescope_name} ({focal_length}mm)")
+        
+        return telescope_name
+
     def extract_fits_metadata(self, filepath: str) -> Optional[Dict]:
         """Extract metadata from a FITS file with enhanced equipment context."""
         try:
@@ -651,7 +822,7 @@ class FitsProcessor:
         print(f"\nOptions:")
         print(f"1. Add new camera")
         print(f"2. Map to existing camera") 
-        print(f"3. Skip (mark as UNKNOWN)")
+        print(f"3. Auto-create unknown camera (UNKNOWN-XXX)")
         
         while True:
             choice = input("Choose option (1-3): ").strip()
@@ -661,7 +832,7 @@ class FitsProcessor:
             elif choice == "2":
                 return self._map_to_existing_camera()
             elif choice == "3":
-                return "UNKNOWN"
+                return self._create_auto_unknown_camera(x_pixels, y_pixels, instrument, context)
             else:
                 print("Invalid choice. Please enter 1, 2, or 3.")
 
@@ -790,7 +961,7 @@ class FitsProcessor:
         print(f"\nOptions:")
         print(f"1. Add new telescope")
         print(f"2. Map to existing telescope")
-        print(f"3. Skip (mark as UNKNOWN)")
+        print(f"3. Auto-create unknown telescope (UNKNOWN-XXX)")
         
         while True:
             choice = input("Choose option (1-3): ").strip()
@@ -800,7 +971,7 @@ class FitsProcessor:
             elif choice == "2":
                 return self._map_to_existing_telescope()
             elif choice == "3":
-                return "UNKNOWN"
+                return self._create_auto_unknown_telescope(focal_length, context)
             else:
                 print("Invalid choice. Please enter 1, 2, or 3.")
 
@@ -907,21 +1078,33 @@ class FitsProcessor:
         
         logger.info(f"Processing {len(filepaths)} files...")
         
-        for filepath in filepaths:
-            try:
-                metadata = self.extract_fits_metadata(filepath)
-                if metadata:
-                    # Extract session data
-                    session_data = metadata.pop('_session_data', None)
-                    if session_data and session_data['session_id'] != 'UNKNOWN':
-                        sessions[session_data['session_id']] = session_data
-                    
-                    results.append(metadata)
-                else:
+        with tqdm(total=len(filepaths), desc="Extracting metadata", unit="files") as pbar:
+            for filepath in filepaths:
+                try:
+                    metadata = self.extract_fits_metadata(filepath)
+                    if metadata:
+                        # Extract session data
+                        session_data = metadata.pop('_session_data', None)
+                        if session_data and session_data['session_id'] != 'UNKNOWN':
+                            sessions[session_data['session_id']] = session_data
+                        
+                        results.append(metadata)
+                    else:
+                        failed_files.append(filepath)
+                except Exception as e:
+                    logger.error(f"Failed to process {filepath}: {e}")
                     failed_files.append(filepath)
-            except Exception as e:
-                logger.error(f"Failed to process {filepath}: {e}")
-                failed_files.append(filepath)
+                
+                # Update progress bar
+                pbar.update(1)
+                
+                # Update description with current counts every 100 files
+                if len(results) % 100 == 0:
+                    pbar.set_postfix({
+                        'success': len(results),
+                        'failed': len(failed_files),
+                        'sessions': len(sessions)
+                    })
         
         if failed_files:
             logger.warning(f"Failed to process {len(failed_files)} files")

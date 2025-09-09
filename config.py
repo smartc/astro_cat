@@ -1,4 +1,4 @@
-"""Configuration management for FITS Cataloger."""
+"""Configuration management for FITS Cataloger with optional equipment fields."""
 
 import json
 import os
@@ -42,23 +42,23 @@ class EquipmentPaths(BaseModel):
 
 
 class Camera(BaseModel):
-    """Camera specification - matches cameras.json field names."""
-    camera: str  # matches JSON field name
+    """Camera specification with optional fields for unknown equipment."""
+    camera: str  # Camera name - required
     bin: int = 1
-    x: int       # matches JSON field name  
-    y: int       # matches JSON field name
-    type: str
-    brand: str
-    pixel: float  # matches JSON field name
+    x: int       # X resolution - required (from FITS NAXIS1)
+    y: int       # Y resolution - required (from FITS NAXIS2)  
+    type: Optional[str] = None     # CMOS/CCD - optional, may be unknown
+    brand: str                     # Brand - can be "Unknown"
+    pixel: Optional[float] = None  # Pixel size in microns - optional, may be unknown
     comments: Optional[str] = None
 
 
 class Telescope(BaseModel):
-    """Telescope specification - matches telescopes.json field names."""
-    scope: str   # matches JSON field name
-    focal: int   # matches JSON field name
-    make: str
-    type: str
+    """Telescope specification with optional fields for unknown equipment."""
+    scope: str   # Telescope name - required
+    focal: int   # Focal length - required (from FITS FOCALLEN)
+    make: Optional[str] = None     # Manufacturer - optional, may be unknown
+    type: Optional[str] = None     # Type (refractor/reflector/lens) - optional, may be unknown
     comments: Optional[str] = None
 
 
@@ -124,20 +124,36 @@ def validate_and_create_paths(config: Config) -> None:
 
 
 def load_equipment(equipment_paths: EquipmentPaths):
-    """Load equipment data from JSON files."""
+    """Load equipment data from JSON files with validation."""
     # Load cameras
     cameras = []
     if Path(equipment_paths.cameras_file).exists():
         with open(equipment_paths.cameras_file, 'r') as f:
             cameras_data = json.load(f)
-            cameras = [Camera(**cam) for cam in cameras_data]
+            for i, cam_data in enumerate(cameras_data):
+                try:
+                    # Validate each camera entry
+                    camera = Camera(**cam_data)
+                    cameras.append(camera)
+                except Exception as e:
+                    print(f"Warning: Invalid camera entry #{i+1} in {equipment_paths.cameras_file}: {e}")
+                    print(f"Entry: {cam_data}")
+                    continue
     
     # Load telescopes
     telescopes = []
     if Path(equipment_paths.telescopes_file).exists():
         with open(equipment_paths.telescopes_file, 'r') as f:
             telescopes_data = json.load(f)
-            telescopes = [Telescope(**tel) for tel in telescopes_data]
+            for i, tel_data in enumerate(telescopes_data):
+                try:
+                    # Validate each telescope entry
+                    telescope = Telescope(**tel_data)
+                    telescopes.append(telescope)
+                except Exception as e:
+                    print(f"Warning: Invalid telescope entry #{i+1} in {equipment_paths.telescopes_file}: {e}")
+                    print(f"Entry: {tel_data}")
+                    continue
     
     # Load filter mappings
     filter_mappings = {}
@@ -171,8 +187,10 @@ def load_config(config_path: str = "config.json"):
     # Validate and create paths
     validate_and_create_paths(config)
     
-    # Load equipment data
+    # Load equipment data with validation
     cameras, telescopes, filter_mappings = load_equipment(config.equipment)
+    
+    print(f"Loaded {len(cameras)} cameras, {len(telescopes)} telescopes, {len(filter_mappings)} filter mappings")
     
     return config, cameras, telescopes, filter_mappings
 
@@ -281,6 +299,16 @@ if __name__ == "__main__":
         print(f"Quarantine dir: {config.paths.quarantine_dir}")
         print(f"Found {len(cameras)} cameras and {len(telescopes)} telescopes")
         print(f"Filter mappings: {len(filter_mappings)} entries")
+        
+        # Show any auto-generated equipment
+        auto_cameras = [c for c in cameras if c.camera.startswith('UNKNOWN-')]
+        auto_telescopes = [t for t in telescopes if t.scope.startswith('UNKNOWN-')]
+        
+        if auto_cameras:
+            print(f"Auto-generated cameras: {[c.camera for c in auto_cameras]}")
+        if auto_telescopes:
+            print(f"Auto-generated telescopes: {[t.scope for t in auto_telescopes]}")
+            
     except FileNotFoundError:
         print("Creating default configuration...")
         create_default_config()
