@@ -1,4 +1,4 @@
-"""File organization and migration system for FITS Cataloger."""
+"""File organization and migration system for FITS Cataloger - Validation Score Based."""
 
 import os
 import re
@@ -45,18 +45,39 @@ class FileOrganizer:
             return re.sub(pattern, '', filename)
         return filename
     
+    def _safe_float_to_int(self, value: Optional[float], default: int = 0) -> int:
+        """Safely convert float to int, handling None values."""
+        if value is None:
+            return default
+        try:
+            return int(float(value))
+        except (ValueError, TypeError):
+            return default
+    
+    def _safe_get_exposure(self, file_data: Dict) -> int:
+        """Safely get exposure value as integer, handling None."""
+        exposure = file_data.get('exposure')
+        return self._safe_float_to_int(exposure, 0)
+    
+    def _safe_get_string(self, file_data: Dict, key: str, default: str = "UNKNOWN") -> str:
+        """Safely get string value, handling None and empty strings."""
+        value = file_data.get(key)
+        if value is None or value == "" or str(value).lower() in ['none', 'null', 'nan']:
+            return default
+        return str(value)
+    
     def generate_standardized_filename(self, file_data: Dict, sequence: int) -> str:
         """Generate standardized filename based on frame type and metadata."""
-        frame_type = file_data.get('frame_type', 'UNKNOWN')
-        camera = file_data.get('camera', 'UNKNOWN')
+        frame_type = self._safe_get_string(file_data, 'frame_type', 'UNKNOWN')
+        camera = self._safe_get_string(file_data, 'camera', 'UNKNOWN')
         
         # Format sequence number as 4-digit zero-padded
         seq_str = f"{sequence:04d}"
         
         if frame_type == 'LIGHT':
-            obj = file_data.get('object', 'UNKNOWN')
-            filter_name = file_data.get('filter', 'NONE')
-            exposure = file_data.get('exposure', 0)
+            obj = self._safe_get_string(file_data, 'object', 'UNKNOWN')
+            filter_name = self._safe_get_string(file_data, 'filter', 'NONE')
+            exposure = self._safe_get_exposure(file_data)
             mosaic = file_data.get('mosaic')
             
             # Clean object name for filename (remove invalid chars)
@@ -68,16 +89,16 @@ class FileOrganizer:
                 return f"{obj_clean}_{frame_type}_{filter_name}_{exposure}s_{seq_str}.fits"
                 
         elif frame_type == 'FLAT':
-            telescope = file_data.get('telescope', 'UNKNOWN')
-            filter_name = file_data.get('filter', 'NONE')
-            exposure = file_data.get('exposure', 0)
+            telescope = self._safe_get_string(file_data, 'telescope', 'UNKNOWN')
+            filter_name = self._safe_get_string(file_data, 'filter', 'NONE')
+            exposure = self._safe_get_exposure(file_data)
             return f"{camera}_{frame_type}_{telescope}_{filter_name}_{exposure}s_{seq_str}.fits"
             
         elif frame_type == 'DARK':
-            exposure = file_data.get('exposure', 0)
+            exposure = self._safe_get_exposure(file_data)
             # Check if this should be classified as FLAT_DARK
             if exposure <= 29:
-                filter_name = file_data.get('filter', 'NONE')
+                filter_name = self._safe_get_string(file_data, 'filter', 'NONE')
                 return f"{camera}_FLAT_DARK_{filter_name}_{seq_str}.fits"
             else:
                 return f"{camera}_{frame_type}_{exposure}s_{seq_str}.fits"
@@ -90,16 +111,16 @@ class FileOrganizer:
     
     def determine_destination_path(self, file_data: Dict) -> str:
         """Determine destination folder path based on file metadata."""
-        frame_type = file_data.get('frame_type')
-        camera = file_data.get('camera', 'UNKNOWN')
-        obs_date = file_data.get('obs_date')
+        frame_type = self._safe_get_string(file_data, 'frame_type', 'UNKNOWN')
+        camera = self._safe_get_string(file_data, 'camera', 'UNKNOWN')
+        obs_date = self._safe_get_string(file_data, 'obs_date', 'UNKNOWN')
         
         base_path = Path(self.config.paths.image_dir)
         
         if frame_type == 'LIGHT':
-            obj = file_data.get('object', 'UNKNOWN')
-            telescope = file_data.get('telescope', 'UNKNOWN')
-            filter_name = file_data.get('filter', 'NONE')
+            obj = self._safe_get_string(file_data, 'object', 'UNKNOWN')
+            telescope = self._safe_get_string(file_data, 'telescope', 'UNKNOWN')
+            filter_name = self._safe_get_string(file_data, 'filter', 'NONE')
             mosaic = file_data.get('mosaic')
             
             path = base_path / obj / camera / telescope / filter_name / obs_date
@@ -107,16 +128,16 @@ class FileOrganizer:
                 path = path / str(mosaic)
                 
         elif frame_type == 'FLAT':
-            telescope = file_data.get('telescope', 'UNKNOWN')
-            filter_name = file_data.get('filter', 'NONE')
+            telescope = self._safe_get_string(file_data, 'telescope', 'UNKNOWN')
+            filter_name = self._safe_get_string(file_data, 'filter', 'NONE')
             path = base_path / "CALIBRATION" / camera / "FLAT" / telescope / filter_name / obs_date
             
         elif frame_type == 'DARK':
-            exposure = file_data.get('exposure', 0)
+            exposure = self._safe_get_exposure(file_data)
             
             # Check if this is a flat dark (≤29 seconds)
             if exposure <= 29:
-                filter_name = file_data.get('filter', 'NONE')
+                filter_name = self._safe_get_string(file_data, 'filter', 'NONE')
                 path = base_path / "CALIBRATION" / camera / "FLAT_DARK" / filter_name / obs_date
             else:
                 path = base_path / "CALIBRATION" / camera / "DARK" / f"{exposure}s" / obs_date
@@ -174,10 +195,11 @@ class FileOrganizer:
     
     def migrate_files(self, limit: Optional[int] = None, auto_cleanup: bool = False) -> Dict[str, int]:
         """
-        Migrate files from quarantine to organized structure with database-first approach.
+        Migrate files from quarantine to organized structure - only files with validation scores > 95.
         
         Args:
             limit: Maximum number of files to process (None for all)
+            auto_cleanup: Automatically delete duplicates and bad files without prompting
             
         Returns:
             Dict with migration statistics
@@ -191,10 +213,11 @@ class FileOrganizer:
             'errors': 0,
             'skipped': 0,
             'duplicates_moved': 0,
-            'bad_files_moved': 0
+            'bad_files_moved': 0,
+            'left_for_review': 0
         }
         
-        # Create special folders
+        # Create special folders for duplicates and bad files only
         duplicates_folder = Path(self.config.paths.quarantine_dir) / "Duplicates"
         bad_files_folder = Path(self.config.paths.quarantine_dir) / "Bad"
         duplicates_folder.mkdir(exist_ok=True)
@@ -204,7 +227,7 @@ class FileOrganizer:
         session = self.db_service.db_manager.get_session()
         
         try:
-            # STEP 1: Migrate files that have database records first
+            # STEP 1: Only migrate files with scores > 95, leave everything else in place
             click.echo("Getting files from database...")
             
             # Get database records for files still in quarantine
@@ -212,14 +235,37 @@ class FileOrganizer:
                 FitsFile.folder.like(f"%{self.config.paths.quarantine_dir}%")
             ).all()
             
-            # Filter out files already in special folders
-            files_to_migrate = []
+            # Only migrate files with scores > 95, leave everything else in place
+            auto_migrate_files = []
+            skipped_for_review = 0
+            
             for db_file in db_files:
                 file_path = Path(db_file.folder) / db_file.file
                 if ("Duplicates" not in str(file_path) and 
                     "Bad" not in str(file_path) and 
                     file_path.exists()):
-                    files_to_migrate.append(db_file)
+                    
+                    # Get validation score
+                    validation_score = getattr(db_file, 'validation_score', None)
+                    
+                    # Only migrate files with excellent scores (>95)
+                    # The validation scoring already accounts for critical nulls and other issues
+                    if validation_score is not None and validation_score > 95.0:
+                        auto_migrate_files.append(db_file)
+                    else:
+                        skipped_for_review += 1
+            
+            # Set files to migrate (only high-scoring files)
+            files_to_migrate = auto_migrate_files
+            
+            if auto_migrate_files:
+                click.echo(f"Found {len(auto_migrate_files)} files with scores >95 ready for migration")
+            
+            if skipped_for_review > 0:
+                click.echo(f"Leaving {skipped_for_review} files in quarantine for review (scores ≤95, NULL scores, or data issues)")
+            
+            # Record how many files were left for review
+            stats['left_for_review'] = skipped_for_review
             
             if limit and len(files_to_migrate) > limit:
                 click.echo(f"Limiting migration to {limit} files")
@@ -228,7 +274,7 @@ class FileOrganizer:
             if files_to_migrate:
                 click.echo(f"Migrating {len(files_to_migrate)} database files to organized structure...")
                 
-                # Convert database records to migration format
+                # Convert database records to migration format with null handling
                 migration_records = []
                 for db_file in files_to_migrate:
                     record = {
@@ -240,7 +286,7 @@ class FileOrganizer:
                         'camera': db_file.camera,
                         'telescope': db_file.telescope,
                         'filter': db_file.filter,
-                        'exposure': db_file.exposure,
+                        'exposure': db_file.exposure,  # This can be None
                         'obs_date': db_file.obs_date,
                         'obs_timestamp': db_file.obs_timestamp,
                         'md5sum': db_file.md5sum,
@@ -394,7 +440,7 @@ class FileOrganizer:
         except Exception as e:
             logger.error(f"Error during folder cleanup: {e}")
         
-        # STEP 4: Handle duplicates folder cleanup prompt
+        # STEP 4: Handle cleanup prompts for duplicates and bad files only
         remaining_duplicates = list(duplicates_folder.glob("*.fit*")) if duplicates_folder.exists() else []
         remaining_bad_files = list(bad_files_folder.glob("*.fit*")) if bad_files_folder.exists() else []
 
@@ -441,8 +487,8 @@ class FileOrganizer:
             physical_files = []
             for ext in ['.fits', '.fit', '.fts']:
                 files = list(quarantine_path.rglob(f"*{ext}"))
-                # Filter out duplicates folder for preview
-                files = [f for f in files if "Duplicates" not in str(f)]
+                # Filter out duplicates and bad files folders for preview
+                files = [f for f in files if not any(folder in str(f) for folder in ["Duplicates", "Bad"])]
                 physical_files.extend(files)
             
             if not physical_files:

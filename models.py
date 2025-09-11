@@ -64,6 +64,11 @@ class FitsFile(Base):
     orig_file = Column(String(255))
     orig_folder = Column(String(500))
     
+    # Validation fields
+    validation_score = Column(Float)
+    migration_ready = Column(Boolean, default=False)
+    validation_notes = Column(Text)
+    
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -75,6 +80,8 @@ class FitsFile(Base):
         Index('idx_frame_type_filter', 'frame_type', 'filter'),
         Index('idx_session', 'session_id'),
         Index('idx_location', 'latitude', 'longitude'),
+        Index('idx_validation_score', 'validation_score'),
+        Index('idx_migration_ready', 'migration_ready'),
     )
 
 

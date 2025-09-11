@@ -1,4 +1,4 @@
-"""Main application for FITS Cataloger - Phase 1 with File Migration."""
+"""Main application for FITS Cataloger - Phase 1 with File Migration and Validation."""
 
 import asyncio
 import logging
@@ -15,6 +15,7 @@ from models import DatabaseManager, DatabaseService
 from fits_processor import OptimizedFitsProcessor
 from file_monitor import FileMonitorService
 from file_organizer import FileOrganizer
+from validation import FitsValidator
 
 
 # Global flag for graceful shutdown
@@ -383,6 +384,80 @@ def monitor(ctx):
 
 
 @cli.command()
+@click.option('--limit', '-l', type=int, help='Maximum number of files to validate')
+@click.pass_context
+def validate(ctx, limit):
+    """Run validation scoring on all FITS files in database."""
+    config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        
+        cataloger = FitsCataloger(config_path)
+        validator = FitsValidator(cataloger.db_service)
+        
+        click.echo("Starting FITS file validation...")
+        
+        # Run validation
+        stats = validator.validate_all_files(limit)
+        
+        # Show results
+        click.echo("Validation completed!")
+        click.echo(f"  Total files:        {stats['total']:>6}")
+        click.echo(f"  Auto-migrate ready: {stats['auto_migrate']:>6} (≥95 points)")
+        click.echo(f"  Needs review:       {stats['needs_review']:>6} (80-94 points)")
+        click.echo(f"  Manual only:        {stats['manual_only']:>6} (<80 points)")
+        click.echo(f"  Errors:             {stats['errors']:>6}")
+        
+        # Show summary by frame type
+        summary = validator.get_validation_summary()
+        click.echo("\nAverage scores by frame type:")
+        for frame_type, data in summary['frame_type_averages'].items():
+            click.echo(f"  {frame_type:>5}: {data['avg_score']:>5.1f} pts ({data['count']:>5} files)")
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error during validation: {e}")
+        sys.exit(1)
+
+
+@cli.command()
+@click.pass_context
+def validation_summary(ctx):
+    """Show validation summary without running validation."""
+    config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        
+        cataloger = FitsCataloger(config_path)
+        validator = FitsValidator(cataloger.db_service)
+        
+        summary = validator.get_validation_summary()
+        
+        click.echo("Validation Summary:")
+        click.echo(f"  Total files:        {summary['total_files']:>6}")
+        click.echo(f"  Auto-migrate ready: {summary['auto_migrate']:>6} (≥95 points)")
+        click.echo(f"  Needs review:       {summary['needs_review']:>6} (80-94 points)")
+        click.echo(f"  Manual only:        {summary['manual_only']:>6} (<80 points)")
+        
+        click.echo("\nAverage scores by frame type:")
+        for frame_type, data in summary['frame_type_averages'].items():
+            click.echo(f"  {frame_type:>5}: {data['avg_score']:>5.1f} pts ({data['count']:>5} files)")
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error getting validation summary: {e}")
+        sys.exit(1)
+
+
+@cli.command()
 @click.option('--limit', '-l', type=int, help='Maximum number of files to migrate')
 @click.option('--dry-run', is_flag=True, help='Preview migration without moving files')
 @click.option('--auto-cleanup', is_flag=True, help='Automatically delete duplicates and bad files without prompting')
@@ -415,6 +490,7 @@ def migrate(ctx, limit, dry_run, auto_cleanup):
             click.echo("Migration completed!")
             click.echo(f"  Files processed:     {stats['processed']:>6}")
             click.echo(f"  Files moved:         {stats['moved']:>6}")
+            click.echo(f"  Left for review:     {stats.get('left_for_review', 0):>6}")
             click.echo(f"  Duplicates handled:  {stats.get('duplicates_moved', 0):>6}")
             click.echo(f"  Bad files handled:   {stats.get('bad_files_moved', 0):>6}")
             click.echo(f"  Errors:              {stats['errors']:>6}")
