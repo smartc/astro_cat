@@ -1,107 +1,42 @@
-"""FITS file processing with Priority 1 performance optimizations."""
+"""FITS file processing with optimizations and multiprocessing support."""
 
 import hashlib
-import os
 import logging
-import re
 import math
+import os
+import re
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
+from functools import partial
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from functools import partial
 import multiprocessing as mp
 
 from astropy.io import fits
-from astropy.time import Time
 import polars as pl
 from tqdm import tqdm
 
+from object_processor import ObjectNameProcessor
 
 logger = logging.getLogger(__name__)
 
-class ObjectNameProcessor:
-    """Simplified object name processor for integration."""
-    
-    def __init__(self):
-        self.catalog_patterns = {
-            'NGC': [r'ngc[-\s]*(\d+)', r'n[-\s]*(\d+)'],
-            'IC': [r'ic[-\s]*(\d+)', r'i[-\s]*(\d+)'],
-            'M': [r'm[-\s]*(\d+)', r'messier[-\s]*(\d+)'],
-            'SH2': [r'sh\s*2\s*(\d+)', r'sharpless[-\s]*(\d+)'],
-            'Abell': [r'abell[-\s]*(\d+)', r'a[-\s]*(\d+)', r'aco[-\s]*(\d+)'],
-            'C': [r'c[-\s]*(\d+)', r'caldwell[-\s]*(\d+)'],
-            'B': [r'b[-\s]*(\d+)', r'barnard[-\s]*(\d+)'],
-            'LDN': [r'ldn[-\s]*(\d+)', r'lynds\s+dark[-\s]*(\d+)'],
-            'LBN': [r'lbn[-\s]*(\d+)', r'lynds\s+bright[-\s]*(\d+)'],
-            'VdB': [r'vdb[-\s]*(\d+)', r'van\s+den\s+bergh[-\s]*(\d+)'],
-            'Arp': [r'arp[-\s]*(\d+)'],
-            'RCW': [r'rcw[-\s]*(\d+)'],
-            'Gum': [r'gum[-\s]*(\d+)'],
-            'PK': [r'pk[-\s]*(\d+[-+]\d+\.\d+)', r'perek[-\s]*kohoutek[-\s]*(\d+[-+]\d+\.\d+)'],
-            'Ced': [r'ced[-\s]*(\d+)', r'cederblad[-\s]*(\d+)'],
-            'Stock': [r'stock[-\s]*(\d+)', r'st[-\s]*(\d+)'],
-            'Collinder': [r'collinder[-\s]*(\d+)', r'cr[-\s]*(\d+)', r'col[-\s]*(\d+)'],
-            'Melotte': [r'melotte[-\s]*(\d+)', r'mel[-\s]*(\d+)'],
-            'Trumpler': [r'trumpler[-\s]*(\d+)', r'tr[-\s]*(\d+)'],
-            'PGC': [r'pgc[-\s]*(\d+)'],
-            'UGC': [r'ugc[-\s]*(\d+)'],
-            'ESO': [r'eso[-\s]*(\d+[-]\d+)'],
-            'IRAS': [r'iras[-\s]*(\d{5}[+-]\d{4})'],
-        }
-    
-    def normalize_input(self, name: str) -> str:
-        if not name or name in ['nan', 'None', '', 'null']:
-            return ""
-        name = str(name).lower().strip()
-        name = re.sub(r'(flat\s+frame.*|save\s+to\s+disk|test\s+image)', '', name)
-        name = re.sub(r'[_\-\s]+', ' ', name).strip()
-        name = re.sub(r'[^\w\s\-\+]', ' ', name)
-        return name
-    
-    def extract_catalog_object(self, name: str) -> Optional[str]:
-        normalized = self.normalize_input(name)
-        for catalog, patterns in self.catalog_patterns.items():
-            for pattern in patterns:
-                match = re.search(pattern, normalized, re.IGNORECASE)
-                if match:
-                    number = match.group(1)
-                    # Special handling for SH2 to ensure proper formatting
-                    if catalog == 'SH2':
-                        return f"SH2-{number}"
-                    return f"{catalog}{number}"
-        return None
-    
-    def process_object_name(self, raw_name: str, frame_type: str = "LIGHT") -> str:
-        if not raw_name or raw_name in ['nan', 'None', '', 'null']:
-            return None
-        
-        if frame_type.upper() in ['FLAT', 'DARK', 'BIAS']:
-            return 'CALIBRATION'
-        
-        catalog_obj = self.extract_catalog_object(raw_name)
-        if catalog_obj:
-            return catalog_obj
-        
-        cleaned = self.normalize_input(raw_name)
-        if cleaned and cleaned not in ['', 'unknown', 'test']:
-            return cleaned.title()
-        
-        return None
 
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
 
 def get_file_md5_optimized(filepath: str) -> str:
-    """Optimized MD5 hash calculation using larger chunks and Python 3.11+ optimizations."""
+    """Optimized MD5 hash calculation using larger chunks."""
     try:
         # Use Python 3.11+ optimized file_digest if available
         if hasattr(hashlib, 'file_digest'):
             with open(filepath, 'rb') as f:
                 return hashlib.file_digest(f, 'md5').hexdigest()
         else:
-            # Fallback with optimized chunk size for ARM64
+            # Fallback with optimized chunk size
             hash_md5 = hashlib.md5()
             with open(filepath, "rb") as f:
-                # 128KB chunks optimal for ARM64 I/O
+                # 128KB chunks optimal for I/O
                 for chunk in iter(lambda: f.read(131072), b""):
                     hash_md5.update(chunk)
             return hash_md5.hexdigest()
@@ -110,120 +45,16 @@ def get_file_md5_optimized(filepath: str) -> str:
         return ""
 
 
-def extract_fits_metadata_worker(filepath: str, cameras_dict: Dict, telescopes_dict: Dict, 
-                                filter_mappings: Dict[str, str]) -> Optional[Dict]:
-    """Worker function for parallel FITS metadata extraction."""
-    try:
-        # Use memory mapping and lazy loading for performance
-        with fits.open(filepath, memmap=True, lazy_load_hdus=True) as hdul:
-            header = hdul[0].header
-            
-            # Extract basic metadata
-            metadata = {
-                'file': os.path.basename(filepath),
-                'folder': os.path.dirname(filepath),
-            }
-            
-            # Parse observation timestamp
-            obs_timestamp = _parse_observation_date(header)
-            
-            # Calculate observation date (shifted by 12 hours)
-            if obs_timestamp:
-                shifted_time = obs_timestamp - timedelta(hours=12)
-                obs_date = shifted_time.strftime('%Y-%m-%d')
-                obs_timestamp_truncated = obs_timestamp.replace(second=0, microsecond=0)
-            else:
-                obs_date = None
-                obs_timestamp_truncated = None
-            
-            # Extract header values with fallbacks
-            raw_object = _get_header_value(header, ['OBJECT', 'TARGET'])
-            instrument = _get_header_value(header, ['INSTRUME'])
-            filter_wheel = _get_header_value(header, ['FWHEEL'])
-            observer = _get_header_value(header, ['OBSERVER'])
-            site_name = _get_header_value(header, ['SITENAME'])
-            binning = _get_header_value(header, ['XBINNING', 'BINNING'], int, 1)
-            
-            metadata.update({
-                'obs_date': obs_date,
-                'obs_timestamp': obs_timestamp_truncated,
-                'ra': _get_header_value(header, ['RA', 'OBJCTRA', 'CRVAL1']),
-                'dec': _get_header_value(header, ['DEC', 'OBJCTDEC', 'CRVAL2']),
-                'x': _get_header_value(header, ['NAXIS1'], int),
-                'y': _get_header_value(header, ['NAXIS2'], int),
-                'frame_type': _normalize_frame_type(
-                    _get_header_value(header, ['IMAGETYP', 'FRAME'])
-                ),
-                'filter': _normalize_filter(
-                    _get_header_value(header, ['FILTER', 'FILTERS']), filter_mappings
-                ),
-                'focal_length': _get_header_value(header, ['FOCALLEN'], float),
-                'exposure': _get_header_value(header, ['EXPOSURE', 'EXPTIME'], float),
-            })
-            
-            # Process object name
-            object_processor = ObjectNameProcessor()
-            frame_type = metadata['frame_type']
-            processed_object = object_processor.process_object_name(raw_object, frame_type)
-            metadata['object'] = processed_object
-            
-            # Extract location data
-            metadata.update({
-                'latitude': _parse_coordinate(header, ['SITELAT', 'LAT-OBS', 'LATITUDE']),
-                'longitude': _parse_coordinate(header, ['SITELONG', 'LONG-OBS', 'LONGITUDE']),
-                'elevation': _get_header_value(header, ['SITEELEV', 'ALT-OBS', 'ELEVATION'], float),
-            })
-            
-            # Identify camera and telescope (simplified for parallel processing)
-            metadata['camera'] = _identify_camera_simple(
-                metadata['x'], metadata['y'], instrument, binning, cameras_dict
-            )
-            metadata['telescope'] = _identify_telescope_simple(
-                metadata['focal_length'], telescopes_dict
-            )
-            
-            # Calculate field of view and pixel scale
-            fov_data = _calculate_field_of_view_simple(
-                metadata['camera'], metadata['telescope'], 
-                metadata['x'], metadata['y'], binning, cameras_dict, telescopes_dict
-            )
-            metadata.update(fov_data)
-            
-            # Generate session ID
-            metadata['session_id'] = _generate_session_id_with_hash(
-                metadata['obs_date'], instrument, metadata['focal_length'],
-                metadata['x'], metadata['y'], filter_wheel, observer, site_name
-            )
-            
-            # Store session data for later extraction
-            metadata['_session_data'] = {
-                'session_id': metadata['session_id'],
-                'session_date': obs_date,
-                'telescope': metadata['telescope'],
-                'camera': metadata['camera'],
-                'site_name': site_name,
-                'latitude': metadata['latitude'],
-                'longitude': metadata['longitude'],
-                'elevation': metadata['elevation'],
-                'observer': observer,
-                'notes': None
-            }
-            
-            logger.debug(f"Successfully processed metadata for {filepath}")
-            return metadata
-                
-    except Exception as e:
-        logger.error(f"Error processing FITS file {filepath}: {e}")
-        return None
-
-
 def md5_hash_worker(filepath: str) -> Tuple[str, str]:
     """Worker function for parallel MD5 hash calculation."""
     return filepath, get_file_md5_optimized(filepath)
 
 
-# Helper functions (simplified versions for parallel processing)
-def _parse_observation_date(header) -> Optional[datetime]:
+# =============================================================================
+# FITS HEADER PROCESSING FUNCTIONS
+# =============================================================================
+
+def parse_observation_date(header) -> Optional[datetime]:
     """Parse observation date from various possible formats."""
     date_keys = ['DATE-OBS', 'DATE_OBS', 'DATEOBS']
     
@@ -233,7 +64,7 @@ def _parse_observation_date(header) -> Optional[datetime]:
                 date_str = header[key]
                 if isinstance(date_str, str):
                     if 'T' in date_str:
-                        date_str = _normalize_microseconds(date_str)
+                        date_str = normalize_microseconds(date_str)
                         return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
                     else:
                         return datetime.strptime(date_str, '%Y-%m-%d')
@@ -246,7 +77,7 @@ def _parse_observation_date(header) -> Optional[datetime]:
     return None
 
 
-def _normalize_microseconds(timestamp_str: str) -> str:
+def normalize_microseconds(timestamp_str: str) -> str:
     """Normalize microseconds to max 6 digits for datetime parsing."""
     pattern = r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.(\d+)'
     match = re.match(pattern, timestamp_str)
@@ -265,7 +96,7 @@ def _normalize_microseconds(timestamp_str: str) -> str:
     return timestamp_str
 
 
-def _get_header_value(header, keys: List[str], value_type=str, default=None):
+def get_header_value(header, keys: List[str], value_type=str, default=None):
     """Get value from header with multiple possible key names."""
     for key in keys:
         if key in header:
@@ -279,7 +110,7 @@ def _get_header_value(header, keys: List[str], value_type=str, default=None):
     return default
 
 
-def _normalize_frame_type(frame_type: str) -> str:
+def normalize_frame_type(frame_type: str) -> str:
     """Normalize frame type names."""
     if not frame_type:
         return "UNKNOWN"
@@ -301,7 +132,7 @@ def _normalize_frame_type(frame_type: str) -> str:
     return mappings.get(frame_type, frame_type)
 
 
-def _normalize_filter(filter_name: str, filter_mappings: Dict[str, str]) -> str:
+def normalize_filter(filter_name: str, filter_mappings: Dict[str, str]) -> str:
     """Normalize filter names using mappings."""
     if not filter_name:
         return "NONE"
@@ -318,7 +149,7 @@ def _normalize_filter(filter_name: str, filter_mappings: Dict[str, str]) -> str:
     return filter_name.upper()
 
 
-def _parse_coordinate(header, keys: List[str]) -> Optional[float]:
+def parse_coordinate(header, keys: List[str]) -> Optional[float]:
     """Parse coordinate from header, handling DMS format."""
     for key in keys:
         if key in header:
@@ -353,8 +184,12 @@ def _parse_coordinate(header, keys: List[str]) -> Optional[float]:
     return None
 
 
-def _identify_camera_simple(x_pixels: Optional[int], y_pixels: Optional[int],
-                           instrument: Optional[str], binning: int, cameras_dict: Dict) -> str:
+# =============================================================================
+# EQUIPMENT IDENTIFICATION FUNCTIONS
+# =============================================================================
+
+def identify_camera_simple(x_pixels: Optional[int], y_pixels: Optional[int],
+                          instrument: Optional[str], binning: int, cameras_dict: Dict) -> str:
     """Simplified camera identification for parallel processing."""
     if x_pixels:
         actual_x = x_pixels * binning
@@ -377,7 +212,7 @@ def _identify_camera_simple(x_pixels: Optional[int], y_pixels: Optional[int],
     return "UNKNOWN"
 
 
-def _identify_telescope_simple(focal_length: Optional[float], telescopes_dict: Dict) -> str:
+def identify_telescope_simple(focal_length: Optional[float], telescopes_dict: Dict) -> str:
     """Simplified telescope identification for parallel processing."""
     if not focal_length:
         return "UNKNOWN"
@@ -389,9 +224,9 @@ def _identify_telescope_simple(focal_length: Optional[float], telescopes_dict: D
     return "UNKNOWN"
 
 
-def _calculate_field_of_view_simple(camera_name: str, telescope_name: str, 
-                                   x_pixels: Optional[int], y_pixels: Optional[int], 
-                                   binning: int, cameras_dict: Dict, telescopes_dict: Dict) -> Dict[str, Optional[float]]:
+def calculate_field_of_view_simple(camera_name: str, telescope_name: str, 
+                                  x_pixels: Optional[int], y_pixels: Optional[int], 
+                                  binning: int, cameras_dict: Dict, telescopes_dict: Dict) -> Dict[str, Optional[float]]:
     """Simplified field of view calculation."""
     result = {
         'fov_x': None,
@@ -425,12 +260,12 @@ def _calculate_field_of_view_simple(camera_name: str, telescope_name: str,
     return result
 
 
-def _generate_session_id_with_hash(obs_date: Optional[str], 
-                                  instrument: str, focal_length: Optional[float],
-                                  naxis1: Optional[int] = None, naxis2: Optional[int] = None,
-                                  filter_wheel: Optional[str] = None,
-                                  observer: Optional[str] = None,
-                                  site_name: Optional[str] = None) -> str:
+def generate_session_id_with_hash(obs_date: Optional[str], 
+                                 instrument: str, focal_length: Optional[float],
+                                 naxis1: Optional[int] = None, naxis2: Optional[int] = None,
+                                 filter_wheel: Optional[str] = None,
+                                 observer: Optional[str] = None,
+                                 site_name: Optional[str] = None) -> str:
     """Generate session ID using rig hash approach."""
     if not obs_date:
         return "UNKNOWN"
@@ -468,6 +303,121 @@ def _generate_session_id_with_hash(obs_date: Optional[str],
     return session_id
 
 
+# =============================================================================
+# WORKER FUNCTION FOR PARALLEL PROCESSING
+# =============================================================================
+
+def extract_fits_metadata_worker(filepath: str, cameras_dict: Dict, telescopes_dict: Dict, 
+                                filter_mappings: Dict[str, str]) -> Optional[Dict]:
+    """Worker function for parallel FITS metadata extraction."""
+    try:
+        # Use memory mapping and lazy loading for performance
+        with fits.open(filepath, memmap=True, lazy_load_hdus=True) as hdul:
+            header = hdul[0].header
+            
+            # Extract basic metadata
+            metadata = {
+                'file': os.path.basename(filepath),
+                'folder': os.path.dirname(filepath),
+            }
+            
+            # Parse observation timestamp
+            obs_timestamp = parse_observation_date(header)
+            
+            # Calculate observation date (shifted by 12 hours)
+            if obs_timestamp:
+                shifted_time = obs_timestamp - timedelta(hours=12)
+                obs_date = shifted_time.strftime('%Y-%m-%d')
+                obs_timestamp_truncated = obs_timestamp.replace(second=0, microsecond=0)
+            else:
+                obs_date = None
+                obs_timestamp_truncated = None
+            
+            # Extract header values with fallbacks
+            raw_object = get_header_value(header, ['OBJECT', 'TARGET'])
+            instrument = get_header_value(header, ['INSTRUME'])
+            filter_wheel = get_header_value(header, ['FWHEEL'])
+            observer = get_header_value(header, ['OBSERVER'])
+            site_name = get_header_value(header, ['SITENAME'])
+            binning = get_header_value(header, ['XBINNING', 'BINNING'], int, 1)
+            
+            metadata.update({
+                'obs_date': obs_date,
+                'obs_timestamp': obs_timestamp_truncated,
+                'ra': get_header_value(header, ['RA', 'OBJCTRA', 'CRVAL1']),
+                'dec': get_header_value(header, ['DEC', 'OBJCTDEC', 'CRVAL2']),
+                'x': get_header_value(header, ['NAXIS1'], int),
+                'y': get_header_value(header, ['NAXIS2'], int),
+                'frame_type': normalize_frame_type(
+                    get_header_value(header, ['IMAGETYP', 'FRAME'])
+                ),
+                'filter': normalize_filter(
+                    get_header_value(header, ['FILTER', 'FILTERS']), filter_mappings
+                ),
+                'focal_length': get_header_value(header, ['FOCALLEN'], float),
+                'exposure': get_header_value(header, ['EXPOSURE', 'EXPTIME'], float),
+            })
+            
+            # Process object name using extracted ObjectNameProcessor
+            object_processor = ObjectNameProcessor()
+            frame_type = metadata['frame_type']
+            processed_object = object_processor.process_object_name(raw_object, frame_type)
+            metadata['object'] = processed_object
+            
+            # Extract location data
+            metadata.update({
+                'latitude': parse_coordinate(header, ['SITELAT', 'LAT-OBS', 'LATITUDE']),
+                'longitude': parse_coordinate(header, ['SITELONG', 'LONG-OBS', 'LONGITUDE']),
+                'elevation': get_header_value(header, ['SITEELEV', 'ALT-OBS', 'ELEVATION'], float),
+            })
+            
+            # Identify camera and telescope
+            metadata['camera'] = identify_camera_simple(
+                metadata['x'], metadata['y'], instrument, binning, cameras_dict
+            )
+            metadata['telescope'] = identify_telescope_simple(
+                metadata['focal_length'], telescopes_dict
+            )
+            
+            # Calculate field of view and pixel scale
+            fov_data = calculate_field_of_view_simple(
+                metadata['camera'], metadata['telescope'], 
+                metadata['x'], metadata['y'], binning, cameras_dict, telescopes_dict
+            )
+            metadata.update(fov_data)
+            
+            # Generate session ID
+            metadata['session_id'] = generate_session_id_with_hash(
+                metadata['obs_date'], instrument, metadata['focal_length'],
+                metadata['x'], metadata['y'], filter_wheel, observer, site_name
+            )
+            
+            # Store session data for later extraction
+            metadata['_session_data'] = {
+                'session_id': metadata['session_id'],
+                'session_date': obs_date,
+                'telescope': metadata['telescope'],
+                'camera': metadata['camera'],
+                'site_name': site_name,
+                'latitude': metadata['latitude'],
+                'longitude': metadata['longitude'],
+                'elevation': metadata['elevation'],
+                'observer': observer,
+                'notes': None
+            }
+            
+            logger.debug(f"Successfully processed metadata for {filepath}")
+            return metadata
+                
+    except Exception as e:
+        logger.error(f"Error processing FITS file {filepath}: {e}")
+        return None
+
+
+# =============================================================================
+# MAIN PROCESSOR CLASS
+# =============================================================================
+
 class OptimizedFitsProcessor:
     """Optimized FITS processor with multiprocessing and memory mapping."""
     
@@ -476,15 +426,50 @@ class OptimizedFitsProcessor:
         self.cameras = {cam.camera: cam for cam in cameras}
         self.telescopes = {tel.scope: tel for tel in telescopes}
         self.filter_mappings = filter_mappings
-        self.object_processor = ObjectNameProcessor()
         self.db_service = db_service
         
         # Determine optimal number of workers
         self.cpu_count = mp.cpu_count()
-        self.metadata_workers = min(self.cpu_count - 1, 6)  # Leave one core free, max 6 for ARM64
+        self.metadata_workers = min(self.cpu_count - 1, 6)  # Leave one core free, max 6
         self.md5_workers = min(self.cpu_count // 2, 4)      # I/O bound, fewer workers
         
         logger.info(f"Initialized with {self.metadata_workers} metadata workers, {self.md5_workers} MD5 workers")
+    
+    def find_fits_files(self, directory: str) -> List[str]:
+        """Find all FITS files in directory and subdirectories with progress reporting."""
+        fits_files = []
+        directory_path = Path(directory)
+        
+        if not directory_path.exists():
+            logger.warning(f"Directory does not exist: {directory}")
+            return fits_files
+        
+        logger.info(f"Scanning directory: {directory}")
+        
+        with tqdm(desc="Scanning for FITS files", unit="pattern") as pbar:
+            for extension in self.config.file_monitoring.extensions:
+                pbar.set_postfix_str(f"*{extension}")
+                pattern = f"**/*{extension}"
+                files = list(directory_path.glob(pattern))
+                fits_files.extend([str(f) for f in files])
+                pbar.update(1)
+        
+        # Filter out files marked as bad
+        original_count = len(fits_files)
+        fits_files = [f for f in fits_files if not self._is_bad_file(f)]
+        bad_count = original_count - len(fits_files)
+        
+        if bad_count > 0:
+            logger.info(f"Filtered out {bad_count} bad files")
+        
+        logger.info(f"Found {len(fits_files)} FITS files in {directory}")
+        return sorted(fits_files)
+    
+    def _is_bad_file(self, filepath: str) -> bool:
+        """Check if file is marked as bad."""
+        filename = os.path.basename(filepath)
+        bad_markers = ['BAD_', 'CORRUPT_', 'ERROR_']
+        return any(marker in filename.upper() for marker in bad_markers)
     
     def process_files_optimized(self, filepaths: List[str]) -> Tuple[pl.DataFrame, List[dict]]:
         """Process multiple FITS files with optimized parallel processing."""
@@ -595,43 +580,6 @@ class OptimizedFitsProcessor:
         else:
             logger.warning("No files were successfully processed")
             return pl.DataFrame(), []
-    
-    # Keep all the existing methods for compatibility
-    def find_fits_files(self, directory: str) -> List[str]:
-        """Find all FITS files in directory and subdirectories with progress reporting."""
-        fits_files = []
-        directory_path = Path(directory)
-        
-        if not directory_path.exists():
-            logger.warning(f"Directory does not exist: {directory}")
-            return fits_files
-        
-        logger.info(f"Scanning directory: {directory}")
-        
-        with tqdm(desc="Scanning for FITS files", unit="pattern") as pbar:
-            for extension in self.config.file_monitoring.extensions:
-                pbar.set_postfix_str(f"*{extension}")
-                pattern = f"**/*{extension}"
-                files = list(directory_path.glob(pattern))
-                fits_files.extend([str(f) for f in files])
-                pbar.update(1)
-        
-        # Filter out files marked as bad
-        original_count = len(fits_files)
-        fits_files = [f for f in fits_files if not self._is_bad_file(f)]
-        bad_count = original_count - len(fits_files)
-        
-        if bad_count > 0:
-            logger.info(f"Filtered out {bad_count} bad files")
-        
-        logger.info(f"Found {len(fits_files)} FITS files in {directory}")
-        return sorted(fits_files)
-    
-    def _is_bad_file(self, filepath: str) -> bool:
-        """Check if file is marked as bad."""
-        filename = os.path.basename(filepath)
-        bad_markers = ['BAD_', 'CORRUPT_', 'ERROR_']
-        return any(marker in filename.upper() for marker in bad_markers)
     
     def scan_quarantine(self) -> Tuple[pl.DataFrame, List[dict]]:
         """Scan quarantine directory for new FITS files with optimization."""

@@ -1,10 +1,12 @@
-"""Configuration management for FITS Cataloger with optional equipment fields."""
+"""Configuration management for FITS Cataloger."""
 
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Optional
-from pydantic import BaseModel, Field, validator
+from typing import Dict, List
+from pydantic import BaseModel, validator
+
+from equipment_manager import EquipmentManager, EquipmentPaths
 
 
 class PathConfig(BaseModel):
@@ -34,40 +36,6 @@ class FileMonitoringConfig(BaseModel):
     auto_process: bool = False
 
 
-class EquipmentPaths(BaseModel):
-    """Equipment data file paths."""
-    cameras_file: str = "cameras.json"
-    telescopes_file: str = "telescopes.json"
-    filters_file: str = "filters.json"
-
-
-class Camera(BaseModel):
-    """Camera specification with optional fields for unknown equipment."""
-    camera: str  # Camera name - required
-    bin: int = 1
-    x: int       # X resolution - required (from FITS NAXIS1)
-    y: int       # Y resolution - required (from FITS NAXIS2)  
-    type: Optional[str] = None     # CMOS/CCD - optional, may be unknown
-    brand: str                     # Brand - can be "Unknown"
-    pixel: Optional[float] = None  # Pixel size in microns - optional, may be unknown
-    comments: Optional[str] = None
-
-
-class Telescope(BaseModel):
-    """Telescope specification with optional fields for unknown equipment."""
-    scope: str   # Telescope name - required
-    focal: int   # Focal length - required (from FITS FOCALLEN)
-    make: Optional[str] = None     # Manufacturer - optional, may be unknown
-    type: Optional[str] = None     # Type (refractor/reflector/lens) - optional, may be unknown
-    comments: Optional[str] = None
-
-
-class FilterMapping(BaseModel):
-    """Filter name mapping."""
-    raw_name: str
-    proper_name: str
-
-
 class LoggingConfig(BaseModel):
     """Logging configuration."""
     level: str = "INFO"
@@ -77,7 +45,7 @@ class LoggingConfig(BaseModel):
 
 
 class Config(BaseModel):
-    """Main configuration model - only references equipment files."""
+    """Main configuration model."""
     paths: PathConfig
     database: DatabaseConfig
     file_monitoring: FileMonitoringConfig
@@ -95,74 +63,23 @@ class Config(BaseModel):
         return v
 
 
-def validate_and_create_paths(config: Config) -> None:
-    """Validate and optionally create missing directories."""
+def create_directories_if_needed(config: Config) -> None:
+    """Create missing directories without prompting."""
     paths_to_check = [
-        ("quarantine_dir", config.paths.quarantine_dir),
-        ("image_dir", config.paths.image_dir),
-        ("restore_folder", config.paths.restore_folder)
+        config.paths.quarantine_dir,
+        config.paths.image_dir,
+        config.paths.restore_folder,
+        str(Path(config.paths.database_path).parent)
     ]
     
-    # Check database directory
-    db_dir = Path(config.paths.database_path).parent
-    paths_to_check.append(("database directory", str(db_dir)))
-    
-    for name, path_str in paths_to_check:
+    for path_str in paths_to_check:
         path = Path(path_str)
         if not path.exists():
-            print(f"Warning: {name} does not exist: {path}")
-            response = input(f"Create {name}? (y/n): ").lower().strip()
-            if response == 'y':
-                try:
-                    path.mkdir(parents=True, exist_ok=True)
-                    print(f"Created: {path}")
-                except Exception as e:
-                    print(f"Error creating {path}: {e}")
-                    raise
-            else:
-                print(f"Skipping creation of {path}")
-
-
-def load_equipment(equipment_paths: EquipmentPaths):
-    """Load equipment data from JSON files with validation."""
-    # Load cameras
-    cameras = []
-    if Path(equipment_paths.cameras_file).exists():
-        with open(equipment_paths.cameras_file, 'r') as f:
-            cameras_data = json.load(f)
-            for i, cam_data in enumerate(cameras_data):
-                try:
-                    # Validate each camera entry
-                    camera = Camera(**cam_data)
-                    cameras.append(camera)
-                except Exception as e:
-                    print(f"Warning: Invalid camera entry #{i+1} in {equipment_paths.cameras_file}: {e}")
-                    print(f"Entry: {cam_data}")
-                    continue
-    
-    # Load telescopes
-    telescopes = []
-    if Path(equipment_paths.telescopes_file).exists():
-        with open(equipment_paths.telescopes_file, 'r') as f:
-            telescopes_data = json.load(f)
-            for i, tel_data in enumerate(telescopes_data):
-                try:
-                    # Validate each telescope entry
-                    telescope = Telescope(**tel_data)
-                    telescopes.append(telescope)
-                except Exception as e:
-                    print(f"Warning: Invalid telescope entry #{i+1} in {equipment_paths.telescopes_file}: {e}")
-                    print(f"Entry: {tel_data}")
-                    continue
-    
-    # Load filter mappings
-    filter_mappings = {}
-    if Path(equipment_paths.filters_file).exists():
-        with open(equipment_paths.filters_file, 'r') as f:
-            filters_data = json.load(f)
-            filter_mappings = {f['raw_name']: f['proper_name'] for f in filters_data}
-    
-    return cameras, telescopes, filter_mappings
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+                print(f"Created directory: {path}")
+            except Exception as e:
+                print(f"Warning: Could not create directory {path}: {e}")
 
 
 def load_config(config_path: str = "config.json"):
@@ -184,13 +101,12 @@ def load_config(config_path: str = "config.json"):
             config.paths.database_path
         )
     
-    # Validate and create paths
-    validate_and_create_paths(config)
+    # Create directories as needed
+    create_directories_if_needed(config)
     
-    # Load equipment data with validation
-    cameras, telescopes, filter_mappings = load_equipment(config.equipment)
-    
-    print(f"Loaded {len(cameras)} cameras, {len(telescopes)} telescopes, {len(filter_mappings)} filter mappings")
+    # Load equipment data using EquipmentManager
+    equipment_manager = EquipmentManager(config.equipment)
+    cameras, telescopes, filter_mappings = equipment_manager.load_equipment()
     
     return config, cameras, telescopes, filter_mappings
 
@@ -232,60 +148,14 @@ def create_default_config(config_path: str = "config.json") -> None:
         }
     }
     
+    # Save config file
     with open(config_path, 'w') as f:
         json.dump(default_config, f, indent=2)
     
-    # Create default equipment files if they don't exist
-    if not Path("cameras.json").exists():
-        default_cameras = [
-            {
-                "camera": "ASI1600",
-                "bin": 1,
-                "x": 4656,
-                "y": 3520,
-                "type": "CMOS",
-                "brand": "ZWO",
-                "pixel": 3.8,
-                "comments": "Example camera"
-            }
-        ]
-        with open("cameras.json", 'w') as f:
-            json.dump(default_cameras, f, indent=2)
-    
-    if not Path("telescopes.json").exists():
-        default_telescopes = [
-            {
-                "scope": "ES127",
-                "focal": 952,
-                "make": "Explore Scientific",
-                "type": "Refractor",
-                "comments": "Example telescope"
-            }
-        ]
-        with open("telescopes.json", 'w') as f:
-            json.dump(default_telescopes, f, indent=2)
-    
-    if not Path("filters.json").exists():
-        default_filters = [
-            {
-                "raw_name": "Red",
-                "proper_name": "R"
-            },
-            {
-                "raw_name": "Green", 
-                "proper_name": "G"
-            },
-            {
-                "raw_name": "Blue",
-                "proper_name": "B"
-            },
-            {
-                "raw_name": "Lum",
-                "proper_name": "L"
-            }
-        ]
-        with open("filters.json", 'w') as f:
-            json.dump(default_filters, f, indent=2)
+    # Create default equipment files using EquipmentManager
+    equipment_paths = EquipmentPaths(**default_config["equipment"])
+    equipment_manager = EquipmentManager(equipment_paths)
+    equipment_manager.create_default_equipment_files()
     
     print(f"Created default configuration file: {config_path}")
     print("Created default equipment files: cameras.json, telescopes.json, filters.json")
@@ -299,15 +169,6 @@ if __name__ == "__main__":
         print(f"Quarantine dir: {config.paths.quarantine_dir}")
         print(f"Found {len(cameras)} cameras and {len(telescopes)} telescopes")
         print(f"Filter mappings: {len(filter_mappings)} entries")
-        
-        # Show any auto-generated equipment
-        auto_cameras = [c for c in cameras if c.camera.startswith('UNKNOWN-')]
-        auto_telescopes = [t for t in telescopes if t.scope.startswith('UNKNOWN-')]
-        
-        if auto_cameras:
-            print(f"Auto-generated cameras: {[c.camera for c in auto_cameras]}")
-        if auto_telescopes:
-            print(f"Auto-generated telescopes: {[t.scope for t in auto_telescopes]}")
             
     except FileNotFoundError:
         print("Creating default configuration...")

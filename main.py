@@ -1,4 +1,4 @@
-"""Main application for FITS Cataloger - Phase 1 with File Migration and Validation."""
+"""Main application for FITS Cataloger with simplified file monitoring."""
 
 import asyncio
 import logging
@@ -13,7 +13,7 @@ from tqdm import tqdm
 from config import load_config, create_default_config, Config
 from models import DatabaseManager, DatabaseService
 from fits_processor import OptimizedFitsProcessor
-from file_monitor import FileMonitorService
+from file_monitor import FileMonitor
 from file_organizer import FileOrganizer
 from validation import FitsValidator
 
@@ -78,7 +78,7 @@ class FitsCataloger:
         # Initialize components
         self.db_manager = DatabaseManager(self.config.database.connection_string)
         self.db_service = DatabaseService(self.db_manager)
-        self.file_monitor = None
+        self.file_monitor = FileMonitor(self.config, self.process_new_files)
         self.file_organizer = FileOrganizer(self.config, self.db_service)
         
         # Set up database
@@ -89,7 +89,7 @@ class FitsCataloger:
             self.cameras, 
             self.telescopes, 
             self.filter_mappings,
-            self.db_service  # Add this parameter
+            self.db_service
         )
     
     def _initialize_database(self):
@@ -200,8 +200,8 @@ class FitsCataloger:
         click.echo("Scanning quarantine directory...")
         self.logger.info("Performing one-time quarantine scan...")
         
-        # Just find FITS files, don't process them yet
-        fits_files = self.fits_processor.find_fits_files(self.config.paths.quarantine_dir)
+        # Scan for files
+        fits_files = self.file_monitor.scan_quarantine()
         
         if not fits_files:
             click.echo("No files found in quarantine directory")
@@ -211,33 +211,16 @@ class FitsCataloger:
         # Process files with progress reporting
         self.process_new_files(fits_files) 
 
-    async def start_monitoring(self):
-        """Start continuous monitoring of quarantine directory."""
+    async def start_periodic_monitoring(self, interval_minutes: int = 30):
+        """Start periodic monitoring of quarantine directory."""
         global shutdown_flag
         
-        click.echo("Starting quarantine monitoring...")
-        self.logger.info("Starting quarantine monitoring...")
-        
-        # Set up file monitor
-        self.file_monitor = FileMonitorService(self.config, self.process_new_files)
+        click.echo(f"Starting periodic monitoring (every {interval_minutes} minutes)...")
+        self.logger.info(f"Starting periodic monitoring (every {interval_minutes} minutes)...")
         
         try:
-            # Start monitoring
-            self.file_monitor.start()
-            
-            # Perform initial scan
-            click.echo("Performing initial scan...")
-            self.logger.info("Performing initial scan...")
-            existing_files = self.file_monitor.scan_existing()
-            if existing_files:
-                self.process_new_files(existing_files)
-            
-            # Keep running until shutdown signal
-            click.echo("Monitoring active. Press Ctrl+C to stop.")
-            self.logger.info("Monitoring active. Press Ctrl+C to stop.")
-            
-            while not shutdown_flag:
-                await asyncio.sleep(1)
+            # Start periodic monitoring
+            await self.file_monitor.start_periodic_monitoring(interval_minutes)
                 
         except KeyboardInterrupt:
             click.echo("Keyboard interrupt received")
@@ -246,8 +229,7 @@ class FitsCataloger:
             click.echo(f"Error during monitoring: {e}")
             self.logger.error(f"Error during monitoring: {e}")
         finally:
-            if self.file_monitor:
-                self.file_monitor.stop()
+            self.file_monitor.stop_monitoring()
     
     def migrate_files(self, limit: int = None, auto_cleanup: bool = False) -> dict:
         """Migrate files from quarantine to organized structure."""
@@ -356,9 +338,10 @@ def scan(ctx):
 
 
 @cli.command()
+@click.option('--interval', '-i', default=30, help='Monitoring interval in minutes')
 @click.pass_context
-def monitor(ctx):
-    """Start continuous monitoring of quarantine directory."""
+def monitor(ctx, interval):
+    """Start periodic monitoring of quarantine directory."""
     config_path = ctx.obj['config_path']
     verbose = ctx.obj['verbose']
     
@@ -372,8 +355,10 @@ def monitor(ctx):
         
         cataloger = FitsCataloger(config_path)
         
+        click.echo(f"Starting periodic monitoring every {interval} minutes. Press Ctrl+C to stop.")
+        
         # Run the async monitoring
-        asyncio.run(cataloger.start_monitoring())
+        asyncio.run(cataloger.start_periodic_monitoring(interval))
         cataloger.cleanup()
         
         click.echo("Monitoring stopped successfully!")

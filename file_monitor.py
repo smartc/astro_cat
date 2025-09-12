@@ -1,216 +1,118 @@
-"""File monitoring for quarantine directory."""
+"""Simplified file monitoring for quarantine directory."""
 
 import asyncio
 import logging
 import time
 from pathlib import Path
-from typing import Callable, List, Set
-
-from watchdog.events import FileSystemEventHandler, FileCreatedEvent, FileMovedEvent
-from watchdog.observers import Observer
+from typing import Callable, List
 
 from config import Config
 
 logger = logging.getLogger(__name__)
 
 
-class FitsFileHandler(FileSystemEventHandler):
-    """Handler for FITS file system events."""
-    
-    def __init__(self, config: Config, callback: Callable[[List[str]], None]):
-        self.config = config
-        self.callback = callback
-        self.extensions = tuple(config.file_monitoring.extensions)
-        self.pending_files: Set[str] = set()
-        self.last_scan = time.time()
-        
-    def on_created(self, event):
-        """Handle file creation events."""
-        if not event.is_directory and self._is_fits_file(event.src_path):
-            logger.info(f"New FITS file detected: {event.src_path}")
-            self.pending_files.add(event.src_path)
-            self._schedule_callback()
-    
-    def on_moved(self, event):
-        """Handle file move events."""
-        if not event.is_directory and self._is_fits_file(event.dest_path):
-            logger.info(f"FITS file moved to quarantine: {event.dest_path}")
-            self.pending_files.add(event.dest_path)
-            self._schedule_callback()
-    
-    def _is_fits_file(self, filepath: str) -> bool:
-        """Check if file is a FITS file."""
-        return filepath.lower().endswith(self.extensions)
-    
-    def _schedule_callback(self):
-        """Schedule callback to process pending files."""
-        current_time = time.time()
-        
-        # Only trigger callback if enough time has passed (debouncing)
-        if current_time - self.last_scan > 5:  # 5 second debounce
-            self.last_scan = current_time
-            
-            if self.pending_files:
-                files_to_process = list(self.pending_files)
-                self.pending_files.clear()
-                
-                # Verify files still exist and are complete
-                valid_files = []
-                for filepath in files_to_process:
-                    if self._is_file_ready(filepath):
-                        valid_files.append(filepath)
-                    else:
-                        logger.warning(f"File not ready or missing: {filepath}")
-                
-                if valid_files:
-                    logger.info(f"Processing {len(valid_files)} new files")
-                    self.callback(valid_files)
-    
-    def _is_file_ready(self, filepath: str) -> bool:
-        """Check if file exists and is not being written to."""
-        try:
-            path = Path(filepath)
-            if not path.exists():
-                return False
-            
-            # Check if file size is stable (simple way to detect if still being written)
-            initial_size = path.stat().st_size
-            time.sleep(0.5)
-            final_size = path.stat().st_size
-            
-            return initial_size == final_size and final_size > 0
-            
-        except Exception as e:
-            logger.error(f"Error checking file readiness {filepath}: {e}")
-            return False
-
-
-class QuarantineMonitor:
-    """Monitor quarantine directory for new FITS files."""
+class FileMonitor:
+    """Simple file monitoring with manual and periodic scan capabilities."""
     
     def __init__(self, config: Config, on_new_files: Callable[[List[str]], None]):
         self.config = config
         self.on_new_files = on_new_files
-        self.observer = None
-        self.is_running = False
+        self.is_monitoring = False
+        self.last_scan_files: set = set()
         
-    def start_monitoring(self):
-        """Start monitoring the quarantine directory."""
-        quarantine_path = Path(self.config.paths.quarantine_dir)
+    def find_fits_files(self, directory: str) -> List[str]:
+        """Find all FITS files in directory and subdirectories."""
+        fits_files = []
+        directory_path = Path(directory)
         
-        if not quarantine_path.exists():
-            logger.error(f"Quarantine directory does not exist: {quarantine_path}")
-            raise FileNotFoundError(f"Quarantine directory not found: {quarantine_path}")
+        if not directory_path.exists():
+            logger.warning(f"Directory does not exist: {directory}")
+            return fits_files
         
-        # Create event handler
-        event_handler = FitsFileHandler(self.config, self.on_new_files)
+        logger.info(f"Scanning directory: {directory}")
         
-        # Set up observer
-        self.observer = Observer()
-        self.observer.schedule(
-            event_handler, 
-            str(quarantine_path), 
-            recursive=True
-        )
+        # Find files with configured extensions
+        for extension in self.config.file_monitoring.extensions:
+            pattern = f"**/*{extension}"
+            files = list(directory_path.glob(pattern))
+            fits_files.extend([str(f) for f in files])
         
-        self.observer.start()
-        self.is_running = True
+        # Filter out files marked as bad
+        original_count = len(fits_files)
+        fits_files = [f for f in fits_files if not self._is_bad_file(f)]
+        bad_count = original_count - len(fits_files)
         
-        logger.info(f"Started monitoring quarantine directory: {quarantine_path}")
+        if bad_count > 0:
+            logger.info(f"Filtered out {bad_count} bad files")
+        
+        logger.info(f"Found {len(fits_files)} FITS files in {directory}")
+        return sorted(fits_files)
     
-    def stop_monitoring(self):
-        """Stop monitoring the quarantine directory."""
-        if self.observer and self.is_running:
-            self.observer.stop()
-            self.observer.join()
-            self.is_running = False
-            logger.info("Stopped quarantine monitoring")
+    def _is_bad_file(self, filepath: str) -> bool:
+        """Check if file is marked as bad."""
+        filename = Path(filepath).name
+        bad_markers = ['BAD_', 'CORRUPT_', 'ERROR_']
+        return any(marker in filename.upper() for marker in bad_markers)
     
-    def scan_existing_files(self) -> List[str]:
-        """Scan for existing files in quarantine directory."""
-        from fits_processor import FitsProcessor
-        from config import load_config
-        
-        config, cameras, telescopes, filter_mappings = load_config()
-        processor = FitsProcessor(config, cameras, telescopes, filter_mappings)
-        return processor.find_fits_files(self.config.paths.quarantine_dir)
-
-
-class PeriodicScanner:
-    """Periodic scanner for quarantine directory as backup to file monitoring."""
+    def scan_quarantine(self) -> List[str]:
+        """Perform manual scan of quarantine directory."""
+        logger.info("Performing manual quarantine scan...")
+        return self.find_fits_files(self.config.paths.quarantine_dir)
     
-    def __init__(self, config: Config, on_new_files: Callable[[List[str]], None]):
-        self.config = config
-        self.on_new_files = on_new_files
-        self.last_scan_files: Set[str] = set()
-        self.running = False
-        
-    async def start_periodic_scan(self):
-        """Start periodic scanning of quarantine directory."""
-        self.running = True
-        logger.info("Started periodic quarantine scanning")
-        
-        while self.running:
-            try:
-                await self._scan_for_changes()
-                await asyncio.sleep(self.config.file_monitoring.scan_interval_seconds)
-            except Exception as e:
-                logger.error(f"Error during periodic scan: {e}")
-                await asyncio.sleep(30)  # Wait before retrying
-    
-    def stop_periodic_scan(self):
-        """Stop periodic scanning."""
-        self.running = False
-        logger.info("Stopped periodic scanning")
-    
-    async def _scan_for_changes(self):
-        """Scan for new or changed files."""
-        from fits_processor import FitsProcessor
-        from config import load_config
-        
-        config, cameras, telescopes, filter_mappings = load_config()
-        processor = FitsProcessor(config, cameras, telescopes, filter_mappings)
-        current_files = set(processor.find_fits_files(self.config.paths.quarantine_dir))
+    def scan_for_new_files(self) -> List[str]:
+        """Scan for new files since last scan."""
+        current_files = set(self.find_fits_files(self.config.paths.quarantine_dir))
         
         # Find new files
         new_files = current_files - self.last_scan_files
+        self.last_scan_files = current_files
         
         if new_files:
-            logger.info(f"Periodic scan found {len(new_files)} new files")
-            self.on_new_files(list(new_files))
+            logger.info(f"Found {len(new_files)} new files since last scan")
+            return list(new_files)
         
-        self.last_scan_files = current_files
-
-
-class FileMonitorService:
-    """Combined file monitoring service with both real-time and periodic scanning."""
+        return []
     
-    def __init__(self, config: Config, on_new_files: Callable[[List[str]], None]):
-        self.config = config
-        self.quarantine_monitor = QuarantineMonitor(config, on_new_files)
-        self.periodic_scanner = PeriodicScanner(config, on_new_files)
+    async def start_periodic_monitoring(self, interval_minutes: int = 30):
+        """Start periodic monitoring of quarantine directory."""
+        self.is_monitoring = True
+        interval_seconds = interval_minutes * 60
+        
+        logger.info(f"Starting periodic monitoring (every {interval_minutes} minutes)")
+        
+        # Perform initial scan to establish baseline
+        self.last_scan_files = set(self.find_fits_files(self.config.paths.quarantine_dir))
+        logger.info(f"Initial scan found {len(self.last_scan_files)} existing files")
+        
+        while self.is_monitoring:
+            try:
+                # Wait for the interval
+                await asyncio.sleep(interval_seconds)
+                
+                if not self.is_monitoring:
+                    break
+                
+                # Scan for new files
+                new_files = self.scan_for_new_files()
+                
+                if new_files and self.on_new_files:
+                    logger.info(f"Processing {len(new_files)} new files found during monitoring")
+                    self.on_new_files(new_files)
+                
+            except Exception as e:
+                logger.error(f"Error during periodic monitoring: {e}")
+                await asyncio.sleep(30)  # Wait before retrying
     
-    def start(self):
-        """Start both monitoring services."""
-        try:
-            # Start real-time monitoring
-            self.quarantine_monitor.start_monitoring()
-            
-            # Start periodic scanning as backup
-            asyncio.create_task(self.periodic_scanner.start_periodic_scan())
-            
-            logger.info("File monitoring services started successfully")
-            
-        except Exception as e:
-            logger.error(f"Failed to start file monitoring: {e}")
-            raise
+    def stop_monitoring(self):
+        """Stop periodic monitoring."""
+        self.is_monitoring = False
+        logger.info("Stopped periodic monitoring")
     
-    def stop(self):
-        """Stop all monitoring services."""
-        self.quarantine_monitor.stop_monitoring()
-        self.periodic_scanner.stop_periodic_scan()
-        logger.info("All file monitoring services stopped")
-    
-    def scan_existing(self) -> List[str]:
-        """Perform initial scan of existing files."""
-        return self.quarantine_monitor.scan_existing_files()
+    def get_monitoring_stats(self) -> dict:
+        """Get monitoring statistics."""
+        return {
+            'is_monitoring': self.is_monitoring,
+            'last_scan_file_count': len(self.last_scan_files),
+            'quarantine_dir': self.config.paths.quarantine_dir,
+            'extensions': self.config.file_monitoring.extensions
+        }
