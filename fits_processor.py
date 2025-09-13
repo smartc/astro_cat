@@ -25,37 +25,135 @@ logger = logging.getLogger(__name__)
 # UTILITY FUNCTIONS
 # =============================================================================
 
-def get_file_md5_optimized(filepath: str) -> str:
-    """Optimized MD5 hash calculation using larger chunks."""
+def extract_fits_metadata_with_streaming_hash(filepath: str, cameras_dict: Dict, telescopes_dict: Dict, 
+                                             filter_mappings: Dict[str, str]) -> Optional[Dict]:
+    """Worker function that extracts metadata AND calculates MD5 hash in a single file read."""
     try:
-        # Use Python 3.11+ optimized file_digest if available
-        if hasattr(hashlib, 'file_digest'):
-            with open(filepath, 'rb') as f:
-                return hashlib.file_digest(f, 'md5').hexdigest()
-        else:
-            # Fallback with optimized chunk size
-            hash_md5 = hashlib.md5()
-            with open(filepath, "rb") as f:
-                # 128KB chunks optimal for I/O
-                for chunk in iter(lambda: f.read(131072), b""):
-                    hash_md5.update(chunk)
-            return hash_md5.hexdigest()
+        # Initialize MD5 hash
+        hash_md5 = hashlib.md5()
+        
+        # Read entire file and calculate hash
+        with open(filepath, 'rb') as f:
+            file_data = f.read()
+            hash_md5.update(file_data)
+        
+        file_md5 = hash_md5.hexdigest()
+        
+        # Now process FITS metadata from the file data in memory
+        # Create a BytesIO object to simulate file for astropy
+        from io import BytesIO
+        file_like = BytesIO(file_data)
+        
+        with fits.open(file_like, lazy_load_hdus=True) as hdul:
+            header = hdul[0].header
+            
+            # Extract basic metadata
+            metadata = {
+                'file': os.path.basename(filepath),
+                'folder': os.path.dirname(filepath),
+                'md5sum': file_md5,  # Hash already calculated!
+            }
+            
+            # Parse observation timestamp with improved error handling
+            obs_timestamp = parse_observation_date(header, filepath)
+            
+            # Calculate observation date (shifted by 12 hours)
+            if obs_timestamp:
+                shifted_time = obs_timestamp - timedelta(hours=12)
+                obs_date = shifted_time.strftime('%Y-%m-%d')
+                obs_timestamp_truncated = obs_timestamp.replace(second=0, microsecond=0)
+            else:
+                obs_date = None
+                obs_timestamp_truncated = None
+            
+            # Extract header values with fallbacks
+            raw_object = get_header_value(header, ['OBJECT', 'TARGET'])
+            instrument = get_header_value(header, ['INSTRUME'])
+            filter_wheel = get_header_value(header, ['FWHEEL'])
+            observer = get_header_value(header, ['OBSERVER'])
+            site_name = get_header_value(header, ['SITENAME'])
+            binning = get_header_value(header, ['XBINNING', 'BINNING'], int, 1)
+            
+            metadata.update({
+                'obs_date': obs_date,
+                'obs_timestamp': obs_timestamp_truncated,
+                'ra': get_header_value(header, ['RA', 'OBJCTRA', 'CRVAL1']),
+                'dec': get_header_value(header, ['DEC', 'OBJCTDEC', 'CRVAL2']),
+                'x': get_header_value(header, ['NAXIS1'], int),
+                'y': get_header_value(header, ['NAXIS2'], int),
+                'frame_type': normalize_frame_type(
+                    get_header_value(header, ['IMAGETYP', 'FRAME'])
+                ),
+                'filter': normalize_filter(
+                    get_header_value(header, ['FILTER', 'FILTERS']), filter_mappings
+                ),
+                'focal_length': get_header_value(header, ['FOCALLEN'], float),
+                'exposure': get_header_value(header, ['EXPOSURE', 'EXPTIME'], float),
+            })
+            
+            # Process object name using extracted ObjectNameProcessor
+            object_processor = ObjectNameProcessor()
+            frame_type = metadata['frame_type']
+            processed_object = object_processor.process_object_name(raw_object, frame_type)
+            metadata['object'] = processed_object
+            
+            # Extract location data
+            metadata.update({
+                'latitude': parse_coordinate(header, ['SITELAT', 'LAT-OBS', 'LATITUDE']),
+                'longitude': parse_coordinate(header, ['SITELONG', 'LONG-OBS', 'LONGITUDE']),
+                'elevation': get_header_value(header, ['SITEELEV', 'ALT-OBS', 'ELEVATION'], float),
+            })
+            
+            # Identify camera and telescope
+            metadata['camera'] = identify_camera_simple(
+                metadata['x'], metadata['y'], instrument, binning, cameras_dict
+            )
+            metadata['telescope'] = identify_telescope_simple(
+                metadata['focal_length'], telescopes_dict
+            )
+            
+            # Calculate field of view and pixel scale
+            fov_data = calculate_field_of_view_simple(
+                metadata['camera'], metadata['telescope'], 
+                metadata['x'], metadata['y'], binning, cameras_dict, telescopes_dict
+            )
+            metadata.update(fov_data)
+            
+            # Generate session ID
+            metadata['session_id'] = generate_session_id_with_hash(
+                metadata['obs_date'], instrument, metadata['focal_length'],
+                metadata['x'], metadata['y'], filter_wheel, observer, site_name
+            )
+            
+            # Store session data for later extraction
+            metadata['_session_data'] = {
+                'session_id': metadata['session_id'],
+                'session_date': obs_date,
+                'telescope': metadata['telescope'],
+                'camera': metadata['camera'],
+                'site_name': site_name,
+                'latitude': metadata['latitude'],
+                'longitude': metadata['longitude'],
+                'elevation': metadata['elevation'],
+                'observer': observer,
+                'notes': None
+            }
+            
+            logger.debug(f"Successfully processed metadata + hash for {filepath}")
+            return metadata
+                
     except Exception as e:
-        logger.error(f"Error calculating MD5 for {filepath}: {e}")
-        return ""
+        logger.error(f"Error processing FITS file {filepath}: {e}")
+        return None
 
-
-def md5_hash_worker(filepath: str) -> Tuple[str, str]:
-    """Worker function for parallel MD5 hash calculation."""
-    return filepath, get_file_md5_optimized(filepath)
 
 
 # =============================================================================
 # FITS HEADER PROCESSING FUNCTIONS
 # =============================================================================
 
-def parse_observation_date(header) -> Optional[datetime]:
-    """Parse observation date from various possible formats."""
+def parse_observation_date(header, filepath: str = None) -> Optional[datetime]:
+    """Parse observation date from various possible formats with file timestamp fallback."""
     date_keys = ['DATE-OBS', 'DATE_OBS', 'DATEOBS']
     
     for key in date_keys:
@@ -64,6 +162,14 @@ def parse_observation_date(header) -> Optional[datetime]:
                 date_str = header[key]
                 if isinstance(date_str, str):
                     if 'T' in date_str:
+                        # Check for corrupted years before parsing
+                        year_match = re.match(r'^(\d{4})', date_str)
+                        if year_match:
+                            year = int(year_match.group(1))
+                            if year < 1900 or year > 2030:  # Reasonable range check
+                                logger.warning(f"Corrupted date in {filepath or 'file'}: {date_str} (year {year})")
+                                break  # Fall through to file timestamp fallback
+                        
                         date_str = normalize_microseconds(date_str)
                         return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
                     else:
@@ -71,8 +177,26 @@ def parse_observation_date(header) -> Optional[datetime]:
                 elif hasattr(date_str, 'datetime'):
                     return date_str.datetime
             except Exception as e:
-                logger.warning(f"Could not parse date {date_str}: {e}")
+                logger.warning(f"Could not parse date {date_str} in {filepath or 'file'}: {e}")
                 continue
+    
+    # Fallback to file system timestamps if DATE-OBS is corrupted or missing
+    if filepath:
+        try:
+            import os
+            stat = os.stat(filepath)
+            # Use the earlier of creation time or modification time
+            creation_time = datetime.fromtimestamp(stat.st_ctime)
+            modification_time = datetime.fromtimestamp(stat.st_mtime)
+            
+            # Take the earlier timestamp (likely the real observation time)
+            fallback_time = min(creation_time, modification_time)
+            
+            logger.info(f"Using file timestamp fallback for {filepath}: {fallback_time}")
+            return fallback_time
+            
+        except Exception as e:
+            logger.error(f"Could not get file timestamps for {filepath}: {e}")
     
     return None
 
@@ -321,8 +445,8 @@ def extract_fits_metadata_worker(filepath: str, cameras_dict: Dict, telescopes_d
                 'folder': os.path.dirname(filepath),
             }
             
-            # Parse observation timestamp
-            obs_timestamp = parse_observation_date(header)
+            # Parse observation timestamp - now pass filepath for fallback
+            obs_timestamp = parse_observation_date(header, filepath)
             
             # Calculate observation date (shifted by 12 hours)
             if obs_timestamp:
@@ -430,8 +554,8 @@ class OptimizedFitsProcessor:
         
         # Determine optimal number of workers
         self.cpu_count = mp.cpu_count()
-        self.metadata_workers = min(self.cpu_count - 1, 6)  # Leave one core free, max 6
-        self.md5_workers = min(self.cpu_count // 2, 4)      # I/O bound, fewer workers
+        self.metadata_workers = min(self.cpu_count - 2, 12)  # Leave two cores free, max 12
+        self.md5_workers = min(self.cpu_count - 2, 12)       # Leave two cores free, max 12 
         
         logger.info(f"Initialized with {self.metadata_workers} metadata workers, {self.md5_workers} MD5 workers")
     
@@ -472,19 +596,19 @@ class OptimizedFitsProcessor:
         return any(marker in filename.upper() for marker in bad_markers)
     
     def process_files_optimized(self, filepaths: List[str]) -> Tuple[pl.DataFrame, List[dict]]:
-        """Process multiple FITS files with optimized parallel processing."""
+        """Process multiple FITS files with streaming optimization (metadata + MD5 in one pass)."""
         results = []
         failed_files = []
         sessions = {}
         
-        logger.info(f"Processing {len(filepaths)} files with parallel optimization...")
+        logger.info(f"Processing {len(filepaths)} files with streaming optimization...")
         
-        # Phase 1: Parallel metadata extraction
-        with tqdm(total=len(filepaths), desc="Extracting metadata (parallel)", unit="files") as pbar:
+        # Single phase: Extract metadata AND calculate MD5 in one pass
+        with tqdm(total=len(filepaths), desc="Processing files (streaming)", unit="files") as pbar:
             
             # Create worker function with bound parameters
             worker_func = partial(
-                extract_fits_metadata_worker,
+                extract_fits_metadata_with_streaming_hash,  # Use new streaming function
                 cameras_dict=self.cameras,
                 telescopes_dict=self.telescopes,
                 filter_mappings=self.filter_mappings
@@ -524,33 +648,7 @@ class OptimizedFitsProcessor:
                             'sessions': len(sessions)
                         })
         
-        # Phase 2: Parallel MD5 hash calculation
-        if results:
-            logger.info("Starting parallel MD5 hash calculation...")
-            successful_files = [
-                os.path.join(result['folder'], result['file']) 
-                for result in results
-            ]
-            
-            with tqdm(total=len(successful_files), desc="Calculating MD5 hashes", unit="files") as pbar:
-                
-                # Calculate MD5 hashes in parallel using ThreadPoolExecutor (I/O bound)
-                with ThreadPoolExecutor(max_workers=self.md5_workers) as executor:
-                    future_to_index = {
-                        executor.submit(md5_hash_worker, filepath): idx
-                        for idx, filepath in enumerate(successful_files)
-                    }
-                    
-                    for future in as_completed(future_to_index):
-                        idx = future_to_index[future]
-                        try:
-                            filepath, md5_hash = future.result()
-                            results[idx]['md5sum'] = md5_hash
-                        except Exception as e:
-                            logger.error(f"Failed to calculate MD5 for file at index {idx}: {e}")
-                            results[idx]['md5sum'] = ""
-                        
-                        pbar.update(1)
+        # No separate MD5 phase needed - it's already done!
         
         if failed_files:
             logger.warning(f"Failed to process {len(failed_files)} files")
@@ -574,7 +672,7 @@ class OptimizedFitsProcessor:
                             except:
                                 pass
             
-            logger.info(f"Successfully processed {len(results)} files with parallel optimization")
+            logger.info(f"Successfully processed {len(results)} files with streaming optimization")
             logger.info(f"Found {len(sessions)} unique sessions")
             return df, list(sessions.values())
         else:

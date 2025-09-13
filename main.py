@@ -5,7 +5,7 @@ import logging
 import signal
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Dict
 
 import click
 from tqdm import tqdm
@@ -23,7 +23,7 @@ shutdown_flag = False
 
 
 def setup_logging(config: Config, verbose: bool = False):
-    """Set up logging with separate file and console levels."""
+    """Set up logging with silent console - only click.echo() messages show."""
     
     # Create logs directory if it doesn't exist
     log_file = Path(config.logging.file)
@@ -33,30 +33,28 @@ def setup_logging(config: Config, verbose: bool = False):
     root_logger = logging.getLogger()
     root_logger.handlers = []
     
-    # File handler - detailed logging
+    # File handler only - WARNING level
     file_handler = logging.FileHandler(config.logging.file)
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(logging.WARNING)
     file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     file_handler.setFormatter(file_formatter)
     
-    # Console handler - clean output
-    console_handler = logging.StreamHandler(sys.stdout)
+    # Console handler only if verbose flag is used
     if verbose:
-        console_handler.setLevel(logging.INFO)
-        console_formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
-    else:
+        console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(logging.WARNING)
-        console_formatter = logging.Formatter('%(message)s')
-    console_handler.setFormatter(console_formatter)
+        console_formatter = logging.Formatter('LOG: %(levelname)s - %(message)s')
+        console_handler.setFormatter(console_formatter)
+        root_logger.addHandler(console_handler)
     
     # Root logger setup
-    log_level = getattr(logging, config.logging.level.upper())
-    root_logger.setLevel(logging.DEBUG)  # Capture everything for file
+    root_logger.setLevel(logging.DEBUG)
     root_logger.addHandler(file_handler)
-    root_logger.addHandler(console_handler)
     
-    # Set astropy logging to WARNING to reduce noise
-    logging.getLogger('astropy').setLevel(logging.WARNING)
+    # Quiet all libraries
+    logging.getLogger('astropy').setLevel(logging.ERROR)
+    logging.getLogger('urllib3').setLevel(logging.ERROR)
+    logging.getLogger('requests').setLevel(logging.ERROR)
 
 
 def signal_handler(signum, frame):
@@ -70,9 +68,12 @@ def signal_handler(signum, frame):
 class FitsCataloger:
     """Main FITS cataloging application."""
     
-    def __init__(self, config_path: str = "config.json"):
-        # Load config and equipment data
-        self.config, self.cameras, self.telescopes, self.filter_mappings = load_config(config_path)
+    def __init__(self, config: Config, cameras: List, telescopes: List, filter_mappings: Dict[str, str]):
+        # Use pre-loaded config and equipment data
+        self.config = config
+        self.cameras = cameras
+        self.telescopes = telescopes
+        self.filter_mappings = filter_mappings
         self.logger = logging.getLogger(__name__)
         
         # Initialize components
@@ -326,7 +327,7 @@ def scan(ctx):
         config, cameras, telescopes, filter_mappings = load_config(config_path)
         setup_logging(config, verbose)
         
-        cataloger = FitsCataloger(config_path)
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
         cataloger.scan_quarantine_once()
         cataloger.cleanup()
         
@@ -353,7 +354,7 @@ def monitor(ctx, interval):
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
         
-        cataloger = FitsCataloger(config_path)
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
         
         click.echo(f"Starting periodic monitoring every {interval} minutes. Press Ctrl+C to stop.")
         
@@ -380,7 +381,7 @@ def validate(ctx, limit):
         config, cameras, telescopes, filter_mappings = load_config(config_path)
         setup_logging(config, verbose)
         
-        cataloger = FitsCataloger(config_path)
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
         validator = FitsValidator(cataloger.db_service)
         
         click.echo("Starting FITS file validation...")
@@ -420,7 +421,7 @@ def validation_summary(ctx):
         config, cameras, telescopes, filter_mappings = load_config(config_path)
         setup_logging(config, verbose)
         
-        cataloger = FitsCataloger(config_path)
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
         validator = FitsValidator(cataloger.db_service)
         
         summary = validator.get_validation_summary()
@@ -456,7 +457,7 @@ def migrate(ctx, limit, dry_run, auto_cleanup):
         config, cameras, telescopes, filter_mappings = load_config(config_path)
         setup_logging(config, verbose)
         
-        cataloger = FitsCataloger(config_path)
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
         
         if dry_run:
             click.echo("Migration preview (showing destination paths):")
@@ -499,7 +500,7 @@ def stats(ctx):
         config, cameras, telescopes, filter_mappings = load_config(config_path)
         setup_logging(config, verbose)
         
-        cataloger = FitsCataloger(config_path)
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
         file_stats = cataloger.get_stats()
         session_stats = cataloger.get_session_stats()
         cataloger.cleanup()

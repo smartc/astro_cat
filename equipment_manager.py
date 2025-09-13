@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 from typing import Dict, List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 
 
 class Camera(BaseModel):
@@ -18,6 +18,27 @@ class Camera(BaseModel):
     rgb: Optional[bool] = True     # True for OSC/color, False for mono
     comments: Optional[str] = None
 
+    @validator('pixel', pre=True)
+    def empty_string_to_none_float(cls, v):
+        """Convert empty strings to None for optional float fields."""
+        if v == "" or v is None:
+            return None
+        return float(v)
+
+    @validator('type', 'comments', pre=True)
+    def empty_string_to_none_str(cls, v):
+        """Convert empty strings to None for optional string fields."""
+        if v == "" or v is None:
+            return None
+        return v
+
+    @validator('brand', pre=True)
+    def handle_empty_brand(cls, v):
+        """Convert empty brand to 'Unknown'."""
+        if v == "" or v is None:
+            return "Unknown"
+        return v
+
 
 class Telescope(BaseModel):
     """Telescope specification with optional fields for unknown equipment."""
@@ -28,6 +49,20 @@ class Telescope(BaseModel):
     type: Optional[str] = None     # Type (refractor/reflector/lens) - optional, may be unknown
     subtype: Optional[str] = None  # Subtype - optional
     comments: Optional[str] = None
+
+    @validator('aperture', pre=True)
+    def empty_string_to_none(cls, v):
+        """Convert empty strings to None for optional float fields."""
+        if v == "" or v is None:
+            return None
+        return float(v)
+
+    @validator('make', 'type', 'subtype', 'comments', pre=True)
+    def empty_string_to_none_str(cls, v):
+        """Convert empty strings to None for optional string fields."""
+        if v == "" or v is None:
+            return None
+        return v
 
 
 class FilterMapping(BaseModel):
