@@ -41,7 +41,7 @@
         </header>
 
         <!-- Error Message -->
-        <div v-if="errorMessage" class="container mx-auto p-6">
+        <div v-if="errorMessage" class="mx-auto p-6 max-w-none">
             <div class="error-message">
                 {{ errorMessage }}
                 <button @click="errorMessage = ''" class="float-right text-red-700 hover:text-red-900">&times;</button>
@@ -49,7 +49,7 @@
         </div>
 
         <!-- Main Content -->
-        <main class="container mx-auto p-6" :class="{ loading: loading }">
+        <main class="mx-auto p-6 max-w-none" :class="{ loading: loading }">
             <!-- Dashboard Tab -->
             <div v-show="activeTab === 'dashboard'" class="space-y-6">
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -115,18 +115,7 @@
                 <!-- Files Table -->
                 <div class="bg-white rounded-lg shadow overflow-hidden">
                     <div class="table-container">
-                        <table class="w-full table-fixed">
-                            <colgroup>
-                                <col style="width: 300px;">
-                                <col style="width: 120px;">
-                                <col style="width: 80px;">
-                                <col style="width: 100px;">
-                                <col style="width: 100px;">
-                                <col style="width: 80px;">
-                                <col style="width: 70px;">
-                                <col style="width: 90px;">
-                                <col style="width: 120px;">
-                            </colgroup>
+                        <table class="w-full">
                             <thead class="bg-gray-50">
                                 <tr>
                                     <th class="header-cell">
