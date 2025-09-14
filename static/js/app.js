@@ -9,12 +9,19 @@ createApp({
             files: [],
             sessions: [],
             filePagination: { page: 1, limit: 50, total: 0, pages: 0 },
+            sessionPagination: { page: 1, limit: 20, total: 0, pages: 0 },
             fileFilters: {
                 frame_types: [],
                 cameras: [],
                 telescopes: [],
                 objects: [],
                 filters: []
+            },
+            sessionFilters: {
+                cameras: [],
+                telescopes: [],
+                date_start: '',
+                date_end: ''
             },
             searchFilters: {
                 filename: '',
@@ -33,13 +40,14 @@ createApp({
                 dates: []
             },
             activeFilter: null,
+            activeSessionFilter: null,
             fileSorting: {
                 sort_by: 'obs_date',
                 sort_order: 'desc'
             },
-            fileSearchText: '',
             objectSearchText: '',
-            loading: false
+            loading: false,
+            errorMessage: ''
         }
     },
     
@@ -47,6 +55,15 @@ createApp({
         hasActiveFilters() {
             return Object.values(this.fileFilters).some(arr => arr.length > 0) ||
                    Object.values(this.searchFilters).some(val => val !== '');
+        },
+        
+        hasActiveSessionFilters() {
+            return Object.values(this.sessionFilters).some(val => {
+                if (Array.isArray(val)) {
+                    return val.length > 0;
+                }
+                return val !== '';
+            });
         },
         
         filteredObjectOptions() {
@@ -68,7 +85,7 @@ createApp({
                 this.stats = response.data;
             } catch (error) {
                 console.error('Error loading stats:', error);
-                this.showError('Failed to load statistics');
+                this.errorMessage = 'Failed to load statistics: ' + error.message;
             } finally {
                 this.loading = false;
             }
@@ -80,7 +97,7 @@ createApp({
                 this.filterOptions = response.data;
             } catch (error) {
                 console.error('Error loading filter options:', error);
-                this.showError('Failed to load filter options');
+                this.errorMessage = 'Failed to load filter options';
             }
         },
         
@@ -113,7 +130,7 @@ createApp({
                 this.filePagination = response.data.pagination;
             } catch (error) {
                 console.error('Error loading files:', error);
-                this.showError('Failed to load files');
+                this.errorMessage = 'Failed to load files: ' + error.message;
             } finally {
                 this.loading = false;
             }
@@ -122,11 +139,26 @@ createApp({
         async loadSessions() {
             try {
                 this.loading = true;
-                const response = await axios.get('/api/sessions');
+                const params = {
+                    page: this.sessionPagination.page,
+                    limit: this.sessionPagination.limit
+                };
+                
+                // Add session filters
+                for (const [key, values] of Object.entries(this.sessionFilters)) {
+                    if (Array.isArray(values) && values.length > 0) {
+                        params[key] = values.join(',');
+                    } else if (!Array.isArray(values) && values) {
+                        params[key] = values;
+                    }
+                }
+                
+                const response = await axios.get('/api/sessions', { params });
                 this.sessions = response.data.sessions;
+                this.sessionPagination = response.data.pagination;
             } catch (error) {
                 console.error('Error loading sessions:', error);
-                this.showError('Failed to load sessions');
+                this.errorMessage = 'Failed to load sessions: ' + error.message;
             } finally {
                 this.loading = false;
             }
@@ -134,15 +166,15 @@ createApp({
         
         async startOperation(type) {
             try {
-                await axios.post(`/api/operations/${type}`);
-                this.showSuccess(`${type} operation started`);
+                const response = await axios.post(`/api/operations/${type}`);
+                alert(`${type} operation started successfully`);
             } catch (error) {
                 console.error(`Error starting ${type}:`, error);
-                this.showError(`Failed to start ${type}: ${error.response?.data?.detail || error.message}`);
+                this.errorMessage = `Failed to start ${type}: ${error.response?.data?.detail || error.message}`;
             }
         },
         
-        // Filter Methods
+        // File Filter Methods
         toggleFilter(filterName) {
             this.activeFilter = this.activeFilter === filterName ? null : filterName;
         },
@@ -163,6 +195,27 @@ createApp({
             return `${count} selected`;
         },
         
+        // Session Filter Methods
+        toggleSessionFilter(filterName) {
+            this.activeSessionFilter = this.activeSessionFilter === filterName ? null : filterName;
+        },
+        
+        toggleSessionFilterOption(filterName, option) {
+            const index = this.sessionFilters[filterName].indexOf(option);
+            if (index > -1) {
+                this.sessionFilters[filterName].splice(index, 1);
+            } else {
+                this.sessionFilters[filterName].push(option);
+            }
+        },
+        
+        getSessionFilterText(filterName) {
+            const count = this.sessionFilters[filterName].length;
+            if (count === 0) return `All ${filterName}`;
+            if (count === 1) return this.sessionFilters[filterName][0];
+            return `${count} selected`;
+        },
+        
         getActiveFilterSummary() {
             const summary = [];
             for (const [key, values] of Object.entries(this.fileFilters)) {
@@ -178,10 +231,6 @@ createApp({
             return summary;
         },
         
-        filterFileOptions() {
-            this.searchFilters.filename = this.fileSearchText;
-        },
-        
         filterObjectOptions() {
             // This triggers the computed property to update
         },
@@ -193,11 +242,23 @@ createApp({
             for (const key of Object.keys(this.searchFilters)) {
                 this.searchFilters[key] = '';
             }
-            this.fileSearchText = '';
             this.objectSearchText = '';
             this.activeFilter = null;
             this.filePagination.page = 1;
             this.loadFiles();
+        },
+        
+        resetSessionFilters() {
+            for (const key of Object.keys(this.sessionFilters)) {
+                if (Array.isArray(this.sessionFilters[key])) {
+                    this.sessionFilters[key] = [];
+                } else {
+                    this.sessionFilters[key] = '';
+                }
+            }
+            this.activeSessionFilter = null;
+            this.sessionPagination.page = 1;
+            this.loadSessions();
         },
         
         // Sorting Methods
@@ -216,22 +277,36 @@ createApp({
         navigateToSession(sessionId) {
             if (sessionId && sessionId !== 'N/A') {
                 this.activeTab = 'sessions';
-                // Could add session filtering here in the future
             }
         },
         
-        // Pagination Methods
-        prevPage() {
+        // File Pagination Methods
+        prevFilePage() {
             if (this.filePagination.page > 1) {
                 this.filePagination.page--;
                 this.loadFiles();
             }
         },
         
-        nextPage() {
+        nextFilePage() {
             if (this.filePagination.page < this.filePagination.pages) {
                 this.filePagination.page++;
                 this.loadFiles();
+            }
+        },
+        
+        // Session Pagination Methods
+        prevSessionPage() {
+            if (this.sessionPagination.page > 1) {
+                this.sessionPagination.page--;
+                this.loadSessions();
+            }
+        },
+        
+        nextSessionPage() {
+            if (this.sessionPagination.page < this.sessionPagination.pages) {
+                this.sessionPagination.page++;
+                this.loadSessions();
             }
         },
         
@@ -256,22 +331,20 @@ createApp({
             return `${exposure}s`;
         },
         
-        // Notification Methods
-        showError(message) {
-            // Simple alert for now - could be replaced with toast notifications
-            alert(`Error: ${message}`);
+        // Event Handlers
+        handleDocumentClick(e) {
+            // Close dropdowns when clicking outside
+            if (!e.target.closest('.relative')) {
+                this.activeFilter = null;
+                this.activeSessionFilter = null;
+            }
         },
         
-        showSuccess(message) {
-            // Simple alert for now - could be replaced with toast notifications
-            alert(`Success: ${message}`);
-        },
-        
-        // Keyboard shortcuts
         handleKeydown(event) {
             // ESC to close dropdowns
             if (event.key === 'Escape') {
                 this.activeFilter = null;
+                this.activeSessionFilter = null;
             }
             
             // Ctrl/Cmd + R to refresh
@@ -314,6 +387,14 @@ createApp({
                 this.loadFiles();
             },
             deep: true
+        },
+        
+        sessionFilters: {
+            handler() {
+                this.sessionPagination.page = 1;
+                this.loadSessions();
+            },
+            deep: true
         }
     },
     
@@ -327,6 +408,7 @@ createApp({
             ]);
         } catch (error) {
             console.error('Error during app initialization:', error);
+            this.errorMessage = 'Failed to initialize application';
         }
         
         // Set up event listeners
@@ -338,17 +420,5 @@ createApp({
         // Clean up event listeners
         document.removeEventListener('click', this.handleDocumentClick);
         document.removeEventListener('keydown', this.handleKeydown);
-    },
-    
-    methods: {
-        ...this.methods,
-        
-        // Additional event handlers
-        handleDocumentClick(e) {
-            // Close dropdowns when clicking outside
-            if (!e.target.closest('.relative')) {
-                this.activeFilter = null;
-            }
-        }
     }
 }).mount('#app');

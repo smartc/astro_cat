@@ -2,7 +2,7 @@
 
 /* Button Styles */
 .btn {
-    @apply px-4 py-2 rounded font-medium transition;
+    @apply px-4 py-2 rounded font-medium transition cursor-pointer;
 }
 
 .btn-blue {
@@ -24,6 +24,11 @@
 /* Stats Card */
 .stats-card {
     @apply bg-white p-6 rounded-lg shadow;
+}
+
+/* Operation Buttons */
+.operation-button {
+    @apply text-white py-4 px-8 rounded-lg transition font-semibold text-lg;
 }
 
 /* Filter Components */
@@ -62,6 +67,10 @@
 
 .filter-option {
     @apply flex items-center text-xs hover:bg-gray-50 px-2 py-1 cursor-pointer;
+}
+
+.filter-option input {
+    margin-right: 0.5rem;
 }
 
 .filter-input {
@@ -169,14 +178,24 @@
     @apply bg-gray-50;
 }
 
-/* Sort Select */
-.sort-select {
-    @apply border border-gray-300 rounded px-2 py-1;
+/* Column widths */
+.exposure-col {
+    width: 80px;
 }
 
-/* Operation Buttons */
-.operation-button {
-    @apply text-white py-3 px-6 rounded-lg transition;
+.date-col {
+    width: 100px;
+}
+
+.narrow-input {
+    width: 100%;
+    font-size: 0.7rem;
+    padding: 0.125rem 0.25rem;
+}
+
+/* Error Message */
+.error-message {
+    @apply bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4;
 }
 
 /* Responsive adjustments */
@@ -235,9 +254,4 @@
 
 .status-error {
     background-color: #ef4444;
-}
-
-/* Dark mode support (future enhancement) */
-@media (prefers-color-scheme: dark) {
-    /* Will add dark mode styles later */
 }
