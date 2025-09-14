@@ -1,5 +1,5 @@
 """
-FITS Cataloger Web Interface - Column Header Filters
+FITS Cataloger Web Interface - Updated with UI improvements
 FastAPI application for browsing database and managing operations
 """
 
@@ -127,13 +127,12 @@ async def get_files(
     telescopes: Optional[str] = Query(None, description="Comma-separated telescopes"),
     objects: Optional[str] = Query(None, description="Comma-separated objects"),
     filters: Optional[str] = Query(None, description="Comma-separated filters"),
-    dates: Optional[str] = Query(None, description="Comma-separated dates"),
     filename: Optional[str] = None,
     session_id: Optional[str] = None,
     exposure_min: Optional[float] = None,
     exposure_max: Optional[float] = None,
-    validation_score_min: Optional[float] = None,
-    validation_score_max: Optional[float] = None,
+    date_start: Optional[str] = None,
+    date_end: Optional[str] = None,
     sort_by: str = Query("obs_date"),
     sort_order: str = Query("desc"),
     session: Session = Depends(get_db_session)
@@ -168,11 +167,6 @@ async def get_files(
             if filter_list:
                 query = query.filter(FitsFile.filter.in_(filter_list))
         
-        if dates:
-            date_list = [d.strip() for d in dates.split(',') if d.strip()]
-            if date_list:
-                query = query.filter(FitsFile.obs_date.in_(date_list))
-        
         # Apply search filters
         if filename:
             query = query.filter(FitsFile.file.ilike(f"%{filename}%"))
@@ -182,10 +176,12 @@ async def get_files(
             query = query.filter(FitsFile.exposure >= exposure_min)
         if exposure_max is not None:
             query = query.filter(FitsFile.exposure <= exposure_max)
-        if validation_score_min is not None:
-            query = query.filter(FitsFile.validation_score >= validation_score_min)
-        if validation_score_max is not None:
-            query = query.filter(FitsFile.validation_score <= validation_score_max)
+        
+        # Apply date range filters
+        if date_start:
+            query = query.filter(FitsFile.obs_date >= date_start)
+        if date_end:
+            query = query.filter(FitsFile.obs_date <= date_end)
         
         # Apply sorting
         sort_column = getattr(FitsFile, sort_by, FitsFile.obs_date)
@@ -217,8 +213,6 @@ async def get_files(
                     "obs_timestamp": f.obs_timestamp.isoformat() if f.obs_timestamp else None,
                     "ra": f.ra,
                     "dec": f.dec,
-                    "validation_score": f.validation_score,
-                    "migration_ready": f.migration_ready,
                     "session_id": f.session_id,
                     "bad": f.bad,
                     "file_not_found": f.file_not_found
@@ -411,7 +405,6 @@ async def dashboard():
                 position: absolute;
                 top: 100%;
                 left: 0;
-                right: 0;
                 z-index: 50;
                 background: white;
                 border: 1px solid #d1d5db;
@@ -419,6 +412,8 @@ async def dashboard():
                 box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
                 max-height: 200px;
                 overflow-y: auto;
+                min-width: 200px;
+                width: max-content;
             }
             .filter-button {
                 width: 100%;
@@ -449,6 +444,32 @@ async def dashboard():
             }
             .sort-header:hover {
                 background-color: #f3f4f6;
+            }
+            .filename-cell {
+                max-width: 200px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                position: relative;
+            }
+            .filename-tooltip {
+                position: absolute;
+                bottom: 100%;
+                left: 0;
+                background: black;
+                color: white;
+                padding: 0.25rem 0.5rem;
+                border-radius: 0.25rem;
+                font-size: 0.75rem;
+                white-space: nowrap;
+                z-index: 60;
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 0.2s;
+                margin-bottom: 0.25rem;
+            }
+            .filename-cell:hover .filename-tooltip {
+                opacity: 1;
             }
         </style>
     </head>
@@ -529,7 +550,6 @@ async def dashboard():
                                         <option value="telescope">Telescope</option>
                                         <option value="filter">Filter</option>
                                         <option value="exposure">Exposure</option>
-                                        <option value="validation_score">Score</option>
                                     </select>
                                     <select v-model="fileSorting.sort_order" @change="loadFiles" class="border border-gray-300 rounded px-2 py-1">
                                         <option value="desc">↓</option>
@@ -562,7 +582,7 @@ async def dashboard():
                                 <thead class="bg-gray-50">
                                     <tr>
                                         <!-- File Column -->
-                                        <th class="header-cell border-r border-gray-200">
+                                        <th class="header-cell border-r border-gray-200" style="width: 200px;">
                                             <div @click="sortBy('file')" class="sort-header">
                                                 <div class="flex items-center justify-between text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                     <span>File</span>
@@ -571,7 +591,8 @@ async def dashboard():
                                                     </span>
                                                 </div>
                                             </div>
-                                            <input v-model="searchFilters.filename" 
+                                            <input v-model="fileSearchText" 
+                                                   @input="filterFileOptions"
                                                    placeholder="Search filename..." 
                                                    class="w-full text-xs border border-gray-300 rounded px-2 py-1">
                                         </th>
@@ -586,21 +607,27 @@ async def dashboard():
                                                     </span>
                                                 </div>
                                             </div>
-                                            <div class="relative">
-                                                <button @click="toggleFilter('objects')" class="filter-button">
-                                                    <span>{{ getFilterText('objects') }}</span>
-                                                    <span class="text-gray-400">▼</span>
-                                                </button>
-                                                <div v-show="activeFilter === 'objects'" class="filter-dropdown">
-                                                    <div class="p-2">
-                                                        <label v-for="option in filterOptions.objects" :key="option" 
-                                                               class="flex items-center text-xs hover:bg-gray-50 px-2 py-1 cursor-pointer">
-                                                            <input type="checkbox" 
-                                                                   :checked="fileFilters.objects.includes(option)"
-                                                                   @change="toggleFilterOption('objects', option)"
-                                                                   class="mr-2">
-                                                            <span class="truncate">{{ option }}</span>
-                                                        </label>
+                                            <div class="space-y-1">
+                                                <input v-model="objectSearchText" 
+                                                       @input="filterObjectOptions"
+                                                       placeholder="Search object..." 
+                                                       class="w-full text-xs border border-gray-300 rounded px-2 py-1">
+                                                <div class="relative">
+                                                    <button @click="toggleFilter('objects')" class="filter-button">
+                                                        <span>{{ getFilterText('objects') }}</span>
+                                                        <span class="text-gray-400">▼</span>
+                                                    </button>
+                                                    <div v-show="activeFilter === 'objects'" class="filter-dropdown">
+                                                        <div class="p-2">
+                                                            <label v-for="option in filteredObjectOptions" :key="option" 
+                                                                   class="flex items-center text-xs hover:bg-gray-50 px-2 py-1 cursor-pointer">
+                                                                <input type="checkbox" 
+                                                                       :checked="fileFilters.objects.includes(option)"
+                                                                       @change="toggleFilterOption('objects', option)"
+                                                                       class="mr-2">
+                                                                <span class="truncate">{{ option }}</span>
+                                                            </label>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -736,7 +763,7 @@ async def dashboard():
                                                     </span>
                                                 </div>
                                             </div>
-                                            <div class="flex space-x-1">
+                                            <div class="space-y-1">
                                                 <input v-model="searchFilters.exposure_min" 
                                                        placeholder="Min" 
                                                        type="number" 
@@ -758,28 +785,20 @@ async def dashboard():
                                                     </span>
                                                 </div>
                                             </div>
-                                            <div class="relative">
-                                                <button @click="toggleFilter('dates')" class="filter-button">
-                                                    <span>{{ getFilterText('dates') }}</span>
-                                                    <span class="text-gray-400">▼</span>
-                                                </button>
-                                                <div v-show="activeFilter === 'dates'" class="filter-dropdown">
-                                                    <div class="p-2">
-                                                        <label v-for="option in filterOptions.dates" :key="option" 
-                                                               class="flex items-center text-xs hover:bg-gray-50 px-2 py-1 cursor-pointer">
-                                                            <input type="checkbox" 
-                                                                   :checked="fileFilters.dates.includes(option)"
-                                                                   @change="toggleFilterOption('dates', option)"
-                                                                   class="mr-2">
-                                                            <span>{{ option }}</span>
-                                                        </label>
-                                                    </div>
-                                                </div>
+                                            <div class="space-y-1">
+                                                <input v-model="searchFilters.date_start" 
+                                                       placeholder="Start date" 
+                                                       type="date" 
+                                                       class="w-full text-xs border border-gray-300 rounded px-1 py-1">
+                                                <input v-model="searchFilters.date_end" 
+                                                       placeholder="End date" 
+                                                       type="date" 
+                                                       class="w-full text-xs border border-gray-300 rounded px-1 py-1">
                                             </div>
                                         </th>
 
                                         <!-- Session ID Column -->
-                                        <th class="header-cell border-r border-gray-200">
+                                        <th class="header-cell">
                                             <div @click="sortBy('session_id')" class="sort-header">
                                                 <div class="flex items-center justify-between text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                     <span>Session</span>
@@ -792,30 +811,14 @@ async def dashboard():
                                                    placeholder="Session..." 
                                                    class="w-full text-xs border border-gray-300 rounded px-2 py-1">
                                         </th>
-
-                                        <!-- Score Column -->
-                                        <th class="header-cell">
-                                            <div @click="sortBy('validation_score')" class="sort-header">
-                                                <div class="flex items-center justify-between text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    <span>Score</span>
-                                                    <span v-if="fileSorting.sort_by === 'validation_score'">
-                                                        {{ fileSorting.sort_order === 'asc' ? '↑' : '↓' }}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <select v-model="searchFilters.score_range" class="w-full text-xs border border-gray-300 rounded px-1 py-1">
-                                                <option value="">All</option>
-                                                <option value="auto">≥95</option>
-                                                <option value="review">80-94</option>
-                                                <option value="manual">&lt;80</option>
-                                                <option value="none">None</option>
-                                            </select>
-                                        </th>
                                     </tr>
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200">
                                     <tr v-for="file in files" :key="file.id" class="hover:bg-gray-50">
-                                        <td class="px-4 py-4 whitespace-nowrap text-sm font-mono text-gray-900">{{ file.file }}</td>
+                                        <td class="px-4 py-4 whitespace-nowrap text-sm font-mono text-gray-900 filename-cell">
+                                            <div class="filename-tooltip">{{ file.file }}</div>
+                                            {{ file.file }}
+                                        </td>
                                         <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-900">{{ file.object || 'N/A' }}</td>
                                         <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
                                             <span :class="getFrameTypeClass(file.frame_type)" class="px-2 py-1 text-xs rounded-full">
@@ -831,11 +834,6 @@ async def dashboard():
                                             <span @click="navigateToSession(file.session_id)" 
                                                   class="text-blue-600 hover:text-blue-800 cursor-pointer underline font-mono text-xs">
                                                 {{ file.session_id || 'N/A' }}
-                                            </span>
-                                        </td>
-                                        <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                                            <span :class="getScoreClass(file.validation_score)" class="font-semibold">
-                                                {{ file.validation_score?.toFixed(1) || 'N/A' }}
                                             </span>
                                         </td>
                                     </tr>
@@ -937,15 +935,15 @@ async def dashboard():
                         cameras: [],
                         telescopes: [],
                         objects: [],
-                        filters: [],
-                        dates: []
+                        filters: []
                     },
                     searchFilters: {
                         filename: '',
                         session_id: '',
                         exposure_min: '',
                         exposure_max: '',
-                        score_range: ''
+                        date_start: '',
+                        date_end: ''
                     },
                     filterOptions: {
                         frame_types: [],
@@ -959,13 +957,23 @@ async def dashboard():
                     fileSorting: {
                         sort_by: 'obs_date',
                         sort_order: 'desc'
-                    }
+                    },
+                    fileSearchText: '',
+                    objectSearchText: ''
                 }
             },
             computed: {
                 hasActiveFilters() {
                     return Object.values(this.fileFilters).some(arr => arr.length > 0) ||
                            Object.values(this.searchFilters).some(val => val !== '');
+                },
+                filteredObjectOptions() {
+                    if (!this.objectSearchText) {
+                        return this.filterOptions.objects;
+                    }
+                    return this.filterOptions.objects.filter(obj => 
+                        obj.toLowerCase().includes(this.objectSearchText.toLowerCase())
+                    );
                 }
             },
             methods: {
@@ -1006,22 +1014,7 @@ async def dashboard():
                         // Add search filters
                         for (const [key, value] of Object.entries(this.searchFilters)) {
                             if (value) {
-                                if (key === 'score_range') {
-                                    switch (value) {
-                                        case 'auto':
-                                            params.validation_score_min = 95;
-                                            break;
-                                        case 'review':
-                                            params.validation_score_min = 80;
-                                            params.validation_score_max = 94.9;
-                                            break;
-                                        case 'manual':
-                                            params.validation_score_max = 79.9;
-                                            break;
-                                    }
-                                } else {
-                                    params[key] = value;
-                                }
+                                params[key] = value;
                             }
                         }
                         
@@ -1077,14 +1070,23 @@ async def dashboard():
                     return summary;
                 },
                 
+                filterFileOptions() {
+                    this.searchFilters.filename = this.fileSearchText;
+                },
+                
+                filterObjectOptions() {
+                    // This triggers the computed property to update
+                },
+                
                 resetAllFilters() {
-                    // Reset all filters
                     for (const key of Object.keys(this.fileFilters)) {
                         this.fileFilters[key] = [];
                     }
                     for (const key of Object.keys(this.searchFilters)) {
                         this.searchFilters[key] = '';
                     }
+                    this.fileSearchText = '';
+                    this.objectSearchText = '';
                     this.activeFilter = null;
                     this.filePagination.page = 1;
                     this.loadFiles();
@@ -1119,13 +1121,6 @@ async def dashboard():
                         this.filePagination.page++;
                         this.loadFiles();
                     }
-                },
-                
-                getScoreClass(score) {
-                    if (!score) return 'text-gray-500';
-                    if (score >= 95) return 'text-green-600';
-                    if (score >= 80) return 'text-yellow-600';
-                    return 'text-red-600';
                 },
                 
                 getFrameTypeClass(frameType) {
