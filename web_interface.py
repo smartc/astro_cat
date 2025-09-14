@@ -335,11 +335,29 @@ async def get_stats(session: Session = Depends(get_db_session)):
 async def get_sessions(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    date_start: Optional[str] = None,
+    date_end: Optional[str] = None,
+    cameras: Optional[str] = Query(None, description="Comma-separated cameras"),
+    telescopes: Optional[str] = Query(None, description="Comma-separated telescopes"),
     session: Session = Depends(get_db_session)
 ):
-    """Get imaging sessions with pagination."""
+    """Get imaging sessions with pagination and filtering."""
     try:
         query = session.query(SessionModel).order_by(desc(SessionModel.session_date))
+        
+        # Apply filters
+        if date_start:
+            query = query.filter(SessionModel.session_date >= date_start)
+        if date_end:
+            query = query.filter(SessionModel.session_date <= date_end)
+        if cameras:
+            camera_list = [c.strip() for c in cameras.split(',') if c.strip()]
+            if camera_list:
+                query = query.filter(SessionModel.camera.in_(camera_list))
+        if telescopes:
+            telescope_list = [t.strip() for t in telescopes.split(',') if t.strip()]
+            if telescope_list:
+                query = query.filter(SessionModel.telescope.in_(telescope_list))
         
         total = query.count()
         offset = (page - 1) * limit
