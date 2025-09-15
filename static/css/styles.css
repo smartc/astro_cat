@@ -66,7 +66,16 @@
 }
 
 .filter-option {
-    @apply flex items-center text-xs hover:bg-gray-50 px-2 py-1 cursor-pointer;
+    display: block;
+    width: 100%;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    text-align: left;
+}
+
+.filter-option:hover {
+    background-color: #f9fafb;
 }
 
 .filter-option input {
