@@ -15,6 +15,7 @@ class PathConfig(BaseModel):
     image_dir: str
     database_path: str
     restore_folder: str
+    processing_dir: str
 
     @validator('*', pre=True)
     def expand_paths(cls, v):
@@ -69,6 +70,7 @@ def create_directories_if_needed(config: Config) -> None:
         config.paths.quarantine_dir,
         config.paths.image_dir,
         config.paths.restore_folder,
+        config.paths.processing_dir,
         str(Path(config.paths.database_path).parent)
     ]
     

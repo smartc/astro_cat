@@ -16,6 +16,7 @@ from fits_processor import OptimizedFitsProcessor
 from file_monitor import FileMonitor
 from file_organizer import FileOrganizer
 from validation import FitsValidator
+from processing_session_manager import ProcessingSessionManager, ProcessingSessionInfo
 
 
 # Global flag for graceful shutdown
@@ -81,6 +82,8 @@ class FitsCataloger:
         self.db_service = DatabaseService(self.db_manager)
         self.file_monitor = FileMonitor(self.config, self.process_new_files)
         self.file_organizer = FileOrganizer(self.config, self.db_service)
+        self.processing_manager = ProcessingSessionManager(self.config, self.db_service)
+
         
         # Set up database
         self._initialize_database()
@@ -560,6 +563,364 @@ def test_db(ctx):
         
     except Exception as e:
         click.echo(f"✗ Database test failed: {e}")
+        sys.exit(1)
+
+@cli.group()
+@click.pass_context
+def processing(ctx):
+    """Processing session management commands."""
+    pass
+
+
+@processing.command()
+@click.argument('name')
+@click.option('--file-ids', '-f', required=True, help='Comma-separated list of FITS file IDs')
+@click.option('--notes', '-n', help='Processing notes (markdown format)')
+@click.option('--dry-run', is_flag=True, help='Show what would be created without actually creating')
+@click.pass_context
+def create(ctx, name, file_ids, notes, dry_run):
+    """Create a new processing session with selected FITS files.
+    
+    NAME: Name for the processing session
+    
+    Example:
+        python main.py processing create "NGC7000 LRGB" --file-ids "123,124,125,126" --notes "First attempt"
+    """
+    config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
+    
+    try:
+        # Parse comma-separated file IDs
+        try:
+            file_ids_list = [int(x.strip()) for x in file_ids.split(',')]
+        except ValueError as e:
+            click.echo(f"Error: Invalid file IDs format. Use comma-separated integers: {e}")
+            return
+        
+        if not file_ids_list:
+            click.echo("Error: No file IDs provided")
+            return
+        
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        processing_manager = ProcessingSessionManager(config, cataloger.db_service)
+        
+        click.echo(f"Creating processing session: {name}")
+        click.echo(f"Files to include: {len(file_ids_list)} ({file_ids_list})")
+        
+        if dry_run:
+            files, warnings = processing_manager.validate_file_selection(file_ids_list)
+            
+            if warnings:
+                click.echo("Warnings:")
+                for warning_type, message in warnings.items():
+                    click.echo(f"  - {warning_type}: {message}")
+            
+            if not files:
+                click.echo("Error: No valid files found")
+                return
+            
+            frame_counts = {'LIGHT': 0, 'DARK': 0, 'FLAT': 0, 'BIAS': 0, 'OTHER': 0}
+            objects = set()
+            
+            for file_obj in files:
+                frame_type = (file_obj.frame_type or 'OTHER').upper()
+                if frame_type in frame_counts:
+                    frame_counts[frame_type] += 1
+                else:
+                    frame_counts['OTHER'] += 1
+                
+                if file_obj.object and file_obj.object != 'CALIBRATION':
+                    objects.add(file_obj.object)
+            
+            click.echo(f"\nSession would include:")
+            click.echo(f"  - Light frames: {frame_counts['LIGHT']}")
+            click.echo(f"  - Dark frames: {frame_counts['DARK']}")
+            click.echo(f"  - Flat frames: {frame_counts['FLAT']}")
+            click.echo(f"  - Bias frames: {frame_counts['BIAS']}")
+            if frame_counts['OTHER'] > 0:
+                click.echo(f"  - Other frames: {frame_counts['OTHER']}")
+            
+            if objects:
+                click.echo(f"  - Objects: {', '.join(sorted(objects))}")
+            
+            session_id = processing_manager.generate_session_id(name)
+            folder_path = config.paths.processing_dir + "/" + session_id
+            click.echo(f"  - Folder: {folder_path}")
+            
+            if notes:
+                click.echo(f"  - Notes: {notes}")
+            
+            click.echo("\nDry run completed successfully!")
+        else:
+            if not click.confirm(f"Create processing session '{name}' with {len(file_ids_list)} files?"):
+                return
+            
+            session_info = processing_manager.create_processing_session(name, file_ids_list, notes)
+            
+            click.echo("✓ Processing session created successfully!")
+            click.echo(f"  Session ID: {session_info.id}")
+            click.echo(f"  Folder: {session_info.folder_path}")
+            click.echo(f"  Files staged: {session_info.total_files}")
+            click.echo(f"    - Lights: {session_info.lights}")
+            click.echo(f"    - Darks: {session_info.darks}")
+            click.echo(f"    - Flats: {session_info.flats}")
+            click.echo(f"    - Bias: {session_info.bias}")
+            
+            if session_info.objects:
+                click.echo(f"  Objects: {', '.join(session_info.objects)}")
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error creating processing session: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+        
+
+@processing.command()
+@click.option('--status', type=click.Choice(['not_started', 'in_progress', 'complete']), 
+              help='Filter by status')
+@click.option('--detailed', '-d', is_flag=True, help='Show detailed information')
+@click.pass_context
+def list(ctx, status, detailed):
+    """List processing sessions."""
+    config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        processing_manager = ProcessingSessionManager(config, cataloger.db_service)
+        
+        sessions = processing_manager.list_processing_sessions(status_filter=status)
+        
+        if not sessions:
+            click.echo("No processing sessions found.")
+            return
+        
+        click.echo(f"Found {len(sessions)} processing session(s):")
+        click.echo()
+        
+        for session in sessions:
+            click.echo(f"📁 {session.name}")
+            click.echo(f"   ID: {session.id}")
+            click.echo(f"   Status: {session.status}")
+            click.echo(f"   Created: {session.created_at.strftime('%Y-%m-%d %H:%M')}")
+            click.echo(f"   Files: {session.total_files} total ({session.lights}L, {session.darks}D, {session.flats}F, {session.bias}B)")
+            
+            if session.objects:
+                click.echo(f"   Objects: {', '.join(session.objects)}")
+            
+            if detailed:
+                click.echo(f"   Folder: {session.folder_path}")
+                if session.notes:
+                    # Show first line of notes
+                    first_line = session.notes.split('\n')[0][:80]
+                    click.echo(f"   Notes: {first_line}{'...' if len(session.notes) > 80 else ''}")
+            
+            click.echo()
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error listing processing sessions: {e}")
+        sys.exit(1)
+
+
+@processing.command()
+@click.argument('session_id')
+@click.pass_context
+def show(ctx, session_id):
+    """Show detailed information about a processing session."""
+    config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        processing_manager = ProcessingSessionManager(config, cataloger.db_service)
+        
+        session = processing_manager.get_processing_session(session_id)
+        
+        if not session:
+            click.echo(f"Processing session '{session_id}' not found.")
+            return
+        
+        click.echo(f"Processing Session: {session.name}")
+        click.echo("=" * 50)
+        click.echo(f"ID:           {session.id}")
+        click.echo(f"Status:       {session.status}")
+        click.echo(f"Created:      {session.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
+        click.echo(f"Folder:       {session.folder_path}")
+        click.echo()
+        
+        click.echo("File Summary:")
+        click.echo(f"  Total files:  {session.total_files}")
+        click.echo(f"  Light frames: {session.lights}")
+        click.echo(f"  Dark frames:  {session.darks}")
+        click.echo(f"  Flat frames:  {session.flats}")
+        click.echo(f"  Bias frames:  {session.bias}")
+        click.echo()
+        
+        if session.objects:
+            click.echo(f"Objects: {', '.join(session.objects)}")
+            click.echo()
+        
+        if session.notes:
+            click.echo("Notes:")
+            click.echo(session.notes)
+            click.echo()
+        
+        # Check if folder exists
+        folder_path = Path(session.folder_path)
+        if folder_path.exists():
+            click.echo("✓ Session folder exists")
+        else:
+            click.echo("⚠ Session folder not found")
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error showing processing session: {e}")
+        sys.exit(1)
+
+
+@processing.command()
+@click.argument('session_id')
+@click.argument('status', type=click.Choice(['not_started', 'in_progress', 'complete']))
+@click.option('--notes', '-n', help='Update processing notes')
+@click.pass_context
+def update_status(ctx, session_id, status, notes):
+    """Update processing session status."""
+    config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        processing_manager = ProcessingSessionManager(config, cataloger.db_service)
+        
+        success = processing_manager.update_session_status(session_id, status, notes)
+        
+        if success:
+            click.echo(f"✓ Updated session {session_id} status to: {status}")
+            if notes:
+                click.echo("✓ Updated processing notes")
+        else:
+            click.echo(f"Processing session '{session_id}' not found.")
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error updating processing session: {e}")
+        sys.exit(1)
+
+
+@processing.command()
+@click.argument('session_id')
+@click.option('--keep-files', is_flag=True, help='Keep staged files (remove only database records)')
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+@click.pass_context
+def delete(ctx, session_id, keep_files, force):
+    """Delete a processing session."""
+    config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        processing_manager = ProcessingSessionManager(config, cataloger.db_service)
+        
+        # Show session info before deletion
+        session = processing_manager.get_processing_session(session_id)
+        if not session:
+            click.echo(f"Processing session '{session_id}' not found.")
+            return
+        
+        click.echo(f"Processing session: {session.name}")
+        click.echo(f"Folder: {session.folder_path}")
+        click.echo(f"Files: {session.total_files}")
+        
+        if not force:
+            action = "database records only" if keep_files else "session and all staged files"
+            if not click.confirm(f"Delete {action}?"):
+                return
+        
+        success = processing_manager.delete_processing_session(session_id, remove_files=not keep_files)
+        
+        if success:
+            click.echo(f"✓ Deleted processing session {session_id}")
+            if not keep_files:
+                click.echo("✓ Removed staged files and folders")
+        else:
+            click.echo(f"Processing session '{session_id}' not found.")
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error deleting processing session: {e}")
+        sys.exit(1)
+
+
+@processing.command()
+@click.argument('session_id')
+@click.pass_context
+def open_folder(ctx, session_id):
+    """Open the processing session folder in file manager."""
+    config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        processing_manager = ProcessingSessionManager(config, cataloger.db_service)
+        
+        session = processing_manager.get_processing_session(session_id)
+        if not session:
+            click.echo(f"Processing session '{session_id}' not found.")
+            return
+        
+        folder_path = Path(session.folder_path)
+        if not folder_path.exists():
+            click.echo(f"Session folder does not exist: {folder_path}")
+            return
+        
+        # Try to open folder in file manager
+        import subprocess
+        import platform
+        
+        system = platform.system()
+        try:
+            if system == "Windows":
+                subprocess.run(["explorer", str(folder_path)])
+            elif system == "Darwin":  # macOS
+                subprocess.run(["open", str(folder_path)])
+            else:  # Linux and others
+                subprocess.run(["xdg-open", str(folder_path)])
+            
+            click.echo(f"Opened folder: {folder_path}")
+        except Exception as e:
+            click.echo(f"Could not open folder automatically: {e}")
+            click.echo(f"Manual path: {folder_path}")
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error opening folder: {e}")
         sys.exit(1)
 
 

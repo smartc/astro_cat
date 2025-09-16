@@ -2,6 +2,7 @@
   "paths": {
     "quarantine_dir": "/mnt/phoebe/Astro/Quarantine",
     "image_dir": "/mnt/phoebe/Astro/Images",
+    "processing_dir": "/mnt/phoebe/Astro/Processing",
     "database_path": "/mnt/phoebe/Astro/fits_catalog.db",
     "restore_folder": "/mnt/phoebe/Astro/.tmp/restore"
   },

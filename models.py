@@ -5,7 +5,7 @@ from typing import Optional, List, Dict, Tuple
 
 from sqlalchemy import (
     Boolean, DateTime, Float, Integer, String, Text, 
-    create_engine, Column, Index
+    create_engine, Column, Index, ForeignKey
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -162,6 +162,70 @@ class Session(Base):
     __table_args__ = (
         Index('idx_session_date', 'session_date'),
         Index('idx_session_telescope_camera', 'telescope', 'camera'),
+    )
+
+
+class ProcessingSession(Base):
+    """Processing session for selected FITS files."""
+    __tablename__ = 'processing_sessions'
+
+    id = Column(String(50), primary_key=True)  # Unique processing session ID
+    name = Column(String(255), nullable=False)  # User-friendly name
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Metadata
+    objects = Column(Text)  # JSON array of object names in the session
+    notes = Column(Text)    # Markdown-formatted processing notes
+    status = Column(String(20), default='not_started')  # not_started, in_progress, complete
+    version = Column(Integer, default=1)  # Processing version (for reprocessing)
+    
+    # External references
+    astrobin_url = Column(String(500))  # AstroBin posting URL
+    social_urls = Column(Text)  # JSON array of social media URLs
+    
+    # Processing timeline
+    processing_started = Column(DateTime)
+    processing_completed = Column(DateTime)
+    
+    # File system
+    folder_path = Column(String(500))  # Path to processing folder
+    
+    # Indexes
+    __table_args__ = (
+        Index('idx_processing_status', 'status'),
+        Index('idx_processing_created', 'created_at'),
+        Index('idx_processing_objects', 'objects'),
+    )
+
+
+class ProcessingSessionFile(Base):
+    """Files included in a processing session."""
+    __tablename__ = 'processing_session_files'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    processing_session_id = Column(String(50), ForeignKey('processing_sessions.id', ondelete='CASCADE'))
+    fits_file_id = Column(Integer, ForeignKey('fits_files.id', ondelete='CASCADE'))
+    
+    # Original file information
+    original_path = Column(String(500), nullable=False)  # Full path to original file
+    original_filename = Column(String(255), nullable=False)  # Original filename
+    
+    # Staged file information
+    staged_path = Column(String(500), nullable=False)  # Full path to symbolic link
+    staged_filename = Column(String(255), nullable=False)  # Filename in processing folder (with prefix)
+    subfolder = Column(String(50), nullable=False)  # lights, darks, flats, bias
+    
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow)
+    file_size = Column(Integer)  # Size of original file in bytes
+    frame_type = Column(String(20))  # Cached frame type for easy querying
+    
+    # Indexes
+    __table_args__ = (
+        Index('idx_processing_file_session', 'processing_session_id'),
+        Index('idx_processing_file_fits', 'fits_file_id'),
+        Index('idx_processing_file_type', 'frame_type'),
     )
 
 
