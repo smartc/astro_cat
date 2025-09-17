@@ -11,7 +11,7 @@ import click
 from tqdm import tqdm
 
 from config import load_config, create_default_config, Config
-from models import DatabaseManager, DatabaseService
+from models import DatabaseManager, DatabaseService, FitsFile, ProcessingSessionFile
 from fits_processor import OptimizedFitsProcessor
 from file_monitor import FileMonitor
 from file_organizer import FileOrganizer
@@ -733,10 +733,298 @@ def list(ctx, status, detailed):
         sys.exit(1)
 
 
+# Updated processing commands for main.py - replace existing processing commands
+
 @processing.command()
 @click.argument('session_id')
+@click.option('--file-ids', '-f', required=True, help='Comma-separated list of FITS file IDs to add')
+@click.option('--dry-run', is_flag=True, help='Show what would be added without actually adding')
 @click.pass_context
-def show(ctx, session_id):
+def add_files(ctx, session_id, file_ids, dry_run):
+    """Add additional files to an existing processing session.
+    
+    SESSION_ID: Processing session ID to add files to
+    
+    Example:
+        python main.py processing add-files "20241201_120000_NGC7000" --file-ids "127,128,129"
+    """
+    config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
+    
+    try:
+        # Parse file IDs
+        try:
+            file_ids_list = [int(x.strip()) for x in file_ids.split(',')]
+        except ValueError as e:
+            click.echo(f"Error: Invalid file IDs format. Use comma-separated integers: {e}")
+            return
+        
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        processing_manager = ProcessingSessionManager(config, cataloger.db_service)
+        
+        # Check if session exists
+        session = processing_manager.get_processing_session(session_id)
+        if not session:
+            click.echo(f"Processing session '{session_id}' not found.")
+            return
+        
+        if dry_run:
+            # Validate files and show what would be added
+            files, warnings = processing_manager.validate_file_selection(file_ids_list)
+            
+            if warnings:
+                click.echo("Warnings:")
+                for warning_type, message in warnings.items():
+                    click.echo(f"  - {warning_type}: {message}")
+            
+            if not files:
+                click.echo("Error: No valid files found")
+                return
+            
+            # Analyze what would be added
+            frame_counts = {'LIGHT': 0, 'DARK': 0, 'FLAT': 0, 'BIAS': 0, 'OTHER': 0}
+            new_objects = []
+            
+            for file_obj in files:
+                frame_type = (file_obj.frame_type or 'OTHER').upper()
+                if frame_type in frame_counts:
+                    frame_counts[frame_type] += 1
+                else:
+                    frame_counts['OTHER'] += 1
+                
+                if file_obj.object and file_obj.object != 'CALIBRATION':
+                    if file_obj.object not in session.objects and file_obj.object not in new_objects:
+                        new_objects.append(file_obj.object)
+            
+            click.echo(f"\nWould add to session '{session.name}':")
+            click.echo(f"  - Light frames: {frame_counts['LIGHT']}")
+            click.echo(f"  - Dark frames: {frame_counts['DARK']}")
+            click.echo(f"  - Flat frames: {frame_counts['FLAT']}")
+            click.echo(f"  - Bias frames: {frame_counts['BIAS']}")
+            if frame_counts['OTHER'] > 0:
+                click.echo(f"  - Other frames: {frame_counts['OTHER']}")
+            
+            if new_objects:
+                click.echo(f"  - New objects: {', '.join(new_objects)}")
+            
+            click.echo("\nDry run completed successfully!")
+        else:
+            if not click.confirm(f"Add {len(file_ids_list)} files to processing session '{session.name}'?"):
+                return
+            
+            success = processing_manager.add_files_to_session(session_id, file_ids_list)
+            
+            if success:
+                click.echo(f"✓ Added {len(file_ids_list)} files to processing session {session_id}")
+            else:
+                click.echo(f"Processing session '{session_id}' not found.")
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error adding files to processing session: {e}")
+        import traceback
+        if verbose:
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@processing.command()
+@click.argument('session_id')
+@click.option('--frame-type', type=click.Choice(['darks', 'flats', 'bias', 'all']), 
+              default='all', help='Type of calibration to find')
+@click.option('--auto-add', is_flag=True, help='Automatically add all matched calibration without confirmation')
+@click.option('--dry-run', is_flag=True, help='Show matches without adding anything')
+@click.pass_context
+def add_calibration(ctx, session_id, frame_type, auto_add, dry_run):
+    """Find and add matching calibration files to a processing session.
+    
+    SESSION_ID: Processing session ID to add calibration to
+    
+    Example:
+        python main.py processing add-calibration "20241201_120000_NGC7000"
+        python main.py processing add-calibration "20241201_120000_NGC7000" --frame-type darks --auto-add
+    """
+    config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        processing_manager = ProcessingSessionManager(config, cataloger.db_service)
+        
+        # Check if session exists
+        session = processing_manager.get_processing_session(session_id)
+        if not session:
+            click.echo(f"Processing session '{session_id}' not found.")
+            return
+        
+        click.echo(f"Finding calibration matches for: {session.name}")
+        click.echo(f"Objects: {', '.join(session.objects)}")
+        click.echo()
+        
+        # Show light frames summary first
+        db_session = cataloger.db_service.db_manager.get_session()
+        try:
+            from models import ProcessingSessionFile
+            light_files = db_session.query(FitsFile).join(ProcessingSessionFile).filter(
+                ProcessingSessionFile.processing_session_id == session_id,
+                FitsFile.frame_type == 'LIGHT'
+            ).all()
+            
+            if light_files:
+                click.echo("** LIGHT FRAMES IN SESSION **")
+                
+                # Group by camera and capture session
+                from collections import defaultdict
+                camera_groups = defaultdict(lambda: {'files': [], 'filters': set(), 'exposures': set(), 'sessions': set()})
+                
+                for f in light_files:
+                    camera = f.camera or 'UNKNOWN'
+                    telescope = f.telescope or 'UNKNOWN'
+                    key = f"{camera}+{telescope}"
+                    camera_groups[key]['files'].append(f)
+                    if f.filter and f.filter not in ['UNKNOWN', 'NONE']:
+                        camera_groups[key]['filters'].add(f.filter)
+                    else:
+                        camera_groups[key]['filters'].add('None')
+                    if f.exposure:
+                        camera_groups[key]['exposures'].add(f.exposure)
+                    if f.session_id:
+                        camera_groups[key]['sessions'].add(f.session_id)
+                
+                for setup, data in camera_groups.items():
+                    camera, telescope = setup.split('+')
+                    filters = sorted(data['filters']) if data['filters'] else ['None']
+                    exposures = sorted(data['exposures']) if data['exposures'] else []
+                    sessions = sorted(data['sessions']) if data['sessions'] else ['UNKNOWN']
+                    
+                    click.echo(f"  Camera: {camera}, Telescope: {telescope}")
+                    click.echo(f"  Files: {len(data['files'])}")
+                    click.echo(f"  Filters: {', '.join(filters)}")
+                    if exposures:
+                        exp_str = ', '.join(f"{e}s" for e in exposures)
+                        click.echo(f"  Exposures: {exp_str}")
+                    click.echo(f"  Capture Sessions: {', '.join(sessions)}")
+                    click.echo()
+        finally:
+            db_session.close()
+        
+        # Find matching calibration
+        matches = processing_manager.find_matching_calibration(session_id)
+        
+        # Filter by requested frame type
+        if frame_type != 'all':
+            if frame_type in matches:
+                matches = {frame_type: matches[frame_type]}
+            else:
+                matches = {}
+        
+        if not matches or not any(matches.values()):
+            click.echo("No matching calibration files found.")
+            return
+        
+        # Display matches
+        total_files = 0
+        for calib_type, calib_matches in matches.items():
+            if not calib_matches:
+                continue
+                
+            click.echo(f"** {calib_type.upper()} MATCHES **")
+            
+            for match in calib_matches:
+                click.echo(f"  Capture Session: {match.capture_session_id}")
+                click.echo(f"  Camera: {match.camera}")
+                if match.telescope:
+                    click.echo(f"  Telescope: {match.telescope}")
+                if match.filters:
+                    click.echo(f"  Filters: {', '.join(match.filters)}")
+                if match.exposure_times:
+                    exposures = sorted(set(match.exposure_times))
+                    if len(exposures) == 1:
+                        click.echo(f"  Exposure: {exposures[0]}s")
+                    else:
+                        click.echo(f"  Exposures: {exposures}s")
+                click.echo(f"  Date: {match.capture_date}")
+                click.echo(f"  Files: {match.file_count}")
+                click.echo()
+                
+                total_files += match.file_count
+        
+        click.echo(f"Total calibration files found: {total_files}")
+        
+        if dry_run:
+            click.echo("\nDry run completed - no files added.")
+            return
+        
+        # Get user confirmation unless auto-add
+        if not auto_add:
+            while True:
+                try:
+                    choice = input(f"\nAdd calibration files? (A)ll/{total_files} (B)ias (D)arks (F)lats (N)one [N]: ").upper().strip()
+                    if not choice:
+                        choice = 'N'
+                    
+                    if choice == 'N':
+                        click.echo("No calibration files added.")
+                        return
+                    elif choice == 'A':
+                        # Add all matches
+                        break
+                    elif choice == 'B':
+                        # Add only bias
+                        matches = {'bias': matches.get('bias', [])}
+                        break
+                    elif choice == 'D':
+                        # Add only darks  
+                        matches = {'darks': matches.get('darks', [])}
+                        break
+                    elif choice == 'F':
+                        # Add only flats
+                        matches = {'flats': matches.get('flats', [])}
+                        break
+                    else:
+                        click.echo("Invalid choice. Please enter A, B, D, F, or N.")
+                        continue
+                except KeyboardInterrupt:
+                    click.echo("\nOperation cancelled.")
+                    return
+        
+        # Recalculate total files for selected matches
+        total_files = sum(len(calib_matches) for calib_matches in matches.values())
+        if total_files == 0:
+            click.echo("No files selected for addition.")
+            return
+        
+        # Add calibration files
+        success = processing_manager.add_calibration_to_session(session_id, matches)
+        
+        if success:
+            click.echo(f"✓ Added {total_files} calibration files to processing session {session_id}")
+        else:
+            click.echo("Failed to add calibration files.")
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error adding calibration to processing session: {e}")
+        import traceback
+        if verbose:
+            traceback.print_exc()
+        sys.exit(1)
+
+
+# Update the existing show command to display more object information
+@processing.command()
+@click.argument('session_id')
+@click.option('--detailed', '-d', is_flag=True, help='Show detailed file information')
+@click.pass_context
+def show(ctx, session_id, detailed):
     """Show detailed information about a processing session."""
     config_path = ctx.obj['config_path']
     verbose = ctx.obj['verbose']
@@ -771,7 +1059,9 @@ def show(ctx, session_id):
         click.echo()
         
         if session.objects:
-            click.echo(f"Objects: {', '.join(session.objects)}")
+            click.echo("Objects:")
+            for i, obj in enumerate(session.objects, 1):
+                click.echo(f"  {i}. {obj}")
             click.echo()
         
         if session.notes:
@@ -785,6 +1075,34 @@ def show(ctx, session_id):
             click.echo("✓ Session folder exists")
         else:
             click.echo("⚠ Session folder not found")
+        
+        # Show detailed file info if requested
+        if detailed:
+            db_session = cataloger.db_service.db_manager.get_session()
+            try:
+                from models import ProcessingSessionFile
+                files = db_session.query(ProcessingSessionFile).filter(
+                    ProcessingSessionFile.processing_session_id == session_id
+                ).all()
+                
+                if files:
+                    click.echo()
+                    click.echo("Staged Files:")
+                    
+                    # Group by frame type
+                    frame_groups = defaultdict(list)
+                    for f in files:
+                        frame_groups[f.frame_type or 'UNKNOWN'].append(f)
+                    
+                    for frame_type, frame_files in frame_groups.items():
+                        click.echo(f"  {frame_type}: {len(frame_files)} files")
+                        if verbose:
+                            for f in frame_files[:5]:  # Show first 5
+                                click.echo(f"    {f.staged_filename}")
+                            if len(frame_files) > 5:
+                                click.echo(f"    ... and {len(frame_files) - 5} more")
+            finally:
+                db_session.close()
         
         cataloger.cleanup()
         
