@@ -1,17 +1,29 @@
-// FITS Cataloger Vue.js Application - Complete with Processing Sessions
+// FITS Cataloger Vue.js Application - Complete with Enhanced File Selection
+// This is the complete updated app.js with all enhancements
+
 const { createApp } = Vue;
 
 createApp({
     data() {
         return {
+            // UI State
             activeTab: 'dashboard',
+            loading: false,
+            errorMessage: '',
+            showSelectionOptions: false, // For selection dropdown
+            
+            // Data
             stats: {},
             files: [],
             imagingSessions: [],
             processingSessions: [],
+            
+            // Pagination
             filePagination: { page: 1, limit: 50, total: 0, pages: 0 },
             imagingSessionPagination: { page: 1, limit: 20, total: 0, pages: 0 },
             processingSessionPagination: { page: 1, limit: 20, total: 0, pages: 0 },
+            
+            // Filters
             fileFilters: {
                 frame_types: [],
                 cameras: [],
@@ -19,8 +31,121 @@ createApp({
                 objects: [],
                 filters: []
             },
+            imagingSessionFilters: {
+                cameras: [],
+                telescopes: [],
+                date_start: '',
+                date_end: ''
+            },
+            searchFilters: {
+                filename: '',
+                session_id: '',
+                exposure_min: '',
+                exposure_max: '',
+                date_start: '',
+                date_end: ''
+            },
+            filterOptions: {
+                frame_types: [],
+                cameras: [],
+                telescopes: [],
+                objects: [],
+                filters: [],
+                dates: []
+            },
+            
+            // Filter state
+            activeFilter: null,
+            activeImagingSessionFilter: null,
+            objectSearchText: '',
+            processingSessionStatusFilter: '',
+            
+            // Sorting
+            fileSorting: {
+                sort_by: 'obs_date',
+                sort_order: 'desc'
+            },
+            
+            // Enhanced File Selection
+            selectedFiles: [],
+            allFilteredFilesSelected: false,
+            selectAllMode: 'page',
+            
+            // Session Management
+            existingSessions: [],
+            selectedExistingSession: '',
+            newProcessingSession: {
+                name: '',
+                fileIds: '',
+                notes: ''
+            },
+            newSessionFromFiles: {
+                name: '',
+                notes: ''
+            },
+            
+            // Modal States
+            showCreateModal: false,
+            showAddToNewModal: false,
+            showAddToExistingSessionModal: false
+        }
+    },
+    
+    computed: {
+        allFilesSelected() {
+            if (this.selectAllMode === 'all') {
+                return this.allFilteredFilesSelected;
+            } else {
+                return this.files.length > 0 && this.currentPageSelectedCount === this.files.length;
+            }
+        },
         
-        // File Selection Methods
+        currentPageSelectedCount() {
+            return this.files.filter(file => this.selectedFiles.includes(file.id)).length;
+        },
+        
+        isCurrentPageFullySelected() {
+            return this.files.length > 0 && this.currentPageSelectedCount === this.files.length;
+        },
+        
+        selectionSummaryText() {
+            if (this.allFilteredFilesSelected) {
+                return `All ${this.filePagination.total} filtered files selected`;
+            } else if (this.selectedFiles.length === 0) {
+                return 'Select files';
+            } else if (this.selectedFiles.length === 1) {
+                return '1 file selected';
+            } else {
+                return `${this.selectedFiles.length} files selected`;
+            }
+        },
+        
+        hasActiveFilters() {
+            return Object.values(this.fileFilters).some(arr => arr.length > 0) ||
+                   Object.values(this.searchFilters).some(val => val !== '');
+        },
+        
+        hasActiveImagingSessionFilters() {
+            return Object.values(this.imagingSessionFilters).some(val => {
+                if (Array.isArray(val)) {
+                    return val.length > 0;
+                }
+                return val !== '';
+            });
+        },
+        
+        filteredObjectOptions() {
+            if (!this.objectSearchText) {
+                return this.filterOptions.objects;
+            }
+            return this.filterOptions.objects.filter(obj => 
+                obj.toLowerCase().includes(this.objectSearchText.toLowerCase())
+            );
+        }
+    },
+    
+    methods: {
+        // Enhanced File Selection Methods
         toggleFileSelection(fileId) {
             const index = this.selectedFiles.indexOf(fileId);
             if (index > -1) {
@@ -28,20 +153,105 @@ createApp({
             } else {
                 this.selectedFiles.push(fileId);
             }
+            
+            // If we were in "all selected" mode and deselected something, turn that off
+            if (this.allFilteredFilesSelected && index > -1) {
+                this.allFilteredFilesSelected = false;
+            }
         },
         
         toggleSelectAll() {
-            if (this.allFilesSelected) {
-                this.selectedFiles = [];
+            if (this.selectAllMode === 'all') {
+                this.toggleSelectAllFiltered();
             } else {
-                this.selectedFiles = this.files.map(file => file.id);
+                this.toggleSelectCurrentPage();
             }
+        },
+        
+        toggleSelectCurrentPage() {
+            if (this.isCurrentPageFullySelected) {
+                // Deselect all files on current page
+                const currentPageIds = this.files.map(file => file.id);
+                this.selectedFiles = this.selectedFiles.filter(id => !currentPageIds.includes(id));
+                this.allFilteredFilesSelected = false;
+            } else {
+                // Select all files on current page
+                const currentPageIds = this.files.map(file => file.id);
+                const newSelections = currentPageIds.filter(id => !this.selectedFiles.includes(id));
+                this.selectedFiles.push(...newSelections);
+            }
+        },
+        
+        async toggleSelectAllFiltered() {
+            if (this.allFilteredFilesSelected) {
+                // Deselect all
+                this.selectedFiles = [];
+                this.allFilteredFilesSelected = false;
+            } else {
+                // Select all filtered files
+                try {
+                    this.loading = true;
+                    
+                    // Build the same parameters as the current filter
+                    const params = new URLSearchParams({
+                        page: 1,
+                        limit: this.filePagination.total, // Get all files
+                        sort_by: this.fileSorting.sort_by,
+                        sort_order: this.fileSorting.sort_order
+                    });
+                    
+                    // Add current filters
+                    for (const [key, values] of Object.entries(this.fileFilters)) {
+                        if (values.length > 0) {
+                            params.append(key, values.join(','));
+                        }
+                    }
+                    
+                    for (const [key, value] of Object.entries(this.searchFilters)) {
+                        if (value) {
+                            params.append(key, value);
+                        }
+                    }
+                    
+                    const response = await axios.get(`/api/files?${params}`);
+                    const allFilteredFiles = response.data.files;
+                    
+                    // Select all file IDs
+                    this.selectedFiles = allFilteredFiles.map(file => file.id);
+                    this.allFilteredFilesSelected = true;
+                    
+                    console.log(`Selected all ${this.selectedFiles.length} filtered files`);
+                    
+                } catch (error) {
+                    console.error('Error loading all filtered files:', error);
+                    this.errorMessage = 'Failed to select all files: ' + error.message;
+                } finally {
+                    this.loading = false;
+                }
+            }
+        },
+        
+        selectAllCurrentPage() {
+            const currentPageIds = this.files.map(file => file.id);
+            const newSelections = currentPageIds.filter(id => !this.selectedFiles.includes(id));
+            this.selectedFiles.push(...newSelections);
+            this.allFilteredFilesSelected = false;
+            this.selectAllMode = 'page';
+        },
+        
+        selectAllFilteredFiles() {
+            this.selectAllMode = 'all';
+            this.toggleSelectAllFiltered();
         },
         
         clearSelection() {
             this.selectedFiles = [];
+            this.allFilteredFilesSelected = false;
+            this.selectAllMode = 'page';
+            this.showSelectionOptions = false;
         },
         
+        // Session Management Methods
         async loadExistingSessions() {
             try {
                 const response = await axios.get('/api/processing-sessions');
@@ -73,7 +283,7 @@ createApp({
             
             await this.loadExistingSessions();
             this.selectedExistingSession = '';
-            this.showAddToExistingModal = true;
+            this.showAddToExistingSessionModal = true;
         },
         
         async createSessionFromSelectedFiles() {
@@ -88,8 +298,12 @@ createApp({
                     return;
                 }
                 
+                // Capture the count BEFORE clearing selection
+                const selectedCount = this.selectedFiles.length;
+                const sessionName = this.newSessionFromFiles.name.trim();
+                
                 const payload = {
-                    name: this.newSessionFromFiles.name.trim(),
+                    name: sessionName,
                     file_ids: this.selectedFiles,
                     notes: this.newSessionFromFiles.notes.trim() || null
                 };
@@ -97,15 +311,23 @@ createApp({
                 await axios.post('/api/processing-sessions', payload);
                 
                 this.showAddToNewModal = false;
-                this.clearSelection();
-                alert(`Processing session "${this.newSessionFromFiles.name}" created successfully with ${this.selectedFiles.length} files!`);
+                this.clearSelection(); // Clear selection AFTER capturing count
+                this.errorMessage = '';
+                
+                // Use captured values for correct message
+                alert(`Processing session "${sessionName}" created successfully with ${selectedCount} files!`);
+                
+                // Refresh processing sessions if on that tab
+                if (this.activeTab === 'processing-sessions') {
+                    this.loadProcessingSessions();
+                }
                 
             } catch (error) {
                 console.error('Error creating processing session from files:', error);
                 this.errorMessage = `Failed to create processing session: ${error.response?.data?.detail || error.message}`;
             }
         },
-        
+
         async addToExistingSession() {
             try {
                 if (!this.selectedExistingSession) {
@@ -118,97 +340,49 @@ createApp({
                     return;
                 }
                 
-                await axios.post(`/api/processing-sessions/${this.selectedExistingSession}/add-files`, {
-                    file_ids: this.selectedFiles
+                // Capture values BEFORE clearing selection
+                const selectedCount = this.selectedFiles.length;
+                const sessionName = this.existingSessions.find(s => s.id === this.selectedExistingSession)?.name || 'session';
+                
+                // Convert file IDs to integers and send as direct array (not wrapped in object)
+                const fileIds = this.selectedFiles.map(id => parseInt(id, 10));
+                
+                console.log('Sending file IDs:', fileIds);
+                
+                // Send file IDs directly as array, not wrapped in object
+                await axios.post(`/api/processing-sessions/${this.selectedExistingSession}/add-files`, fileIds, {
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
                 });
                 
-                this.showAddToExistingModal = false;
+                this.showAddToExistingSessionModal = false;
                 this.clearSelection();
+                this.errorMessage = '';
                 
-                const sessionName = this.existingSessions.find(s => s.id === this.selectedExistingSession)?.name || 'session';
-                alert(`${this.selectedFiles.length} files added to "${sessionName}" successfully!`);
+                // Use captured values for correct message
+                alert(`${selectedCount} files added to "${sessionName}" successfully!`);
+                
+                // Refresh processing sessions if on that tab
+                if (this.activeTab === 'processing-sessions') {
+                    this.loadProcessingSessions();
+                }
                 
             } catch (error) {
                 console.error('Error adding files to existing session:', error);
-                this.errorMessage = `Failed to add files to session: ${error.response?.data?.detail || error.message}`;
-            }
-        },
-            imagingSessionFilters: {
-                cameras: [],
-                telescopes: [],
-                date_start: '',
-                date_end: ''
-            },
-            searchFilters: {
-                filename: '',
-                session_id: '',
-                exposure_min: '',
-                exposure_max: '',
-                date_start: '',
-                date_end: ''
-            },
-            filterOptions: {
-                frame_types: [],
-                cameras: [],
-                telescopes: [],
-                objects: [],
-                filters: [],
-                dates: []
-            },
-            activeFilter: null,
-            activeImagingSessionFilter: null,
-            fileSorting: {
-                sort_by: 'obs_date',
-                sort_order: 'desc'
-            },
-            objectSearchText: '',
-            processingSessionStatusFilter: '',
-            showCreateModal: false,
-            showAddToNewModal: false,
-            showAddToExistingModal: false,
-            selectedFiles: [],
-            existingSessions: [],
-            selectedExistingSession: '',
-            newProcessingSession: {
-                name: '',
-                fileIds: '',
-                notes: ''
-            },
-            newSessionFromFiles: {
-                name: '',
-                notes: ''
-            },
-            loading: false,
-            errorMessage: ''
-        }
-    },
-    
-    computed: {
-        hasActiveFilters() {
-            return Object.values(this.fileFilters).some(arr => arr.length > 0) ||
-                   Object.values(this.searchFilters).some(val => val !== '');
-        },
-        
-        hasActiveImagingSessionFilters() {
-            return Object.values(this.imagingSessionFilters).some(val => {
-                if (Array.isArray(val)) {
-                    return val.length > 0;
+                
+                // Provide more detailed error message
+                let errorMsg = 'Failed to add files to session';
+                if (error.response?.data?.detail) {
+                    errorMsg += `: ${error.response.data.detail}`;
+                } else if (error.message) {
+                    errorMsg += `: ${error.message}`;
                 }
-                return val !== '';
-            });
+                
+                this.errorMessage = errorMsg;
+            }
         },
         
-        filteredObjectOptions() {
-            if (!this.objectSearchText) {
-                return this.filterOptions.objects;
-            }
-            return this.filterOptions.objects.filter(obj => 
-                obj.toLowerCase().includes(this.objectSearchText.toLowerCase())
-            );
-        }
-    },
-    
-    methods: {
         // API Methods
         async loadStats() {
             try {
@@ -236,30 +410,36 @@ createApp({
         async loadFiles() {
             try {
                 this.loading = true;
-                const params = {
+                this.errorMessage = '';
+                
+                const params = new URLSearchParams({
                     page: this.filePagination.page,
                     limit: this.filePagination.limit,
                     sort_by: this.fileSorting.sort_by,
                     sort_order: this.fileSorting.sort_order
-                };
+                });
                 
-                // Add multi-select filters
+                // Add filters
                 for (const [key, values] of Object.entries(this.fileFilters)) {
                     if (values.length > 0) {
-                        params[key] = values.join(',');
+                        params.append(key, values.join(','));
                     }
                 }
                 
-                // Add search filters
                 for (const [key, value] of Object.entries(this.searchFilters)) {
                     if (value) {
-                        params[key] = value;
+                        params.append(key, value);
                     }
                 }
                 
-                const response = await axios.get('/api/files', { params });
+                const response = await axios.get(`/api/files?${params}`);
                 this.files = response.data.files;
-                this.filePagination = response.data.pagination;
+                this.filePagination.total = response.data.pagination.total;
+                this.filePagination.pages = response.data.pagination.pages;
+                
+                // Don't clear selection when navigating pages
+                // Selection is maintained across page changes
+                
             } catch (error) {
                 console.error('Error loading files:', error);
                 this.errorMessage = 'Failed to load files: ' + error.message;
@@ -271,26 +451,29 @@ createApp({
         async loadImagingSessions() {
             try {
                 this.loading = true;
-                const params = {
+                
+                const params = new URLSearchParams({
                     page: this.imagingSessionPagination.page,
                     limit: this.imagingSessionPagination.limit
-                };
+                });
                 
-                // Add session filters
+                // Add filters
                 for (const [key, values] of Object.entries(this.imagingSessionFilters)) {
                     if (Array.isArray(values) && values.length > 0) {
-                        params[key] = values.join(',');
+                        params.append(key, values.join(','));
                     } else if (!Array.isArray(values) && values) {
-                        params[key] = values;
+                        params.append(key, values);
                     }
                 }
                 
-                const response = await axios.get('/api/imaging-sessions', { params });
+                const response = await axios.get(`/api/imaging-sessions?${params}`);
                 this.imagingSessions = response.data.sessions;
-                this.imagingSessionPagination = response.data.pagination;
+                this.imagingSessionPagination.total = response.data.pagination.total;
+                this.imagingSessionPagination.pages = response.data.pagination.pages;
+                
             } catch (error) {
                 console.error('Error loading imaging sessions:', error);
-                this.errorMessage = 'Failed to load imaging sessions: ' + error.message;
+                this.errorMessage = 'Failed to load imaging sessions';
             } finally {
                 this.loading = false;
             }
@@ -299,41 +482,30 @@ createApp({
         async loadProcessingSessions() {
             try {
                 this.loading = true;
-                const params = {
+                
+                const params = new URLSearchParams({
                     page: this.processingSessionPagination.page,
                     limit: this.processingSessionPagination.limit
-                };
+                });
                 
                 if (this.processingSessionStatusFilter) {
-                    params.status = this.processingSessionStatusFilter;
+                    params.append('status', this.processingSessionStatusFilter);
                 }
                 
-                const response = await axios.get('/api/processing-sessions', { params });
+                const response = await axios.get(`/api/processing-sessions?${params}`);
                 this.processingSessions = response.data.sessions;
-                this.processingSessionPagination = response.data.pagination;
+                this.processingSessionPagination.total = response.data.pagination.total;
+                this.processingSessionPagination.pages = response.data.pagination.pages;
+                
             } catch (error) {
                 console.error('Error loading processing sessions:', error);
-                this.errorMessage = 'Failed to load processing sessions: ' + error.message;
+                this.errorMessage = 'Failed to load processing sessions';
             } finally {
                 this.loading = false;
             }
         },
         
-        async startOperation(type) {
-            try {
-                const response = await axios.post(`/api/operations/${type}`);
-                alert(`${type} operation started successfully`);
-            } catch (error) {
-                console.error(`Error starting ${type}:`, error);
-                this.errorMessage = `Failed to start ${type}: ${error.response?.data?.detail || error.message}`;
-            }
-        },
-        
-        // File Filter Methods
-        toggleFilter(filterName) {
-            this.activeFilter = this.activeFilter === filterName ? null : filterName;
-        },
-        
+        // Filter Methods
         toggleFilterOption(filterName, option) {
             const index = this.fileFilters[filterName].indexOf(option);
             if (index > -1) {
@@ -341,6 +513,16 @@ createApp({
             } else {
                 this.fileFilters[filterName].push(option);
             }
+            this.filePagination.page = 1;
+            
+            // Clear selection when filters change
+            this.clearSelection();
+            
+            this.loadFiles();
+        },
+        
+        toggleFilter(filterName) {
+            this.activeFilter = this.activeFilter === filterName ? null : filterName;
         },
         
         getFilterText(filterName) {
@@ -362,6 +544,8 @@ createApp({
             } else {
                 this.imagingSessionFilters[filterName].push(option);
             }
+            this.imagingSessionPagination.page = 1;
+            this.loadImagingSessions();
         },
         
         getImagingSessionFilterText(filterName) {
@@ -369,6 +553,41 @@ createApp({
             if (count === 0) return `All ${filterName}`;
             if (count === 1) return this.imagingSessionFilters[filterName][0];
             return `${count} selected`;
+        },
+        
+        // Filter utility methods
+        filterObjectOptions() {
+            // This triggers the computed property to update
+        },
+        
+        resetAllFilters() {
+            for (const key of Object.keys(this.fileFilters)) {
+                this.fileFilters[key] = [];
+            }
+            for (const key of Object.keys(this.searchFilters)) {
+                this.searchFilters[key] = '';
+            }
+            this.objectSearchText = '';
+            this.activeFilter = null;
+            this.filePagination.page = 1;
+            
+            // Clear selection when filters reset
+            this.clearSelection();
+            
+            this.loadFiles();
+        },
+        
+        resetImagingSessionFilters() {
+            for (const key of Object.keys(this.imagingSessionFilters)) {
+                if (Array.isArray(this.imagingSessionFilters[key])) {
+                    this.imagingSessionFilters[key] = [];
+                } else {
+                    this.imagingSessionFilters[key] = '';
+                }
+            }
+            this.activeImagingSessionFilter = null;
+            this.imagingSessionPagination.page = 1;
+            this.loadImagingSessions();
         },
         
         getActiveFilterSummary() {
@@ -386,37 +605,70 @@ createApp({
             return summary;
         },
         
-        filterObjectOptions() {
-            // This triggers the computed property to update
-        },
-        
-        resetAllFilters() {
-            for (const key of Object.keys(this.fileFilters)) {
-                this.fileFilters[key] = [];
+        // Sorting Methods
+        sortBy(column) {
+            if (this.fileSorting.sort_by === column) {
+                this.fileSorting.sort_order = this.fileSorting.sort_order === 'asc' ? 'desc' : 'asc';
+            } else {
+                this.fileSorting.sort_by = column;
+                this.fileSorting.sort_order = 'desc';
             }
-            for (const key of Object.keys(this.searchFilters)) {
-                this.searchFilters[key] = '';
-            }
-            this.objectSearchText = '';
-            this.activeFilter = null;
-            this.filePagination.page = 1;
             this.loadFiles();
         },
         
-        resetImagingSessionFilters() {
-            for (const key of Object.keys(this.imagingSessionFilters)) {
-                if (Array.isArray(this.imagingSessionFilters[key])) {
-                    this.imagingSessionFilters[key] = [];
-                } else {
-                    this.imagingSessionFilters[key] = '';
-                }
+        // Navigation Methods
+        navigateToSession(sessionId) {
+            if (sessionId && sessionId !== 'N/A') {
+                this.activeTab = 'imaging-sessions';
+                this.searchFilters.session_id = sessionId;
+                this.loadFiles();
             }
-            this.activeImagingSessionFilter = null;
-            this.imagingSessionPagination.page = 1;
-            this.loadImagingSessions();
         },
         
-        // Processing Session Methods
+        // Pagination Methods
+        prevFilePage() {
+            if (this.filePagination.page > 1) {
+                this.filePagination.page--;
+                this.loadFiles();
+            }
+        },
+        
+        nextFilePage() {
+            if (this.filePagination.page < this.filePagination.pages) {
+                this.filePagination.page++;
+                this.loadFiles();
+            }
+        },
+        
+        prevImagingSessionPage() {
+            if (this.imagingSessionPagination.page > 1) {
+                this.imagingSessionPagination.page--;
+                this.loadImagingSessions();
+            }
+        },
+        
+        nextImagingSessionPage() {
+            if (this.imagingSessionPagination.page < this.imagingSessionPagination.pages) {
+                this.imagingSessionPagination.page++;
+                this.loadImagingSessions();
+            }
+        },
+        
+        prevProcessingSessionPage() {
+            if (this.processingSessionPagination.page > 1) {
+                this.processingSessionPagination.page--;
+                this.loadProcessingSessions();
+            }
+        },
+        
+        nextProcessingSessionPage() {
+            if (this.processingSessionPagination.page < this.processingSessionPagination.pages) {
+                this.processingSessionPagination.page++;
+                this.loadProcessingSessions();
+            }
+        },
+        
+        // Processing Session Management
         showCreateProcessingSessionModal() {
             this.newProcessingSession = {
                 name: '',
@@ -438,14 +690,13 @@ createApp({
                     return;
                 }
                 
-                // Parse file IDs
                 const fileIds = this.newProcessingSession.fileIds
                     .split(',')
                     .map(id => parseInt(id.trim()))
                     .filter(id => !isNaN(id));
                 
                 if (fileIds.length === 0) {
-                    this.errorMessage = 'Please provide valid file IDs';
+                    this.errorMessage = 'No valid file IDs found';
                     return;
                 }
                 
@@ -459,34 +710,12 @@ createApp({
                 
                 this.showCreateModal = false;
                 this.loadProcessingSessions();
-                alert('Processing session created successfully!');
+                this.errorMessage = '';
+                alert(`Processing session "${this.newProcessingSession.name}" created successfully with ${fileIds.length} files!`);
                 
             } catch (error) {
                 console.error('Error creating processing session:', error);
                 this.errorMessage = `Failed to create processing session: ${error.response?.data?.detail || error.message}`;
-            }
-        },
-        
-        async viewProcessingSession(sessionId) {
-            try {
-                const response = await axios.get(`/api/processing-sessions/${sessionId}`);
-                const session = response.data;
-                
-                let message = `Processing Session: ${session.name}\n\n`;
-                message += `Status: ${this.formatProcessingStatus(session.status)}\n`;
-                message += `Objects: ${session.objects.join(', ') || 'None'}\n`;
-                message += `Files: ${session.total_files} total (${session.lights}L, ${session.darks}D, ${session.flats}F, ${session.bias}B)\n`;
-                message += `Folder: ${session.folder_path}\n`;
-                message += `Created: ${this.formatDate(session.created_at)}\n`;
-                if (session.notes) {
-                    message += `\nNotes: ${session.notes}`;
-                }
-                
-                alert(message);
-                
-            } catch (error) {
-                console.error('Error viewing processing session:', error);
-                this.errorMessage = `Failed to load processing session details: ${error.message}`;
             }
         },
         
@@ -495,8 +724,8 @@ createApp({
                 const statuses = ['not_started', 'in_progress', 'complete'];
                 const statusLabels = ['Not Started', 'In Progress', 'Complete'];
                 
-                let choice = prompt(
-                    'Select new status:\n' + 
+                const choice = prompt(
+                    'Select new status:\n\n' +
                     '1. Not Started\n' + 
                     '2. In Progress\n' + 
                     '3. Complete\n\n' +
@@ -549,70 +778,6 @@ createApp({
             }
         },
         
-        // Sorting Methods
-        sortBy(column) {
-            if (this.fileSorting.sort_by === column) {
-                this.fileSorting.sort_order = this.fileSorting.sort_order === 'asc' ? 'desc' : 'asc';
-            } else {
-                this.fileSorting.sort_by = column;
-                this.fileSorting.sort_order = 'desc';
-            }
-            this.filePagination.page = 1;
-            this.loadFiles();
-        },
-        
-        // Navigation Methods
-        navigateToSession(sessionId) {
-            if (sessionId && sessionId !== 'N/A') {
-                this.activeTab = 'imaging-sessions';
-            }
-        },
-        
-        // File Pagination Methods
-        prevFilePage() {
-            if (this.filePagination.page > 1) {
-                this.filePagination.page--;
-                this.loadFiles();
-            }
-        },
-        
-        nextFilePage() {
-            if (this.filePagination.page < this.filePagination.pages) {
-                this.filePagination.page++;
-                this.loadFiles();
-            }
-        },
-        
-        // Imaging Session Pagination Methods
-        prevImagingSessionPage() {
-            if (this.imagingSessionPagination.page > 1) {
-                this.imagingSessionPagination.page--;
-                this.loadImagingSessions();
-            }
-        },
-        
-        nextImagingSessionPage() {
-            if (this.imagingSessionPagination.page < this.imagingSessionPagination.pages) {
-                this.imagingSessionPagination.page++;
-                this.loadImagingSessions();
-            }
-        },
-        
-        // Processing Session Pagination Methods
-        prevProcessingSessionPage() {
-            if (this.processingSessionPagination.page > 1) {
-                this.processingSessionPagination.page--;
-                this.loadProcessingSessions();
-            }
-        },
-        
-        nextProcessingSessionPage() {
-            if (this.processingSessionPagination.page < this.processingSessionPagination.pages) {
-                this.processingSessionPagination.page++;
-                this.loadProcessingSessions();
-            }
-        },
-        
         // Utility Methods
         getFrameTypeClass(frameType) {
             const classes = {
@@ -647,104 +812,63 @@ createApp({
             return new Date(dateString).toLocaleDateString();
         },
         
-        formatExposure(exposure) {
-            if (!exposure) return 'N/A';
-            return `${exposure}s`;
-        },
-        
-        // Event Handlers
-        handleDocumentClick(e) {
-            // Close dropdowns when clicking outside
-            if (!e.target.closest('.relative')) {
-                this.activeFilter = null;
-                this.activeImagingSessionFilter = null;
-            }
-        },
-        
-        handleKeydown(event) {
-            // ESC to close dropdowns and modals
-            if (event.key === 'Escape') {
-                this.activeFilter = null;
-                this.activeImagingSessionFilter = null;
-                this.showCreateModal = false;
-            }
-            
-            // Ctrl/Cmd + R to refresh
-            if ((event.ctrlKey || event.metaKey) && event.key === 'r') {
-                event.preventDefault();
-                if (this.activeTab === 'files') {
-                    this.loadFiles();
-                } else if (this.activeTab === 'imaging-sessions') {
-                    this.loadImagingSessions();
-                } else if (this.activeTab === 'processing-sessions') {
-                    this.loadProcessingSessions();
-                } else if (this.activeTab === 'dashboard') {
-                    this.loadStats();
-                }
-            }
-        }
-    },
-    
-    // Watchers
-    watch: {
-        activeTab(newTab) {
-            if (newTab === 'files') {
-                this.loadFiles();
-            } else if (newTab === 'imaging-sessions') {
-                this.loadImagingSessions();
-            } else if (newTab === 'processing-sessions') {
-                this.loadProcessingSessions();
-            } else if (newTab === 'dashboard') {
-                this.loadStats();
-            }
-        },
-        
-        fileFilters: {
-            handler() {
-                this.filePagination.page = 1;
-                this.loadFiles();
-            },
-            deep: true
-        },
-        
-        searchFilters: {
-            handler() {
-                this.filePagination.page = 1;
-                this.loadFiles();
-            },
-            deep: true
-        },
-        
-        imagingSessionFilters: {
-            handler() {
-                this.imagingSessionPagination.page = 1;
-                this.loadImagingSessions();
-            },
-            deep: true
+        formatDateTime(dateString) {
+            if (!dateString) return 'N/A';
+            return new Date(dateString).toLocaleString();
         }
     },
     
     // Lifecycle Methods
     async mounted() {
-        try {
-            // Load initial data
-            await Promise.all([
-                this.loadStats(),
-                this.loadFilterOptions()
-            ]);
-        } catch (error) {
-            console.error('Error during app initialization:', error);
-            this.errorMessage = 'Failed to initialize application';
+        // Load initial data
+        await this.loadStats();
+        await this.loadFilterOptions();
+        
+        // Load data based on active tab
+        if (this.activeTab === 'files') {
+            await this.loadFiles();
+        } else if (this.activeTab === 'imaging-sessions') {
+            await this.loadImagingSessions();
+        } else if (this.activeTab === 'processing-sessions') {
+            await this.loadProcessingSessions();
         }
         
-        // Set up event listeners
-        document.addEventListener('click', this.handleDocumentClick);
-        document.addEventListener('keydown', this.handleKeydown);
+        // Close selection dropdown when clicking elsewhere
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.relative')) {
+                this.showSelectionOptions = false;
+            }
+        });
     },
     
-    beforeUnmount() {
-        // Clean up event listeners
-        document.removeEventListener('click', this.handleDocumentClick);
-        document.removeEventListener('keydown', this.handleKeydown);
+    watch: {
+        // Watch for tab changes and load appropriate data
+        activeTab(newTab) {
+            this.errorMessage = ''; // Clear any errors when switching tabs
+            
+            if (newTab === 'files' && this.files.length === 0) {
+                this.loadFiles();
+            } else if (newTab === 'imaging-sessions' && this.imagingSessions.length === 0) {
+                this.loadImagingSessions();
+            } else if (newTab === 'processing-sessions' && this.processingSessions.length === 0) {
+                this.loadProcessingSessions();
+            }
+        },
+        
+        // Watch for search filter changes and reload files
+        searchFilters: {
+            handler() {
+                this.filePagination.page = 1;
+                this.clearSelection(); // Clear selection when search changes
+                this.loadFiles();
+            },
+            deep: true
+        },
+        
+        // Watch for processing session status filter changes
+        processingSessionStatusFilter() {
+            this.processingSessionPagination.page = 1;
+            this.loadProcessingSessions();
+        }
     }
 }).mount('#app');

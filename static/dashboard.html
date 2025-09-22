@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FITS Cataloger</title>
+    
+    <!-- Favicon fix - uses a simple data URL to avoid 404 -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔭</text></svg>">
+    
+    <!-- Alternative: Create a simple PNG favicon -->
+    <!-- <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="> -->
+    
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
@@ -121,21 +128,69 @@
                 <div class="bg-white rounded-lg shadow p-4">
                     <div class="flex justify-between items-center">
                         <div class="flex items-center space-x-4">
-                            <div class="flex items-center space-x-2">
-                                <input 
-                                    type="checkbox" 
-                                    :checked="allFilesSelected" 
-                                    @change="toggleSelectAll" 
-                                    class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                                >
-                                <span class="text-sm font-medium text-gray-700">
-                                    {{ selectedFiles.length > 0 ? `${selectedFiles.length} selected` : 'Select files' }}
+                            <!-- Selection Info and Controls -->
+                            <div class="flex items-center space-x-3">
+                                <div class="flex items-center space-x-2">
+                                    <input 
+                                        type="checkbox" 
+                                        :checked="allFilesSelected" 
+                                        @change="toggleSelectAll" 
+                                        :indeterminate="selectedFiles.length > 0 && !allFilesSelected"
+                                        class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                    >
+                                    <span class="text-sm font-medium text-gray-700">
+                                        {{ selectionSummaryText }}
+                                    </span>
+                                </div>
+                                
+                                <!-- Selection Options Dropdown -->
+                                <div class="relative" v-if="filePagination.total > filePagination.limit">
+                                    <button @click="showSelectionOptions = !showSelectionOptions" 
+                                            class="text-xs text-blue-600 hover:text-blue-800 flex items-center">
+                                        <span>Select Options</span>
+                                        <svg class="ml-1 h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                        </svg>
+                                    </button>
+                                    
+                                    <div v-show="showSelectionOptions" class="absolute left-0 mt-1 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-10">
+                                        <div class="py-1">
+                                            <button @click="selectAllCurrentPage(); showSelectionOptions = false" 
+                                                    class="block w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-gray-100">
+                                                Select Current Page ({{ files.length }})
+                                            </button>
+                                            <button @click="selectAllFilteredFiles(); showSelectionOptions = false" 
+                                                    class="block w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-gray-100">
+                                                Select All Filtered ({{ filePagination.total }})
+                                            </button>
+                                            <button @click="clearSelection(); showSelectionOptions = false" 
+                                                    class="block w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-gray-100">
+                                                Clear Selection
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Simple clear button for smaller datasets -->
+                                <button @click="clearSelection" 
+                                        v-if="selectedFiles.length > 0 && filePagination.total <= filePagination.limit" 
+                                        class="text-xs text-gray-500 hover:text-gray-700">
+                                    Clear
+                                </button>
+                            </div>
+                            
+                            <!-- Selection Statistics -->
+                            <div v-if="selectedFiles.length > 0" class="text-xs text-gray-500">
+                                <span v-if="allFilteredFilesSelected">
+                                    (All {{ filePagination.total }} filtered files)
+                                </span>
+                                <span v-else-if="filePagination.total > filePagination.limit">
+                                    ({{ currentPageSelectedCount }}/{{ files.length }} on page, {{ selectedFiles.length }}/{{ filePagination.total }} total)
                                 </span>
                             </div>
-                            <button @click="clearSelection" v-if="selectedFiles.length > 0" class="text-sm text-gray-500 hover:text-gray-700">
-                                Clear selection
-                            </button>
                         </div>
+                        
+                        <!-- Action Buttons -->
                         <div class="flex space-x-2" v-if="selectedFiles.length > 0">
                             <button @click="addToNewSession" class="btn btn-green text-sm">
                                 Add to New Session
@@ -706,7 +761,7 @@
         </div>
 
         <!-- Add to Existing Session Modal -->
-        <div v-if="showAddToExistingModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div v-if="showAddToExistingSessionModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
                 <h3 class="text-lg font-bold mb-4">Add to Existing Processing Session</h3>
                 <div class="mb-4 p-3 bg-blue-50 rounded">
@@ -727,7 +782,7 @@
                 </div>
                 <div class="flex space-x-3 mt-6">
                     <button @click="addToExistingSession" :disabled="!selectedExistingSession" class="btn btn-green flex-1">Add Files</button>
-                    <button @click="showAddToExistingModal = false" class="btn btn-red flex-1">Cancel</button>
+                    <button @click="showAddToExistingSessionModal = false" class="btn btn-red flex-1">Cancel</button>
                 </div>
             </div>
         </div>
