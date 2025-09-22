@@ -1,5 +1,5 @@
 """
-FITS Cataloger Web Interface - Fixed version
+FITS Cataloger Web Interface - Updated with Processing Sessions
 FastAPI application for browsing database and managing operations
 """
 
@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 import traceback
 
-from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks, Body
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,11 +20,12 @@ from sqlalchemy import func, desc, asc
 import uvicorn
 
 # Import your existing modules
-from models import DatabaseManager, DatabaseService, FitsFile, Session as SessionModel
+from models import DatabaseManager, DatabaseService, FitsFile, Session as SessionModel, ProcessingSession
 from config import load_config
 from validation import FitsValidator
 from file_organizer import FileOrganizer
 from fits_processor import OptimizedFitsProcessor
+from processing_session_manager import ProcessingSessionManager
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -59,11 +60,12 @@ db_service = None
 cameras = []
 telescopes = []
 filter_mappings = {}
+processing_manager = None
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize application on startup."""
-    global config, db_manager, db_service, cameras, telescopes, filter_mappings
+    global config, db_manager, db_service, cameras, telescopes, filter_mappings, processing_manager
     
     try:
         # Load configuration
@@ -72,6 +74,9 @@ async def startup_event():
         # Initialize database
         db_manager = DatabaseManager(config.database.connection_string)
         db_service = DatabaseService(db_manager)
+        
+        # Initialize processing session manager
+        processing_manager = ProcessingSessionManager(config, db_service)
         
         # Create directories for static files if they don't exist
         Path("static").mkdir(exist_ok=True)
@@ -98,7 +103,7 @@ def get_db_session():
         session.close()
 
 # ============================================================================
-# API ROUTES
+# EXISTING API ROUTES (unchanged)
 # ============================================================================
 
 @app.get("/api/filter-options")
@@ -331,8 +336,8 @@ async def get_stats(session: Session = Depends(get_db_session)):
         logger.error(f"Error fetching stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/sessions")
-async def get_sessions(
+@app.get("/api/imaging-sessions")
+async def get_imaging_sessions(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     date_start: Optional[str] = None,
@@ -389,7 +394,7 @@ async def get_sessions(
             }
         }
     except Exception as e:
-        logger.error(f"Error fetching sessions: {e}")
+        logger.error(f"Error fetching imaging sessions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/equipment")
@@ -449,7 +454,198 @@ async def get_equipment():
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
-# OPERATION ROUTES
+# NEW PROCESSING SESSION API ROUTES
+# ============================================================================
+
+@app.get("/api/processing-sessions")
+async def get_processing_sessions(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    session: Session = Depends(get_db_session)
+):
+    """Get processing sessions with pagination and filtering."""
+    try:
+        query = session.query(ProcessingSession).order_by(desc(ProcessingSession.created_at))
+        
+        # Apply status filter
+        if status:
+            query = query.filter(ProcessingSession.status == status)
+        
+        total = query.count()
+        offset = (page - 1) * limit
+        sessions = query.offset(offset).limit(limit).all()
+        
+        # Get detailed info for each session using ProcessingSessionManager
+        session_data = []
+        for ps in sessions:
+            session_info = processing_manager.get_processing_session(ps.id)
+            if session_info:
+                session_data.append({
+                    "id": session_info.id,
+                    "name": session_info.name,
+                    "status": session_info.status,
+                    "objects": session_info.objects,
+                    "total_files": session_info.total_files,
+                    "lights": session_info.lights,
+                    "darks": session_info.darks,
+                    "flats": session_info.flats,
+                    "bias": session_info.bias,
+                    "folder_path": session_info.folder_path,
+                    "created_at": session_info.created_at.isoformat(),
+                    "notes": session_info.notes
+                })
+        
+        return {
+            "sessions": session_data,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "pages": (total + limit - 1) // limit if total > 0 else 0
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error fetching processing sessions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/processing-sessions/{session_id}")
+async def get_processing_session(session_id: str):
+    """Get detailed information about a specific processing session."""
+    try:
+        session_info = processing_manager.get_processing_session(session_id)
+        if not session_info:
+            raise HTTPException(status_code=404, detail="Processing session not found")
+        
+        return {
+            "id": session_info.id,
+            "name": session_info.name,
+            "status": session_info.status,
+            "objects": session_info.objects,
+            "total_files": session_info.total_files,
+            "lights": session_info.lights,
+            "darks": session_info.darks,
+            "flats": session_info.flats,
+            "bias": session_info.bias,
+            "folder_path": session_info.folder_path,
+            "created_at": session_info.created_at.isoformat(),
+            "notes": session_info.notes
+        }
+    except Exception as e:
+        logger.error(f"Error fetching processing session {session_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/processing-sessions")
+async def create_processing_session(
+    name: str = Body(...),
+    file_ids: List[int] = Body(...),
+    notes: Optional[str] = Body(None)
+):
+    """Create a new processing session."""
+    try:
+        session_info = processing_manager.create_processing_session(name, file_ids, notes)
+        
+        return {
+            "id": session_info.id,
+            "name": session_info.name,
+            "status": session_info.status,
+            "objects": session_info.objects,
+            "total_files": session_info.total_files,
+            "lights": session_info.lights,
+            "darks": session_info.darks,
+            "flats": session_info.flats,
+            "bias": session_info.bias,
+            "folder_path": session_info.folder_path,
+            "created_at": session_info.created_at.isoformat(),
+            "notes": session_info.notes
+        }
+    except Exception as e:
+        logger.error(f"Error creating processing session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/processing-sessions/{session_id}/status")
+async def update_processing_session_status(
+    session_id: str,
+    status: str = Body(...),
+    notes: Optional[str] = Body(None)
+):
+    """Update processing session status."""
+    try:
+        valid_statuses = ['not_started', 'in_progress', 'complete']
+        if status not in valid_statuses:
+            raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+        
+        success = processing_manager.update_session_status(session_id, status, notes)
+        if not success:
+            raise HTTPException(status_code=404, detail="Processing session not found")
+        
+        return {"message": f"Processing session {session_id} updated successfully"}
+    except Exception as e:
+        logger.error(f"Error updating processing session {session_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/processing-sessions/{session_id}")
+async def delete_processing_session(
+    session_id: str,
+    remove_files: bool = Query(True, description="Remove staged files")
+):
+    """Delete a processing session."""
+    try:
+        success = processing_manager.delete_processing_session(session_id, remove_files)
+        if not success:
+            raise HTTPException(status_code=404, detail="Processing session not found")
+        
+        return {"message": f"Processing session {session_id} deleted successfully"}
+    except Exception as e:
+        logger.error(f"Error deleting processing session {session_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/processing-sessions/{session_id}/calibration-matches")
+async def get_calibration_matches(session_id: str):
+    """Find matching calibration files for a processing session."""
+    try:
+        matches = processing_manager.find_matching_calibration(session_id)
+        
+        # Convert matches to JSON-serializable format
+        result = {}
+        for frame_type, match_list in matches.items():
+            result[frame_type] = []
+            for match in match_list:
+                result[frame_type].append({
+                    "capture_session_id": match.capture_session_id,
+                    "camera": match.camera,
+                    "telescope": match.telescope,
+                    "filters": match.filters,
+                    "capture_date": match.capture_date,
+                    "frame_type": match.frame_type,
+                    "file_count": match.file_count,
+                    "exposure_times": match.exposure_times,
+                    "file_ids": [f.id for f in match.files]
+                })
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error finding calibration matches for {session_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/processing-sessions/{session_id}/add-files")
+async def add_files_to_processing_session(
+    session_id: str,
+    file_ids: List[int] = Body(...)
+):
+    """Add files to an existing processing session."""
+    try:
+        success = processing_manager.add_files_to_session(session_id, file_ids)
+        if not success:
+            raise HTTPException(status_code=404, detail="Processing session not found")
+        
+        return {"message": f"Added {len(file_ids)} files to processing session {session_id}"}
+    except Exception as e:
+        logger.error(f"Error adding files to processing session {session_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# EXISTING OPERATION ROUTES (unchanged)
 # ============================================================================
 
 async def run_scan_operation(task_id: str):
@@ -598,7 +794,7 @@ async def get_operation_status(task_id: str):
     return background_tasks_status[task_id]
 
 # ============================================================================
-# WEB INTERFACE ROUTES
+# WEB INTERFACE ROUTES (unchanged)
 # ============================================================================
 
 @app.get("/", response_class=HTMLResponse)
