@@ -574,7 +574,7 @@
                 </div>
             </div>
 
-            <!-- Processing Sessions Tab (NEW) -->
+            <!-- Processing Sessions Tab (FIXED) -->
             <div v-show="activeTab === 'processing-sessions'" class="space-y-6">
                 <!-- Processing Session Controls -->
                 <div class="bg-white rounded-lg shadow p-4">
@@ -641,7 +641,11 @@
                                         <button @click="viewProcessingSession(session.id)" class="btn btn-blue text-sm">
                                             View Details
                                         </button>
-                                        <button @click="updateProcessingSessionStatus(session.id)" class="btn btn-purple text-sm">
+                                        <!-- Find Calibration Button -->
+                                        <button @click="findCalibrationFiles(session.id)" class="btn btn-purple text-sm">
+                                            🔍 Find Calibration
+                                        </button>
+                                        <button @click="updateProcessingSessionStatus(session.id)" class="btn btn-yellow text-sm">
                                             Update Status
                                         </button>
                                         <button @click="deleteProcessingSession(session.id)" class="btn btn-red text-sm">
@@ -670,6 +674,221 @@
                                 </span>
                                 <button @click="nextProcessingSessionPage" :disabled="processingSessionPagination.page >= processingSessionPagination.pages" class="pagination-button">
                                     Next
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Calibration Results Modal (KEEP THIS AFTER THE PROCESSING SESSIONS TAB) -->
+            <div v-if="showCalibrationModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 modal-backdrop">
+                <div class="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto modal-content">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-bold">Calibration Files for {{ currentCalibrationSession?.name }}</h3>
+                        <button @click="closeCalibrationModal" class="text-gray-500 hover:text-gray-700">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    <!-- Loading State -->
+                    <div v-if="calibrationLoading" class="text-center py-8">
+                        <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                        <p class="mt-2 text-gray-600">Finding calibration matches...</p>
+                    </div>
+                    
+                    <!-- No Matches Found -->
+                    <div v-else-if="Object.keys(calibrationMatches).length === 0" class="text-center py-8">
+                        <div class="text-4xl mb-4">🔍</div>
+                        <p class="text-gray-600 text-lg">No matching calibration files found for this session.</p>
+                        <p class="text-sm text-gray-500 mt-2">Calibration files are matched based on camera, telescope, and capture date proximity.</p>
+                        <div class="mt-4">
+                            <button @click="closeCalibrationModal" class="btn btn-blue">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Calibration Results -->
+                    <div v-else class="space-y-6">
+                        <div class="bg-blue-50 p-4 rounded-lg">
+                            <h4 class="font-semibold text-blue-800 mb-2">📋 Review Calibration Matches</h4>
+                            <p class="text-sm text-blue-700">
+                                Select which calibration types to add to your processing session. Files are automatically matched based on camera, telescope, and capture date.
+                            </p>
+                        </div>
+                        
+                        <!-- Calibration Type Sections -->
+                        <div v-for="(matches, frameType) in calibrationMatches" :key="frameType" class="border rounded-lg p-4 calibration-match-card">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center space-x-3">
+                                    <input 
+                                        type="checkbox" 
+                                        :id="`select-${frameType}`"
+                                        v-model="selectedCalibrationTypes[frameType]"
+                                        class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 calibration-checkbox"
+                                    >
+                                    <label :for="`select-${frameType}`" class="text-lg font-semibold capitalize cursor-pointer">
+                                        {{ frameType }} Frames
+                                    </label>
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 frame-type-badge">
+                                        {{ getTotalFilesForFrameType(matches) }} files
+                                    </span>
+                                </div>
+                            </div>
+                            
+                            <!-- Match Details -->
+                            <div class="space-y-3">
+                                <div v-for="(match, index) in matches" :key="index" class="bg-gray-50 p-3 rounded border-l-4 border-blue-400">
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                        <div>
+                                            <strong>Session:</strong> {{ match.capture_session_id }}<br>
+                                            <strong>Camera:</strong> {{ match.camera }}<br>
+                                            <strong>Telescope:</strong> {{ match.telescope }}
+                                        </div>
+                                        <div>
+                                            <strong>Date:</strong> {{ formatDate(match.capture_date) }}<br>
+                                            <strong>Files:</strong> {{ match.file_count }}<br>
+                                            <strong v-if="match.exposure_times && match.exposure_times.length">
+                                                Exposures:</strong> 
+                                            <span v-if="match.exposure_times && match.exposure_times.length">
+                                                {{ match.exposure_times.join(', ') }}s
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div v-if="match.filters && match.filters.length" class="mt-2 text-sm">
+                                        <strong>Filters:</strong> {{ match.filters.join(', ') }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Action Buttons -->
+                        <div class="flex justify-between items-center pt-4 border-t">
+                            <div class="text-sm text-gray-600">
+                                <span v-if="getSelectedCalibrationCount() > 0" class="text-green-600 font-medium">
+                                    ✓ {{ getSelectedCalibrationCount() }} calibration files selected
+                                </span>
+                                <span v-else class="text-gray-500">
+                                    No calibration files selected
+                                </span>
+                            </div>
+                            <div class="flex space-x-3">
+                                <button @click="closeCalibrationModal" class="btn btn-gray">
+                                    Cancel
+                                </button>
+                                <button 
+                                    @click="addSelectedCalibrationFiles" 
+                                    :disabled="getSelectedCalibrationCount() === 0"
+                                    class="btn btn-green"
+                                >
+                                    Add Selected Files
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Session Details Modal - Add this after the calibration modal in dashboard.html -->
+            <div v-if="showSessionDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 modal-backdrop">
+                <div class="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto modal-content">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-bold">Processing Session Details</h3>
+                        <button @click="closeSessionDetailsModal" class="text-gray-500 hover:text-gray-700">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    <!-- Loading State -->
+                    <div v-if="sessionDetailsLoading" class="text-center py-8">
+                        <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                        <p class="mt-2 text-gray-600">Loading session details...</p>
+                    </div>
+                    
+                    <!-- Session Details -->
+                    <div v-else-if="currentSessionDetails" class="space-y-6">
+                        <!-- Basic Information -->
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <h4 class="font-semibold text-gray-800 mb-3">Session Information</h4>
+                            <div class="grid grid-cols-2 gap-4 text-sm">
+                                <div>
+                                    <strong>Name:</strong> {{ currentSessionDetails.name }}
+                                </div>
+                                <div>
+                                    <strong>Session ID:</strong> 
+                                    <span class="font-mono text-xs">{{ currentSessionDetails.id }}</span>
+                                </div>
+                                <div>
+                                    <strong>Status:</strong>
+                                    <span :class="getProcessingStatusClass(currentSessionDetails.status)" class="processing-status-badge ml-2">
+                                        {{ formatProcessingStatus(currentSessionDetails.status) }}
+                                    </span>
+                                </div>
+                                <div>
+                                    <strong>Created:</strong> {{ formatDate(currentSessionDetails.created_at) }}
+                                </div>
+                                <div class="col-span-2">
+                                    <strong>Objects:</strong> {{ currentSessionDetails.objects.length > 0 ? currentSessionDetails.objects.join(', ') : 'None specified' }}
+                                </div>
+                                <div class="col-span-2" v-if="currentSessionDetails.folder_path">
+                                    <strong>Folder:</strong> 
+                                    <span class="font-mono text-xs bg-white px-2 py-1 rounded">{{ currentSessionDetails.folder_path }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- File Summary -->
+                        <div class="bg-blue-50 p-4 rounded-lg">
+                            <h4 class="font-semibold text-blue-800 mb-3">File Summary</h4>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                                <div class="bg-white p-3 rounded">
+                                    <div class="text-2xl font-bold text-blue-600">{{ currentSessionDetails.total_files }}</div>
+                                    <div class="text-xs text-gray-600">Total Files</div>
+                                </div>
+                                <div class="bg-white p-3 rounded">
+                                    <div class="text-2xl font-bold text-blue-500">{{ currentSessionDetails.lights }}</div>
+                                    <div class="text-xs text-gray-600">Light Frames</div>
+                                </div>
+                                <div class="bg-white p-3 rounded">
+                                    <div class="text-2xl font-bold text-gray-600">{{ currentSessionDetails.darks }}</div>
+                                    <div class="text-xs text-gray-600">Dark Frames</div>
+                                </div>
+                                <div class="bg-white p-3 rounded">
+                                    <div class="text-2xl font-bold text-yellow-600">{{ currentSessionDetails.flats }}</div>
+                                    <div class="text-xs text-gray-600">Flat Frames</div>
+                                </div>
+                                <div class="bg-white p-3 rounded">
+                                    <div class="text-2xl font-bold text-purple-600">{{ currentSessionDetails.bias }}</div>
+                                    <div class="text-xs text-gray-600">Bias Frames</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Notes -->
+                        <div v-if="currentSessionDetails.notes" class="bg-yellow-50 p-4 rounded-lg">
+                            <h4 class="font-semibold text-yellow-800 mb-2">Notes</h4>
+                            <p class="text-sm text-yellow-700 whitespace-pre-wrap">{{ currentSessionDetails.notes }}</p>
+                        </div>
+                        
+                        <!-- Action Buttons -->
+                        <div class="flex justify-between items-center pt-4 border-t">
+                            <div class="text-sm text-gray-500">
+                                Last updated: {{ formatDateTime(currentSessionDetails.created_at) }}
+                            </div>
+                            <div class="flex space-x-3">
+                                <button @click="findCalibrationFiles(currentSessionDetails.id)" class="btn btn-purple text-sm">
+                                    🔍 Find Calibration
+                                </button>
+                                <button @click="updateProcessingSessionStatus(currentSessionDetails.id)" class="btn btn-yellow text-sm">
+                                    Update Status
+                                </button>
+                                <button @click="closeSessionDetailsModal" class="btn btn-blue">
+                                    Close
                                 </button>
                             </div>
                         </div>

@@ -87,7 +87,15 @@ createApp({
             // Modal States
             showCreateModal: false,
             showAddToNewModal: false,
-            showAddToExistingSessionModal: false
+            showAddToExistingSessionModal: false,
+            showCalibrationModal: false,
+            calibrationLoading: false,
+            calibrationMatches: {},
+            selectedCalibrationTypes: {},
+            currentCalibrationSession: null,
+            showSessionDetailsModal: false,
+            currentSessionDetails: null,
+            sessionDetailsLoading: false,
         }
     },
     
@@ -381,6 +389,168 @@ createApp({
                 
                 this.errorMessage = errorMsg;
             }
+        },
+
+        // Calibration Workflow Methods
+        async findCalibrationFiles(sessionId) {
+            try {
+                // Close the session details modal if it's open
+                if (this.showSessionDetailsModal) {
+                    this.showSessionDetailsModal = false;
+                }
+                
+                this.calibrationLoading = true;
+                this.calibrationMatches = {};
+                this.selectedCalibrationTypes = {};
+                
+                // Get session details
+                const sessionResponse = await axios.get(`/api/processing-sessions/${sessionId}`);
+                this.currentCalibrationSession = sessionResponse.data;
+                
+                // Find calibration matches
+                const response = await axios.get(`/api/processing-sessions/${sessionId}/calibration-matches`);
+                this.calibrationMatches = response.data;
+                
+                // Initialize selection state - default all types to selected
+                Object.keys(this.calibrationMatches).forEach(frameType => {
+                    this.selectedCalibrationTypes[frameType] = true;
+                });
+                
+                this.showCalibrationModal = true;
+                
+            } catch (error) {
+                console.error('Error finding calibration files:', error);
+                this.errorMessage = `Failed to find calibration files: ${error.response?.data?.detail || error.message}`;
+            } finally {
+                this.calibrationLoading = false;
+            }
+        },
+        
+        async addSelectedCalibrationFiles() {
+            try {
+                if (this.getSelectedCalibrationCount() === 0) {
+                    // Close modal and show error popup
+                    this.closeCalibrationModal();
+                    alert('No calibration files selected');
+                    return;
+                }
+                
+                // Clear any previous errors
+                this.errorMessage = '';
+                
+                // Prepare selected matches for API
+                const selectedMatches = {};
+                Object.keys(this.selectedCalibrationTypes).forEach(frameType => {
+                    if (this.selectedCalibrationTypes[frameType]) {
+                        selectedMatches[frameType] = this.calibrationMatches[frameType];
+                    }
+                });
+                
+                // Collect all file IDs from selected matches
+                const allFileIds = [];
+                Object.values(selectedMatches).forEach(matches => {
+                    matches.forEach(match => {
+                        allFileIds.push(...match.file_ids);
+                    });
+                });
+                
+                if (allFileIds.length === 0) {
+                    // Close modal and show error popup
+                    this.closeCalibrationModal();
+                    alert('No files to add');
+                    return;
+                }
+                
+                // CAPTURE VALUES BEFORE MAKING API CALL (before modal can be closed)
+                const sessionName = this.currentCalibrationSession.name;
+                const sessionId = this.currentCalibrationSession.id;
+                const fileCount = allFileIds.length;
+                const selectedTypes = Object.keys(selectedMatches).join(', ');
+                
+                // Add files to session using existing API
+                await axios.post(`/api/processing-sessions/${sessionId}/add-files`, allFileIds);
+                
+                // Close modal BEFORE showing success message
+                this.closeCalibrationModal();
+                
+                // Show success message using captured values
+                alert(`Successfully added ${fileCount} calibration files (${selectedTypes}) to session "${sessionName}"`);
+                
+                // Refresh processing sessions if on that tab
+                if (this.activeTab === 'processing-sessions') {
+                    this.loadProcessingSessions();
+                }
+                
+            } catch (error) {
+                console.error('Error adding calibration files:', error);
+                
+                // Extract the specific error message from the response
+                let errorMessage = 'Failed to add calibration files';
+                if (error.response?.data?.detail) {
+                    errorMessage = error.response.data.detail;
+                } else if (error.message) {
+                    errorMessage = error.message;
+                }
+                
+                // Close modal and show error as popup alert (like success case)
+                this.closeCalibrationModal();
+                alert(`Error: ${errorMessage}`);
+                
+                // Refresh processing sessions to show current state
+                if (this.activeTab === 'processing-sessions') {
+                    this.loadProcessingSessions();
+                }
+            }
+        },
+
+        closeCalibrationModal() {
+            this.showCalibrationModal = false;
+            this.calibrationLoading = false;
+            this.calibrationMatches = {};
+            this.selectedCalibrationTypes = {};
+            this.currentCalibrationSession = null;
+            this.errorMessage = '';
+        },
+
+        // Helper methods for calibration modal
+        getTotalFilesForFrameType(matches) {
+            return matches.reduce((total, match) => total + match.file_count, 0);
+        },
+
+        getSelectedCalibrationCount() {
+            let total = 0;
+            Object.keys(this.selectedCalibrationTypes).forEach(frameType => {
+                if (this.selectedCalibrationTypes[frameType]) {
+                    total += this.getTotalFilesForFrameType(this.calibrationMatches[frameType]);
+                }
+            });
+            return total;
+        },
+
+        async viewProcessingSession(sessionId) {
+            try {
+                this.sessionDetailsLoading = true;
+                this.currentSessionDetails = null;
+                this.showSessionDetailsModal = true;
+                
+                // Get detailed session information
+                const response = await axios.get(`/api/processing-sessions/${sessionId}`);
+                this.currentSessionDetails = response.data;
+                
+            } catch (error) {
+                console.error('Error loading session details:', error);
+                this.errorMessage = `Failed to load session details: ${error.response?.data?.detail || error.message}`;
+                this.showSessionDetailsModal = false;
+            } finally {
+                this.sessionDetailsLoading = false;
+            }
+        },
+
+        closeSessionDetailsModal() {
+            this.showSessionDetailsModal = false;
+            this.currentSessionDetails = null;
+            this.sessionDetailsLoading = false;
+            this.errorMessage = '';
         },
         
         // API Methods
@@ -837,6 +1007,17 @@ createApp({
         document.addEventListener('click', (e) => {
             if (!e.target.closest('.relative')) {
                 this.showSelectionOptions = false;
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                // Close any open modals
+                this.showCreateModal = false;
+                this.showAddToNewModal = false;
+                this.showAddToExistingSessionModal = false;
+                this.showCalibrationModal = false;
+                this.showSessionDetailsModal = false;
             }
         });
     },

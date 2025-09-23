@@ -72,7 +72,8 @@ class ProcessingSessionManager:
         session_id = f"{date_prefix}_{name_hash}"
         return session_id
     
-    def validate_file_selection(self, file_ids: List[int]) -> Tuple[List[FitsFile], Dict[str, str]]:
+    
+    def validate_file_selection(self, file_ids: List[int], session_id: Optional[str] = None) -> Tuple[List[FitsFile], Dict[str, str]]:
         """Validate file selection and return files with any warnings."""
         session = self.db_service.db_manager.get_session()
         warnings = {}
@@ -96,20 +97,22 @@ class ProcessingSessionManager:
             if missing_on_disk:
                 warnings['missing_on_disk'] = f"Files not found on disk: {missing_on_disk}"
             
-            # Check for files already in processing sessions
-            existing_staged = session.query(ProcessingSessionFile.fits_file_id).filter(
-                ProcessingSessionFile.fits_file_id.in_(file_ids)
-            ).all()
-            
-            if existing_staged:
-                staged_ids = {row[0] for row in existing_staged}
-                warnings['already_staged'] = f"Files already in processing sessions: {staged_ids}"
+            # NEW: Check for files already in THIS SPECIFIC session (if session_id provided)
+            if session_id:
+                existing_in_session = session.query(ProcessingSessionFile.fits_file_id).filter(
+                    ProcessingSessionFile.fits_file_id.in_(file_ids),
+                    ProcessingSessionFile.processing_session_id == session_id
+                ).all()
+                
+                if existing_in_session:
+                    duplicate_ids = {row[0] for row in existing_in_session}
+                    warnings['already_in_session'] = f"Files already in this session: {duplicate_ids}"
             
             return files, warnings
             
         finally:
             session.close()
-    
+
     def create_processing_session(self, name: str, file_ids: List[int], 
                                 notes: Optional[str] = None) -> ProcessingSessionInfo:
         """Create a new processing session with selected files."""
@@ -212,13 +215,14 @@ class ProcessingSessionManager:
     
     def add_files_to_session(self, session_id: str, file_ids: List[int]) -> bool:
         """Add additional files to an existing processing session."""
-        # Validate files
-        files, warnings = self.validate_file_selection(file_ids)
+        # Validate files - NOW PASS THE SESSION_ID
+        files, warnings = self.validate_file_selection(file_ids, session_id)
         
         if warnings:
             warning_msg = "; ".join(warnings.values())
             logger.warning(f"Add files warnings: {warning_msg}")
-            if 'missing_files' in warnings or 'missing_on_disk' in warnings or 'already_staged' in warnings:
+            # Check for critical errors including duplicates in same session
+            if 'missing_files' in warnings or 'missing_on_disk' in warnings or 'already_in_session' in warnings:
                 raise ValueError(f"Cannot add files: {warning_msg}")
         
         session = self.db_service.db_manager.get_session()

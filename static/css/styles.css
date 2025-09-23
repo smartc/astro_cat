@@ -575,3 +575,122 @@
         border-color: #4b5563;
     }
 }
+
+/* Additional CSS styles for calibration workflow */
+
+/* Purple button style for Find Calibration */
+.btn-purple {
+    background-color: #7c3aed;
+    color: white;
+    border: 1px solid #7c3aed;
+}
+
+.btn-purple:hover {
+    background-color: #6d28d9;
+    border-color: #6d28d9;
+}
+
+.btn-purple:disabled {
+    background-color: #a78bfa;
+    border-color: #a78bfa;
+    cursor: not-allowed;
+}
+
+/* Yellow button style for Update Status */
+.btn-yellow {
+    background-color: #f59e0b;
+    color: white;
+    border: 1px solid #f59e0b;
+}
+
+.btn-yellow:hover {
+    background-color: #d97706;
+    border-color: #d97706;
+}
+
+/* Gray button style for Cancel */
+.btn-gray {
+    background-color: #6b7280;
+    color: white;
+    border: 1px solid #6b7280;
+}
+
+.btn-gray:hover {
+    background-color: #4b5563;
+    border-color: #4b5563;
+}
+
+/* Calibration modal specific styles */
+.calibration-match-card {
+    transition: background-color 0.2s ease;
+}
+
+.calibration-match-card:hover {
+    background-color: #f8fafc;
+}
+
+/* Checkbox styling for calibration selection */
+.calibration-checkbox:checked {
+    background-color: #3b82f6;
+    border-color: #3b82f6;
+}
+
+.calibration-checkbox:focus {
+    ring-color: #3b82f6;
+    ring-opacity: 0.5;
+}
+
+/* Loading spinner animation */
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+    animation: spin 1s linear infinite;
+}
+
+/* Modal backdrop styling */
+.modal-backdrop {
+    backdrop-filter: blur(2px);
+}
+
+/* Enhanced scrollbar for modal */
+.modal-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.modal-content::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 3px;
+}
+
+.modal-content::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+
+.modal-content::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* Frame type badge styling */
+.frame-type-badge {
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0.25rem 0.5rem;
+    border-radius: 9999px;
+}
+
+/* Responsive adjustments for calibration modal */
+@media (max-width: 768px) {
+    .calibration-modal {
+        margin: 1rem;
+        max-width: calc(100vw - 2rem);
+    }
+    
+    .calibration-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+}
