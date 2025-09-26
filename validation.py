@@ -348,8 +348,12 @@ class FitsValidator:
                 breakdown={'frame_type': 0.0}
             )
     
-    def validate_all_files(self, limit: Optional[int] = None) -> Dict[str, int]:
+    def validate_all_files(self, limit: Optional[int] = None, progress_callback=None) -> Dict[str, int]:
         """Validate all FITS files in the database."""
+        import uuid
+        run_id = str(uuid.uuid4())[:8]
+        logger.info(f"VALIDATION START - Run ID: {run_id}")
+
         self._load_equipment_data()
         
         session = self.db_service.db_manager.get_session()
@@ -363,7 +367,6 @@ class FitsValidator:
         }
         
         try:
-            # Get all records
             query = session.query(FitsFile)
             if limit:
                 query = query.limit(limit)
@@ -374,7 +377,7 @@ class FitsValidator:
             logger.info(f"Validating {len(records)} FITS files...")
             
             with tqdm(total=len(records), desc="Validating files") as pbar:
-                for db_record in records:
+                for i, db_record in enumerate(records):
                     try:
                         # Convert database record to dict
                         record_dict = {
@@ -396,7 +399,7 @@ class FitsValidator:
                         # Update database record
                         db_record.validation_score = result.score
                         db_record.migration_ready = result.migration_ready
-                        db_record.validation_notes = "; ".join(result.notes[:5])  # Limit notes length
+                        db_record.validation_notes = "; ".join(result.notes[:5])
                         
                         # Update stats
                         if result.score >= self.AUTO_MIGRATE_THRESHOLD:
@@ -408,7 +411,12 @@ class FitsValidator:
                         
                         stats['updated'] += 1
                         
-                        # Commit every 100 records for progress
+                        # Update progress callback every 100 files
+                        if progress_callback and (i % 100 == 0 or i == len(records) - 1):
+                            progress = int((i + 1) / len(records) * 100)
+                            progress_callback(progress, stats)
+                        
+                        # Commit every 100 records
                         if stats['updated'] % 100 == 0:
                             session.commit()
                             pbar.set_postfix({

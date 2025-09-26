@@ -18,6 +18,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc, asc
 import uvicorn
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 
 # Import your existing modules
 from models import DatabaseManager, DatabaseService, FitsFile, Session as SessionModel, ProcessingSession
@@ -61,6 +63,7 @@ cameras = []
 telescopes = []
 filter_mappings = {}
 processing_manager = None
+executor = ThreadPoolExecutor(max_workers=2)
 
 @app.on_event("startup")
 async def startup_event():
@@ -648,24 +651,25 @@ async def add_files_to_processing_session(
 # EXISTING OPERATION ROUTES (unchanged)
 # ============================================================================
 
-async def run_scan_operation(task_id: str):
-    """Background task for scanning quarantine."""
+_processing_tasks = set()
+
+def _run_scan_sync(task_id: str):
+    """Synchronous scan wrapper."""
+    if task_id in _processing_tasks:
+        return
+    
+    _processing_tasks.add(task_id)
+    
     try:
-        background_tasks_status[task_id] = {
-            "status": "running",
-            "message": "Scanning quarantine directory...",
-            "progress": 0,
-            "started_at": datetime.now()
-        }
+        background_tasks_status[task_id]["status"] = "running"
+        background_tasks_status[task_id]["message"] = "Scanning quarantine..."
         
         logger.info(f"Starting scan operation {task_id}")
         
-        # Initialize processor
         fits_processor = OptimizedFitsProcessor(
             config, cameras, telescopes, filter_mappings, db_service
         )
         
-        # Scan quarantine
         df, session_data = fits_processor.scan_quarantine()
         
         # Process results
@@ -716,66 +720,92 @@ async def run_scan_operation(task_id: str):
         background_tasks_status[task_id] = {
             "status": "error",
             "message": f"Scan failed: {str(e)}",
-            "progress": 0,
-            "started_at": background_tasks_status[task_id]["started_at"],
             "completed_at": datetime.now()
         }
         logger.error(f"Background scan failed: {e}")
 
-async def run_validation_operation(task_id: str):
-    """Background task for validating files."""
+async def run_scan_operation(task_id: str):
+    """Async wrapper."""
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(executor, _run_scan_sync, task_id)
+
+
+def _run_validation_sync(task_id: str):
+    if task_id in _processing_tasks:
+        return
+    
+    _processing_tasks.add(task_id)
+    
+    # Update from pending to running
+    background_tasks_status[task_id]["status"] = "running"
+    background_tasks_status[task_id]["message"] = "Running validation..."
+
     try:
         background_tasks_status[task_id] = {
             "status": "running",
-            "message": "Running validation on files...",
+            "message": "Running validation...",
             "progress": 0,
             "started_at": datetime.now()
         }
         
-        logger.info(f"Starting validation operation {task_id}")
+        def update_progress(progress, stats):
+            background_tasks_status[task_id]["progress"] = progress
+            background_tasks_status[task_id]["message"] = f"Validating: {stats['auto_migrate']} auto"
         
-        # Initialize validator
         validator = FitsValidator(db_service)
+        stats = validator.validate_all_files(progress_callback=update_progress)
         
-        # Run validation
-        stats = validator.validate_all_files()
-        
-        background_tasks_status[task_id] = {
+        background_tasks_status[task_id].update({
             "status": "completed",
-            "message": f"Validation completed: {stats['auto_migrate']} auto-migrate ready",
+            "message": f"Completed: {stats['auto_migrate']} auto-migrate",
             "progress": 100,
-            "started_at": background_tasks_status[task_id]["started_at"],
             "completed_at": datetime.now(),
             "results": stats
-        }
-        
-        logger.info(f"Validation operation {task_id} completed")
-        
+        })
     except Exception as e:
         background_tasks_status[task_id] = {
             "status": "error",
-            "message": f"Validation failed: {str(e)}",
-            "progress": 0,
-            "started_at": background_tasks_status[task_id]["started_at"],
+            "message": str(e),
             "completed_at": datetime.now()
         }
-        logger.error(f"Background validation failed: {e}")
+
+async def run_validation_operation(task_id: str):
+    """Async wrapper that runs sync validation in executor."""
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(executor, _run_validation_sync, task_id)
+
 
 @app.post("/api/operations/scan")
 async def start_scan(background_tasks: BackgroundTasks):
-    """Start a quarantine scan operation."""
     task_id = f"scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
+    # Initialize status first
+    background_tasks_status[task_id] = {
+        "status": "pending",
+        "message": "Scan queued...",
+        "progress": 0,
+        "started_at": datetime.now()
+    }
+    
     background_tasks.add_task(run_scan_operation, task_id)
-    logger.info(f"Started scan operation {task_id}")
     return {"task_id": task_id, "message": "Scan started"}
+
 
 @app.post("/api/operations/validate")
 async def start_validation(background_tasks: BackgroundTasks):
-    """Start a validation operation."""
     task_id = f"validate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
+    # Initialize status BEFORE background task starts
+    background_tasks_status[task_id] = {
+        "status": "pending",
+        "message": "Validation queued...",
+        "progress": 0,
+        "started_at": datetime.now()
+    }
+    
     background_tasks.add_task(run_validation_operation, task_id)
-    logger.info(f"Started validation operation {task_id}")
     return {"task_id": task_id, "message": "Validation started"}
+
 
 @app.post("/api/operations/migrate")
 async def start_migration(background_tasks: BackgroundTasks):

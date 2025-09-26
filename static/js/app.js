@@ -1,5 +1,5 @@
-// FITS Cataloger Vue.js Application - Complete with Enhanced File Selection
-// This is the complete updated app.js with all enhancements
+// FITS Cataloger Vue.js Application - Refactored with API Service
+// Phase 1: Now using centralized ApiService for all API calls
 
 const { createApp } = Vue;
 
@@ -10,7 +10,7 @@ createApp({
             activeTab: 'dashboard',
             loading: false,
             errorMessage: '',
-            showSelectionOptions: false, // For selection dropdown
+            showSelectionOptions: false,
             
             // Data
             stats: {},
@@ -84,19 +84,28 @@ createApp({
                 notes: ''
             },
             
-            // Modal States
+            // Modals
             showCreateModal: false,
             showAddToNewModal: false,
             showAddToExistingSessionModal: false,
             showCalibrationModal: false,
+            showSessionDetailsModal: false,
+            
+            // Calibration Workflow
             calibrationLoading: false,
             calibrationMatches: {},
             selectedCalibrationTypes: {},
             currentCalibrationSession: null,
-            showSessionDetailsModal: false,
-            currentSessionDetails: null,
+            
+            // Session Details
             sessionDetailsLoading: false,
-        }
+            currentSessionDetails: null,
+            
+            // Operations
+            activeOperation: null,
+            operationStatus: null,
+            operationPolling: null
+        };
     },
     
     computed: {
@@ -146,27 +155,490 @@ createApp({
             if (!this.objectSearchText) {
                 return this.filterOptions.objects;
             }
+            const search = this.objectSearchText.toLowerCase();
             return this.filterOptions.objects.filter(obj => 
-                obj.toLowerCase().includes(this.objectSearchText.toLowerCase())
+                obj.toLowerCase().includes(search)
             );
         }
     },
     
     methods: {
-        // Enhanced File Selection Methods
-        toggleFileSelection(fileId) {
-            const index = this.selectedFiles.indexOf(fileId);
-            if (index > -1) {
-                this.selectedFiles.splice(index, 1);
-            } else {
-                this.selectedFiles.push(fileId);
-            }
-            
-            // If we were in "all selected" mode and deselected something, turn that off
-            if (this.allFilteredFilesSelected && index > -1) {
-                this.allFilteredFilesSelected = false;
+        // ===================
+        // API Methods (using ApiService)
+        // ===================
+        
+        async loadStats() {
+            try {
+                this.loading = true;
+                const response = await ApiService.stats.getStats();
+                this.stats = response.data;
+            } catch (error) {
+                console.error('Error loading stats:', error);
+                this.errorMessage = 'Failed to load statistics: ' + error.message;
+            } finally {
+                this.loading = false;
             }
         },
+        
+        async loadFilterOptions() {
+            try {
+                const response = await ApiService.files.getFilterOptions();
+                this.filterOptions = response.data;
+            } catch (error) {
+                console.error('Error loading filter options:', error);
+                this.errorMessage = 'Failed to load filter options';
+            }
+        },
+        
+        async loadFiles() {
+            try {
+                this.loading = true;
+                this.errorMessage = '';
+                
+                const params = {
+                    page: this.filePagination.page,
+                    limit: this.filePagination.limit,
+                    sort_by: this.fileSorting.sort_by,
+                    sort_order: this.fileSorting.sort_order
+                };
+                
+                // Add filters
+                for (const [key, values] of Object.entries(this.fileFilters)) {
+                    if (values.length > 0) {
+                        params[key] = values.join(',');
+                    }
+                }
+                
+                for (const [key, value] of Object.entries(this.searchFilters)) {
+                    if (value) {
+                        params[key] = value;
+                    }
+                }
+                
+                const response = await ApiService.files.getFiles(params);
+                this.files = response.data.files;
+                this.filePagination.total = response.data.pagination.total;
+                this.filePagination.pages = response.data.pagination.pages;
+                
+            } catch (error) {
+                console.error('Error loading files:', error);
+                this.errorMessage = 'Failed to load files: ' + error.message;
+            } finally {
+                this.loading = false;
+            }
+        },
+        
+        async loadImagingSessions() {
+            try {
+                this.loading = true;
+                
+                const params = {
+                    page: this.imagingSessionPagination.page,
+                    limit: this.imagingSessionPagination.limit
+                };
+                
+                // Add filters
+                for (const [key, values] of Object.entries(this.imagingSessionFilters)) {
+                    if (Array.isArray(values) && values.length > 0) {
+                        params[key] = values.join(',');
+                    } else if (!Array.isArray(values) && values) {
+                        params[key] = values;
+                    }
+                }
+                
+                const response = await ApiService.imagingSessions.getSessions(params);
+                this.imagingSessions = response.data.sessions;
+                this.imagingSessionPagination.total = response.data.pagination.total;
+                this.imagingSessionPagination.pages = response.data.pagination.pages;
+                
+            } catch (error) {
+                console.error('Error loading imaging sessions:', error);
+                this.errorMessage = 'Failed to load imaging sessions';
+            } finally {
+                this.loading = false;
+            }
+        },
+        
+        async loadProcessingSessions() {
+            try {
+                this.loading = true;
+                
+                const params = {
+                    page: this.processingSessionPagination.page,
+                    limit: this.processingSessionPagination.limit
+                };
+                
+                if (this.processingSessionStatusFilter) {
+                    params.status = this.processingSessionStatusFilter;
+                }
+                
+                const response = await ApiService.processingSessions.getAll(params);
+                this.processingSessions = response.data.sessions;
+                this.processingSessionPagination.total = response.data.pagination.total;
+                this.processingSessionPagination.pages = response.data.pagination.pages;
+                
+            } catch (error) {
+                console.error('Error loading processing sessions:', error);
+                this.errorMessage = 'Failed to load processing sessions';
+            } finally {
+                this.loading = false;
+            }
+        },
+        
+        async loadExistingSessions() {
+            try {
+                const response = await ApiService.processingSessions.getAll({});
+                this.existingSessions = response.data.sessions;
+            } catch (error) {
+                console.error('Error loading existing sessions:', error);
+                this.errorMessage = 'Failed to load existing sessions';
+            }
+        },
+        
+        async viewProcessingSession(sessionId) {
+            try {
+                this.sessionDetailsLoading = true;
+                this.currentSessionDetails = null;
+                this.showSessionDetailsModal = true;
+                
+                const response = await ApiService.processingSessions.getById(sessionId);
+                this.currentSessionDetails = response.data;
+                
+            } catch (error) {
+                console.error('Error loading session details:', error);
+                this.errorMessage = `Failed to load session details: ${error.response?.data?.detail || error.message}`;
+                this.showSessionDetailsModal = false;
+            } finally {
+                this.sessionDetailsLoading = false;
+            }
+        },
+        
+        async findCalibrationFiles(sessionId) {
+            try {
+                if (this.showSessionDetailsModal) {
+                    this.showSessionDetailsModal = false;
+                }
+                
+                this.calibrationLoading = true;
+                this.calibrationMatches = {};
+                this.selectedCalibrationTypes = {};
+                
+                // Get session details
+                const sessionResponse = await ApiService.processingSessions.getById(sessionId);
+                this.currentCalibrationSession = sessionResponse.data;
+                
+                // Find calibration matches
+                const response = await ApiService.processingSessions.getCalibrationMatches(sessionId);
+                this.calibrationMatches = response.data;
+                
+                // Initialize selection state - default all types to selected
+                Object.keys(this.calibrationMatches).forEach(frameType => {
+                    this.selectedCalibrationTypes[frameType] = true;
+                });
+                
+                this.showCalibrationModal = true;
+                
+            } catch (error) {
+                console.error('Error finding calibration files:', error);
+                this.errorMessage = `Failed to find calibration files: ${error.response?.data?.detail || error.message}`;
+            } finally {
+                this.calibrationLoading = false;
+            }
+        },
+        
+        async addSelectedCalibrationFiles() {
+            try {
+                if (this.getSelectedCalibrationCount() === 0) {
+                    this.closeCalibrationModal();
+                    alert('No calibration files selected');
+                    return;
+                }
+                
+                this.errorMessage = '';
+                
+                // Prepare selected matches
+                const selectedMatches = {};
+                Object.keys(this.selectedCalibrationTypes).forEach(frameType => {
+                    if (this.selectedCalibrationTypes[frameType]) {
+                        selectedMatches[frameType] = this.calibrationMatches[frameType];
+                    }
+                });
+                
+                // Collect all file IDs from selected matches
+                const allFileIds = [];
+                Object.values(selectedMatches).forEach(matches => {
+                    matches.forEach(match => {
+                        allFileIds.push(...match.file_ids);
+                    });
+                });
+                
+                if (allFileIds.length === 0) {
+                    this.closeCalibrationModal();
+                    alert('No files to add');
+                    return;
+                }
+                
+                // Capture values before API call
+                const sessionName = this.currentCalibrationSession.name;
+                const sessionId = this.currentCalibrationSession.id;
+                const fileCount = allFileIds.length;
+                const selectedTypes = Object.keys(selectedMatches).join(', ');
+                
+                // Add files to session
+                await ApiService.processingSessions.addFiles(sessionId, allFileIds);
+                
+                this.closeCalibrationModal();
+                alert(`Successfully added ${fileCount} calibration files (${selectedTypes}) to session "${sessionName}"`);
+                
+                if (this.activeTab === 'processing-sessions') {
+                    this.loadProcessingSessions();
+                }
+                
+            } catch (error) {
+                console.error('Error adding calibration files:', error);
+                
+                let errorMessage = 'Failed to add calibration files';
+                if (error.response?.data?.detail) {
+                    errorMessage = error.response.data.detail;
+                } else if (error.message) {
+                    errorMessage = error.message;
+                }
+                
+                this.closeCalibrationModal();
+                alert(`Error: ${errorMessage}`);
+                
+                if (this.activeTab === 'processing-sessions') {
+                    this.loadProcessingSessions();
+                }
+            }
+        },
+        
+        async createProcessingSession() {
+            try {
+                if (!this.newProcessingSession.name.trim()) {
+                    this.errorMessage = 'Session name is required';
+                    return;
+                }
+                
+                const fileIds = this.newProcessingSession.fileIds
+                    .split(',')
+                    .map(id => parseInt(id.trim(), 10))
+                    .filter(id => !isNaN(id));
+                
+                if (fileIds.length === 0) {
+                    this.errorMessage = 'No valid file IDs found';
+                    return;
+                }
+                
+                const payload = {
+                    name: this.newProcessingSession.name.trim(),
+                    file_ids: fileIds,
+                    notes: this.newProcessingSession.notes.trim() || null
+                };
+                
+                await ApiService.processingSessions.create(payload);
+                
+                this.showCreateModal = false;
+                this.loadProcessingSessions();
+                this.errorMessage = '';
+                alert(`Processing session "${this.newProcessingSession.name}" created successfully with ${fileIds.length} files!`);
+                
+            } catch (error) {
+                console.error('Error creating processing session:', error);
+                this.errorMessage = `Failed to create processing session: ${error.response?.data?.detail || error.message}`;
+            }
+        },
+        
+        async createSessionFromSelectedFiles() {
+            try {
+                if (!this.newSessionFromFiles.name.trim()) {
+                    this.errorMessage = 'Session name is required';
+                    return;
+                }
+                
+                if (this.selectedFiles.length === 0) {
+                    this.errorMessage = 'No files selected';
+                    return;
+                }
+                
+                const selectedCount = this.selectedFiles.length;
+                const sessionName = this.newSessionFromFiles.name.trim();
+                
+                const payload = {
+                    name: sessionName,
+                    file_ids: this.selectedFiles,
+                    notes: this.newSessionFromFiles.notes.trim() || null
+                };
+                
+                await ApiService.processingSessions.create(payload);
+                
+                this.showAddToNewModal = false;
+                this.clearSelection();
+                this.errorMessage = '';
+                
+                alert(`Processing session "${sessionName}" created successfully with ${selectedCount} files!`);
+                
+                if (this.activeTab === 'processing-sessions') {
+                    this.loadProcessingSessions();
+                }
+                
+            } catch (error) {
+                console.error('Error creating processing session from files:', error);
+                this.errorMessage = `Failed to create processing session: ${error.response?.data?.detail || error.message}`;
+            }
+        },
+        
+        async addToExistingSession() {
+            try {
+                if (!this.selectedExistingSession) {
+                    this.errorMessage = 'Please select a session';
+                    return;
+                }
+                
+                if (this.selectedFiles.length === 0) {
+                    this.errorMessage = 'No files selected';
+                    return;
+                }
+                
+                const selectedCount = this.selectedFiles.length;
+                const sessionName = this.existingSessions.find(s => s.id === this.selectedExistingSession)?.name || 'session';
+                
+                const fileIds = this.selectedFiles.map(id => parseInt(id, 10));
+                
+                await ApiService.processingSessions.addFiles(this.selectedExistingSession, fileIds);
+                
+                this.showAddToExistingSessionModal = false;
+                this.clearSelection();
+                this.errorMessage = '';
+                
+                alert(`${selectedCount} files added to "${sessionName}" successfully!`);
+                
+                if (this.activeTab === 'processing-sessions') {
+                    this.loadProcessingSessions();
+                }
+                
+            } catch (error) {
+                console.error('Error adding files to existing session:', error);
+                
+                let errorMsg = 'Failed to add files to session';
+                if (error.response?.data?.detail) {
+                    errorMsg += `: ${error.response.data.detail}`;
+                } else if (error.message) {
+                    errorMsg += `: ${error.message}`;
+                }
+                
+                this.errorMessage = errorMsg;
+            }
+        },
+        
+        async updateProcessingSessionStatus(sessionId) {
+            try {
+                const statuses = ['not_started', 'in_progress', 'complete'];
+                const statusLabels = ['Not Started', 'In Progress', 'Complete'];
+                
+                const choice = prompt(
+                    'Select new status:\n\n' +
+                    '1. Not Started\n' + 
+                    '2. In Progress\n' + 
+                    '3. Complete\n\n' +
+                    'Enter number (1-3):'
+                );
+                
+                if (!choice) return;
+                
+                const index = parseInt(choice) - 1;
+                if (index < 0 || index >= statuses.length) {
+                    this.errorMessage = 'Invalid status selection';
+                    return;
+                }
+                
+                const newStatus = statuses[index];
+                const notes = prompt('Add notes (optional):');
+                
+                const payload = {
+                    status: newStatus,
+                    notes: notes || null
+                };
+                
+                await ApiService.processingSessions.updateStatus(sessionId, payload);
+                
+                this.loadProcessingSessions();
+                alert(`Status updated to: ${statusLabels[index]}`);
+                
+            } catch (error) {
+                console.error('Error updating processing session status:', error);
+                this.errorMessage = `Failed to update status: ${error.response?.data?.detail || error.message}`;
+            }
+        },
+        
+        async deleteProcessingSession(sessionId) {
+            try {
+                if (!confirm('Are you sure you want to delete this processing session? This action cannot be undone.')) {
+                    return;
+                }
+                
+                const removeFiles = confirm('Also remove staged files from disk?');
+                
+                await ApiService.processingSessions.delete(sessionId, removeFiles);
+                
+                this.loadProcessingSessions();
+                alert('Processing session deleted successfully');
+                
+            } catch (error) {
+                console.error('Error deleting processing session:', error);
+                this.errorMessage = `Failed to delete processing session: ${error.response?.data?.detail || error.message}`;
+            }
+        },
+        
+        // ===================
+        // Pagination Methods
+        // ===================
+        
+        prevFilePage() {
+            if (this.filePagination.page > 1) {
+                this.filePagination.page--;
+                this.loadFiles();
+            }
+        },
+        
+        nextFilePage() {
+            if (this.filePagination.page < this.filePagination.pages) {
+                this.filePagination.page++;
+                this.loadFiles();
+            }
+        },
+        
+        nextImagingSessionPage() {
+            if (this.imagingSessionPagination.page < this.imagingSessionPagination.pages) {
+                this.imagingSessionPagination.page++;
+                this.loadImagingSessions();
+            }
+        },
+        
+        prevImagingSessionPage() {
+            if (this.imagingSessionPagination.page > 1) {
+                this.imagingSessionPagination.page--;
+                this.loadImagingSessions();
+            }
+        },
+        
+        nextProcessingSessionPage() {
+            if (this.processingSessionPagination.page < this.processingSessionPagination.pages) {
+                this.processingSessionPagination.page++;
+                this.loadProcessingSessions();
+            }
+        },
+        
+        prevProcessingSessionPage() {
+            if (this.processingSessionPagination.page > 1) {
+                this.processingSessionPagination.page--;
+                this.loadProcessingSessions();
+            }
+        },
+        
+        // ===================
+        // Selection Methods
+        // ===================
         
         toggleSelectAll() {
             if (this.selectAllMode === 'all') {
@@ -190,25 +662,33 @@ createApp({
             }
         },
         
+        toggleFileSelection(fileId) {
+            const index = this.selectedFiles.indexOf(fileId);
+            if (index > -1) {
+                this.selectedFiles.splice(index, 1);
+            } else {
+                this.selectedFiles.push(fileId);
+            }
+            
+            // If we were in "all selected" mode and deselected something, turn that off
+            if (this.allFilteredFilesSelected && index > -1) {
+                this.allFilteredFilesSelected = false;
+            }
+        },
+        
         async toggleSelectAllFiltered() {
             if (this.allFilteredFilesSelected) {
-                // Deselect all
                 this.selectedFiles = [];
                 this.allFilteredFilesSelected = false;
             } else {
-                // Select all filtered files
                 try {
                     this.loading = true;
                     
-                    // Build the same parameters as the current filter
                     const params = new URLSearchParams({
                         page: 1,
-                        limit: this.filePagination.total, // Get all files
-                        sort_by: this.fileSorting.sort_by,
-                        sort_order: this.fileSorting.sort_order
+                        limit: 999999
                     });
                     
-                    // Add current filters
                     for (const [key, values] of Object.entries(this.fileFilters)) {
                         if (values.length > 0) {
                             params.append(key, values.join(','));
@@ -221,10 +701,9 @@ createApp({
                         }
                     }
                     
-                    const response = await axios.get(`/api/files?${params}`);
+                    const response = await ApiService.files.getFiles(Object.fromEntries(params));
                     const allFilteredFiles = response.data.files;
                     
-                    // Select all file IDs
                     this.selectedFiles = allFilteredFiles.map(file => file.id);
                     this.allFilteredFilesSelected = true;
                     
@@ -259,423 +738,10 @@ createApp({
             this.showSelectionOptions = false;
         },
         
-        // Session Management Methods
-        async loadExistingSessions() {
-            try {
-                const response = await axios.get('/api/processing-sessions');
-                this.existingSessions = response.data.sessions;
-            } catch (error) {
-                console.error('Error loading existing sessions:', error);
-                this.errorMessage = 'Failed to load existing sessions';
-            }
-        },
-        
-        addToNewSession() {
-            if (this.selectedFiles.length === 0) {
-                this.errorMessage = 'No files selected';
-                return;
-            }
-            
-            this.newSessionFromFiles = {
-                name: '',
-                notes: ''
-            };
-            this.showAddToNewModal = true;
-        },
-        
-        async showAddToExistingModal() {
-            if (this.selectedFiles.length === 0) {
-                this.errorMessage = 'No files selected';
-                return;
-            }
-            
-            await this.loadExistingSessions();
-            this.selectedExistingSession = '';
-            this.showAddToExistingSessionModal = true;
-        },
-        
-        async createSessionFromSelectedFiles() {
-            try {
-                if (!this.newSessionFromFiles.name.trim()) {
-                    this.errorMessage = 'Session name is required';
-                    return;
-                }
-                
-                if (this.selectedFiles.length === 0) {
-                    this.errorMessage = 'No files selected';
-                    return;
-                }
-                
-                // Capture the count BEFORE clearing selection
-                const selectedCount = this.selectedFiles.length;
-                const sessionName = this.newSessionFromFiles.name.trim();
-                
-                const payload = {
-                    name: sessionName,
-                    file_ids: this.selectedFiles,
-                    notes: this.newSessionFromFiles.notes.trim() || null
-                };
-                
-                await axios.post('/api/processing-sessions', payload);
-                
-                this.showAddToNewModal = false;
-                this.clearSelection(); // Clear selection AFTER capturing count
-                this.errorMessage = '';
-                
-                // Use captured values for correct message
-                alert(`Processing session "${sessionName}" created successfully with ${selectedCount} files!`);
-                
-                // Refresh processing sessions if on that tab
-                if (this.activeTab === 'processing-sessions') {
-                    this.loadProcessingSessions();
-                }
-                
-            } catch (error) {
-                console.error('Error creating processing session from files:', error);
-                this.errorMessage = `Failed to create processing session: ${error.response?.data?.detail || error.message}`;
-            }
-        },
-
-        async addToExistingSession() {
-            try {
-                if (!this.selectedExistingSession) {
-                    this.errorMessage = 'Please select a session';
-                    return;
-                }
-                
-                if (this.selectedFiles.length === 0) {
-                    this.errorMessage = 'No files selected';
-                    return;
-                }
-                
-                // Capture values BEFORE clearing selection
-                const selectedCount = this.selectedFiles.length;
-                const sessionName = this.existingSessions.find(s => s.id === this.selectedExistingSession)?.name || 'session';
-                
-                // Convert file IDs to integers and send as direct array (not wrapped in object)
-                const fileIds = this.selectedFiles.map(id => parseInt(id, 10));
-                
-                console.log('Sending file IDs:', fileIds);
-                
-                // Send file IDs directly as array, not wrapped in object
-                await axios.post(`/api/processing-sessions/${this.selectedExistingSession}/add-files`, fileIds, {
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
-                });
-                
-                this.showAddToExistingSessionModal = false;
-                this.clearSelection();
-                this.errorMessage = '';
-                
-                // Use captured values for correct message
-                alert(`${selectedCount} files added to "${sessionName}" successfully!`);
-                
-                // Refresh processing sessions if on that tab
-                if (this.activeTab === 'processing-sessions') {
-                    this.loadProcessingSessions();
-                }
-                
-            } catch (error) {
-                console.error('Error adding files to existing session:', error);
-                
-                // Provide more detailed error message
-                let errorMsg = 'Failed to add files to session';
-                if (error.response?.data?.detail) {
-                    errorMsg += `: ${error.response.data.detail}`;
-                } else if (error.message) {
-                    errorMsg += `: ${error.message}`;
-                }
-                
-                this.errorMessage = errorMsg;
-            }
-        },
-
-        // Calibration Workflow Methods
-        async findCalibrationFiles(sessionId) {
-            try {
-                // Close the session details modal if it's open
-                if (this.showSessionDetailsModal) {
-                    this.showSessionDetailsModal = false;
-                }
-                
-                this.calibrationLoading = true;
-                this.calibrationMatches = {};
-                this.selectedCalibrationTypes = {};
-                
-                // Get session details
-                const sessionResponse = await axios.get(`/api/processing-sessions/${sessionId}`);
-                this.currentCalibrationSession = sessionResponse.data;
-                
-                // Find calibration matches
-                const response = await axios.get(`/api/processing-sessions/${sessionId}/calibration-matches`);
-                this.calibrationMatches = response.data;
-                
-                // Initialize selection state - default all types to selected
-                Object.keys(this.calibrationMatches).forEach(frameType => {
-                    this.selectedCalibrationTypes[frameType] = true;
-                });
-                
-                this.showCalibrationModal = true;
-                
-            } catch (error) {
-                console.error('Error finding calibration files:', error);
-                this.errorMessage = `Failed to find calibration files: ${error.response?.data?.detail || error.message}`;
-            } finally {
-                this.calibrationLoading = false;
-            }
-        },
-        
-        async addSelectedCalibrationFiles() {
-            try {
-                if (this.getSelectedCalibrationCount() === 0) {
-                    // Close modal and show error popup
-                    this.closeCalibrationModal();
-                    alert('No calibration files selected');
-                    return;
-                }
-                
-                // Clear any previous errors
-                this.errorMessage = '';
-                
-                // Prepare selected matches for API
-                const selectedMatches = {};
-                Object.keys(this.selectedCalibrationTypes).forEach(frameType => {
-                    if (this.selectedCalibrationTypes[frameType]) {
-                        selectedMatches[frameType] = this.calibrationMatches[frameType];
-                    }
-                });
-                
-                // Collect all file IDs from selected matches
-                const allFileIds = [];
-                Object.values(selectedMatches).forEach(matches => {
-                    matches.forEach(match => {
-                        allFileIds.push(...match.file_ids);
-                    });
-                });
-                
-                if (allFileIds.length === 0) {
-                    // Close modal and show error popup
-                    this.closeCalibrationModal();
-                    alert('No files to add');
-                    return;
-                }
-                
-                // CAPTURE VALUES BEFORE MAKING API CALL (before modal can be closed)
-                const sessionName = this.currentCalibrationSession.name;
-                const sessionId = this.currentCalibrationSession.id;
-                const fileCount = allFileIds.length;
-                const selectedTypes = Object.keys(selectedMatches).join(', ');
-                
-                // Add files to session using existing API
-                await axios.post(`/api/processing-sessions/${sessionId}/add-files`, allFileIds);
-                
-                // Close modal BEFORE showing success message
-                this.closeCalibrationModal();
-                
-                // Show success message using captured values
-                alert(`Successfully added ${fileCount} calibration files (${selectedTypes}) to session "${sessionName}"`);
-                
-                // Refresh processing sessions if on that tab
-                if (this.activeTab === 'processing-sessions') {
-                    this.loadProcessingSessions();
-                }
-                
-            } catch (error) {
-                console.error('Error adding calibration files:', error);
-                
-                // Extract the specific error message from the response
-                let errorMessage = 'Failed to add calibration files';
-                if (error.response?.data?.detail) {
-                    errorMessage = error.response.data.detail;
-                } else if (error.message) {
-                    errorMessage = error.message;
-                }
-                
-                // Close modal and show error as popup alert (like success case)
-                this.closeCalibrationModal();
-                alert(`Error: ${errorMessage}`);
-                
-                // Refresh processing sessions to show current state
-                if (this.activeTab === 'processing-sessions') {
-                    this.loadProcessingSessions();
-                }
-            }
-        },
-
-        closeCalibrationModal() {
-            this.showCalibrationModal = false;
-            this.calibrationLoading = false;
-            this.calibrationMatches = {};
-            this.selectedCalibrationTypes = {};
-            this.currentCalibrationSession = null;
-            this.errorMessage = '';
-        },
-
-        // Helper methods for calibration modal
-        getTotalFilesForFrameType(matches) {
-            return matches.reduce((total, match) => total + match.file_count, 0);
-        },
-
-        getSelectedCalibrationCount() {
-            let total = 0;
-            Object.keys(this.selectedCalibrationTypes).forEach(frameType => {
-                if (this.selectedCalibrationTypes[frameType]) {
-                    total += this.getTotalFilesForFrameType(this.calibrationMatches[frameType]);
-                }
-            });
-            return total;
-        },
-
-        async viewProcessingSession(sessionId) {
-            try {
-                this.sessionDetailsLoading = true;
-                this.currentSessionDetails = null;
-                this.showSessionDetailsModal = true;
-                
-                // Get detailed session information
-                const response = await axios.get(`/api/processing-sessions/${sessionId}`);
-                this.currentSessionDetails = response.data;
-                
-            } catch (error) {
-                console.error('Error loading session details:', error);
-                this.errorMessage = `Failed to load session details: ${error.response?.data?.detail || error.message}`;
-                this.showSessionDetailsModal = false;
-            } finally {
-                this.sessionDetailsLoading = false;
-            }
-        },
-
-        closeSessionDetailsModal() {
-            this.showSessionDetailsModal = false;
-            this.currentSessionDetails = null;
-            this.sessionDetailsLoading = false;
-            this.errorMessage = '';
-        },
-        
-        // API Methods
-        async loadStats() {
-            try {
-                this.loading = true;
-                const response = await axios.get('/api/stats');
-                this.stats = response.data;
-            } catch (error) {
-                console.error('Error loading stats:', error);
-                this.errorMessage = 'Failed to load statistics: ' + error.message;
-            } finally {
-                this.loading = false;
-            }
-        },
-        
-        async loadFilterOptions() {
-            try {
-                const response = await axios.get('/api/filter-options');
-                this.filterOptions = response.data;
-            } catch (error) {
-                console.error('Error loading filter options:', error);
-                this.errorMessage = 'Failed to load filter options';
-            }
-        },
-        
-        async loadFiles() {
-            try {
-                this.loading = true;
-                this.errorMessage = '';
-                
-                const params = new URLSearchParams({
-                    page: this.filePagination.page,
-                    limit: this.filePagination.limit,
-                    sort_by: this.fileSorting.sort_by,
-                    sort_order: this.fileSorting.sort_order
-                });
-                
-                // Add filters
-                for (const [key, values] of Object.entries(this.fileFilters)) {
-                    if (values.length > 0) {
-                        params.append(key, values.join(','));
-                    }
-                }
-                
-                for (const [key, value] of Object.entries(this.searchFilters)) {
-                    if (value) {
-                        params.append(key, value);
-                    }
-                }
-                
-                const response = await axios.get(`/api/files?${params}`);
-                this.files = response.data.files;
-                this.filePagination.total = response.data.pagination.total;
-                this.filePagination.pages = response.data.pagination.pages;
-                
-                // Don't clear selection when navigating pages
-                // Selection is maintained across page changes
-                
-            } catch (error) {
-                console.error('Error loading files:', error);
-                this.errorMessage = 'Failed to load files: ' + error.message;
-            } finally {
-                this.loading = false;
-            }
-        },
-        
-        async loadImagingSessions() {
-            try {
-                this.loading = true;
-                
-                const params = new URLSearchParams({
-                    page: this.imagingSessionPagination.page,
-                    limit: this.imagingSessionPagination.limit
-                });
-                
-                // Add filters
-                for (const [key, values] of Object.entries(this.imagingSessionFilters)) {
-                    if (Array.isArray(values) && values.length > 0) {
-                        params.append(key, values.join(','));
-                    } else if (!Array.isArray(values) && values) {
-                        params.append(key, values);
-                    }
-                }
-                
-                const response = await axios.get(`/api/imaging-sessions?${params}`);
-                this.imagingSessions = response.data.sessions;
-                this.imagingSessionPagination.total = response.data.pagination.total;
-                this.imagingSessionPagination.pages = response.data.pagination.pages;
-                
-            } catch (error) {
-                console.error('Error loading imaging sessions:', error);
-                this.errorMessage = 'Failed to load imaging sessions';
-            } finally {
-                this.loading = false;
-            }
-        },
-        
-        async loadProcessingSessions() {
-            try {
-                this.loading = true;
-                
-                const params = new URLSearchParams({
-                    page: this.processingSessionPagination.page,
-                    limit: this.processingSessionPagination.limit
-                });
-                
-                if (this.processingSessionStatusFilter) {
-                    params.append('status', this.processingSessionStatusFilter);
-                }
-                
-                const response = await axios.get(`/api/processing-sessions?${params}`);
-                this.processingSessions = response.data.sessions;
-                this.processingSessionPagination.total = response.data.pagination.total;
-                this.processingSessionPagination.pages = response.data.pagination.pages;
-                
-            } catch (error) {
-                console.error('Error loading processing sessions:', error);
-                this.errorMessage = 'Failed to load processing sessions';
-            } finally {
-                this.loading = false;
-            }
-        },
-        
+        // ===================
         // Filter Methods
+        // ===================
+        
         toggleFilterOption(filterName, option) {
             const index = this.fileFilters[filterName].indexOf(option);
             if (index > -1) {
@@ -684,10 +750,7 @@ createApp({
                 this.fileFilters[filterName].push(option);
             }
             this.filePagination.page = 1;
-            
-            // Clear selection when filters change
             this.clearSelection();
-            
             this.loadFiles();
         },
         
@@ -702,7 +765,6 @@ createApp({
             return `${count} selected`;
         },
         
-        // Imaging Session Filter Methods
         toggleImagingSessionFilter(filterName) {
             this.activeImagingSessionFilter = this.activeImagingSessionFilter === filterName ? null : filterName;
         },
@@ -725,7 +787,6 @@ createApp({
             return `${count} selected`;
         },
         
-        // Filter utility methods
         filterObjectOptions() {
             // This triggers the computed property to update
         },
@@ -740,10 +801,7 @@ createApp({
             this.objectSearchText = '';
             this.activeFilter = null;
             this.filePagination.page = 1;
-            
-            // Clear selection when filters reset
             this.clearSelection();
-            
             this.loadFiles();
         },
         
@@ -775,18 +833,25 @@ createApp({
             return summary;
         },
         
+        // ===================
         // Sorting Methods
+        // ===================
+        
         sortBy(column) {
             if (this.fileSorting.sort_by === column) {
                 this.fileSorting.sort_order = this.fileSorting.sort_order === 'asc' ? 'desc' : 'asc';
             } else {
                 this.fileSorting.sort_by = column;
-                this.fileSorting.sort_order = 'desc';
+                this.fileSorting.sort_order = 'asc';
             }
+            this.filePagination.page = 1;
             this.loadFiles();
         },
         
+        // ===================
         // Navigation Methods
+        // ===================
+        
         navigateToSession(sessionId) {
             if (sessionId && sessionId !== 'N/A') {
                 this.activeTab = 'imaging-sessions';
@@ -795,50 +860,10 @@ createApp({
             }
         },
         
-        // Pagination Methods
-        prevFilePage() {
-            if (this.filePagination.page > 1) {
-                this.filePagination.page--;
-                this.loadFiles();
-            }
-        },
+        // ===================
+        // Modal Methods
+        // ===================
         
-        nextFilePage() {
-            if (this.filePagination.page < this.filePagination.pages) {
-                this.filePagination.page++;
-                this.loadFiles();
-            }
-        },
-        
-        prevImagingSessionPage() {
-            if (this.imagingSessionPagination.page > 1) {
-                this.imagingSessionPagination.page--;
-                this.loadImagingSessions();
-            }
-        },
-        
-        nextImagingSessionPage() {
-            if (this.imagingSessionPagination.page < this.imagingSessionPagination.pages) {
-                this.imagingSessionPagination.page++;
-                this.loadImagingSessions();
-            }
-        },
-        
-        prevProcessingSessionPage() {
-            if (this.processingSessionPagination.page > 1) {
-                this.processingSessionPagination.page--;
-                this.loadProcessingSessions();
-            }
-        },
-        
-        nextProcessingSessionPage() {
-            if (this.processingSessionPagination.page < this.processingSessionPagination.pages) {
-                this.processingSessionPagination.page++;
-                this.loadProcessingSessions();
-            }
-        },
-        
-        // Processing Session Management
         showCreateProcessingSessionModal() {
             this.newProcessingSession = {
                 name: '',
@@ -848,107 +873,68 @@ createApp({
             this.showCreateModal = true;
         },
         
-        async createProcessingSession() {
-            try {
-                if (!this.newProcessingSession.name.trim()) {
-                    this.errorMessage = 'Session name is required';
-                    return;
-                }
-                
-                if (!this.newProcessingSession.fileIds.trim()) {
-                    this.errorMessage = 'File IDs are required';
-                    return;
-                }
-                
-                const fileIds = this.newProcessingSession.fileIds
-                    .split(',')
-                    .map(id => parseInt(id.trim()))
-                    .filter(id => !isNaN(id));
-                
-                if (fileIds.length === 0) {
-                    this.errorMessage = 'No valid file IDs found';
-                    return;
-                }
-                
-                const payload = {
-                    name: this.newProcessingSession.name.trim(),
-                    file_ids: fileIds,
-                    notes: this.newProcessingSession.notes.trim() || null
-                };
-                
-                await axios.post('/api/processing-sessions', payload);
-                
-                this.showCreateModal = false;
-                this.loadProcessingSessions();
-                this.errorMessage = '';
-                alert(`Processing session "${this.newProcessingSession.name}" created successfully with ${fileIds.length} files!`);
-                
-            } catch (error) {
-                console.error('Error creating processing session:', error);
-                this.errorMessage = `Failed to create processing session: ${error.response?.data?.detail || error.message}`;
+        addToNewSession() {
+            if (this.selectedFiles.length === 0) {
+                this.errorMessage = 'No files selected';
+                return;
             }
+            
+            this.newSessionFromFiles = {
+                name: '',
+                notes: ''
+            };
+            this.showAddToNewModal = true;
         },
         
-        async updateProcessingSessionStatus(sessionId) {
-            try {
-                const statuses = ['not_started', 'in_progress', 'complete'];
-                const statusLabels = ['Not Started', 'In Progress', 'Complete'];
-                
-                const choice = prompt(
-                    'Select new status:\n\n' +
-                    '1. Not Started\n' + 
-                    '2. In Progress\n' + 
-                    '3. Complete\n\n' +
-                    'Enter number (1-3):'
-                );
-                
-                if (!choice) return;
-                
-                const index = parseInt(choice) - 1;
-                if (index < 0 || index >= statuses.length) {
-                    this.errorMessage = 'Invalid status selection';
-                    return;
-                }
-                
-                const newStatus = statuses[index];
-                const notes = prompt('Add notes (optional):');
-                
-                const payload = {
-                    status: newStatus,
-                    notes: notes || null
-                };
-                
-                await axios.put(`/api/processing-sessions/${sessionId}/status`, payload);
-                
-                this.loadProcessingSessions();
-                alert(`Status updated to: ${statusLabels[index]}`);
-                
-            } catch (error) {
-                console.error('Error updating processing session status:', error);
-                this.errorMessage = `Failed to update status: ${error.response?.data?.detail || error.message}`;
+        async showAddToExistingModal() {
+            if (this.selectedFiles.length === 0) {
+                this.errorMessage = 'No files selected';
+                return;
             }
+            
+            await this.loadExistingSessions();
+            this.selectedExistingSession = '';
+            this.showAddToExistingSessionModal = true;
         },
         
-        async deleteProcessingSession(sessionId) {
-            try {
-                if (!confirm('Are you sure you want to delete this processing session? This action cannot be undone.')) {
-                    return;
-                }
-                
-                const removeFiles = confirm('Also remove staged files from disk?');
-                
-                await axios.delete(`/api/processing-sessions/${sessionId}?remove_files=${removeFiles}`);
-                
-                this.loadProcessingSessions();
-                alert('Processing session deleted successfully');
-                
-            } catch (error) {
-                console.error('Error deleting processing session:', error);
-                this.errorMessage = `Failed to delete processing session: ${error.response?.data?.detail || error.message}`;
-            }
+        closeCalibrationModal() {
+            this.showCalibrationModal = false;
+            this.calibrationLoading = false;
+            this.calibrationMatches = {};
+            this.selectedCalibrationTypes = {};
+            this.currentCalibrationSession = null;
+            this.errorMessage = '';
         },
         
+        closeSessionDetailsModal() {
+            this.showSessionDetailsModal = false;
+            this.currentSessionDetails = null;
+            this.sessionDetailsLoading = false;
+            this.errorMessage = '';
+        },
+        
+        // ===================
+        // Helper Methods
+        // ===================
+        
+        getTotalFilesForFrameType(matches) {
+            return matches.reduce((total, match) => total + match.file_count, 0);
+        },
+        
+        getSelectedCalibrationCount() {
+            let total = 0;
+            Object.keys(this.selectedCalibrationTypes).forEach(frameType => {
+                if (this.selectedCalibrationTypes[frameType]) {
+                    total += this.getTotalFilesForFrameType(this.calibrationMatches[frameType]);
+                }
+            });
+            return total;
+        },
+        
+        // ===================
         // Utility Methods
+        // ===================
+        
         getFrameTypeClass(frameType) {
             const classes = {
                 'LIGHT': 'bg-blue-100 text-blue-800',
@@ -985,16 +971,94 @@ createApp({
         formatDateTime(dateString) {
             if (!dateString) return 'N/A';
             return new Date(dateString).toLocaleString();
+        },
+        
+        // ===================
+        // Operations Methods
+        // ===================
+        
+        async startOperation(operationType) {
+            try {
+                this.loading = true;
+                this.errorMessage = '';
+                
+                let response;
+                if (operationType === 'scan') {
+                    response = await ApiService.operations.startScan();
+                } else if (operationType === 'validate') {
+                    response = await ApiService.operations.startValidate();
+                } else if (operationType === 'migrate') {
+                    response = await ApiService.operations.startMigrate();
+                }
+                
+                this.activeOperation = {
+                    type: operationType,
+                    taskId: response.data.task_id,
+                    message: response.data.message
+                };
+                
+                // Start polling for status
+                this.pollOperationStatus();
+                
+            } catch (error) {
+                console.error('Error starting operation:', error);
+                this.errorMessage = `Failed to start ${operationType}: ${error.message}`;
+            } finally {
+                this.loading = false;
+            }
+        },
+        
+        async checkOperationStatus() {
+            if (!this.activeOperation) return;
+            
+            try {
+                const response = await ApiService.operations.getStatus(this.activeOperation.taskId);
+                this.operationStatus = response.data;
+                
+                // If operation is complete or errored, stop polling
+                if (this.operationStatus.status === 'completed' || this.operationStatus.status === 'error') {
+                    this.stopOperationPolling();
+                    
+                    // Refresh stats on completion
+                    if (this.operationStatus.status === 'completed') {
+                        await this.loadStats();
+                    }
+                }
+                
+            } catch (error) {
+                console.error('Error checking operation status:', error);
+                this.stopOperationPolling();
+            }
+        },
+        
+        pollOperationStatus() {
+            this.operationPolling = setInterval(() => {
+                this.checkOperationStatus();
+            }, 1000); // Poll every second
+        },
+        
+        stopOperationPolling() {
+            if (this.operationPolling) {
+                clearInterval(this.operationPolling);
+                this.operationPolling = null;
+            }
+        },
+        
+        clearOperation() {
+            this.stopOperationPolling();
+            this.activeOperation = null;
+            this.operationStatus = null;
         }
     },
     
+    // ===================
     // Lifecycle Methods
+    // ===================
+    
     async mounted() {
-        // Load initial data
         await this.loadStats();
         await this.loadFilterOptions();
         
-        // Load data based on active tab
         if (this.activeTab === 'files') {
             await this.loadFiles();
         } else if (this.activeTab === 'imaging-sessions') {
@@ -1003,7 +1067,6 @@ createApp({
             await this.loadProcessingSessions();
         }
         
-        // Close selection dropdown when clicking elsewhere
         document.addEventListener('click', (e) => {
             if (!e.target.closest('.relative')) {
                 this.showSelectionOptions = false;
@@ -1012,7 +1075,6 @@ createApp({
 
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
-                // Close any open modals
                 this.showCreateModal = false;
                 this.showAddToNewModal = false;
                 this.showAddToExistingSessionModal = false;
@@ -1023,9 +1085,8 @@ createApp({
     },
     
     watch: {
-        // Watch for tab changes and load appropriate data
         activeTab(newTab) {
-            this.errorMessage = ''; // Clear any errors when switching tabs
+            this.errorMessage = '';
             
             if (newTab === 'files' && this.files.length === 0) {
                 this.loadFiles();
@@ -1036,17 +1097,15 @@ createApp({
             }
         },
         
-        // Watch for search filter changes and reload files
         searchFilters: {
             handler() {
                 this.filePagination.page = 1;
-                this.clearSelection(); // Clear selection when search changes
+                this.clearSelection();
                 this.loadFiles();
             },
             deep: true
         },
         
-        // Watch for processing session status filter changes
         processingSessionStatusFilter() {
             this.processingSessionPagination.page = 1;
             this.loadProcessingSessions();
