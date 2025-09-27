@@ -1,0 +1,119 @@
+/* FITS Cataloger - Card Styles */
+
+/* Base Cards */
+.card {
+    @apply bg-white rounded-lg shadow;
+}
+
+.card-header {
+    @apply p-4 border-b border-gray-200;
+}
+
+.card-title {
+    @apply text-lg font-semibold text-gray-900;
+}
+
+.card-subtitle {
+    @apply text-sm text-gray-600;
+}
+
+.card-body {
+    @apply p-4;
+}
+
+.card-footer {
+    @apply p-4 border-t border-gray-200 bg-gray-50;
+}
+
+/* Stats Card */
+.stats-card {
+    @apply bg-white p-6 rounded-lg shadow;
+}
+
+.stats-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease-in-out;
+}
+
+/* Session Cards */
+.session-card {
+    @apply border border-gray-200 rounded-lg p-4 hover:bg-gray-50;
+}
+
+.session-link {
+    @apply text-blue-600 hover:text-blue-800 cursor-pointer underline font-mono text-xs;
+}
+
+/* Processing Session Cards */
+.processing-session-card {
+    @apply border border-gray-200 rounded-lg p-6 hover:bg-gray-50 transition-colors;
+}
+
+.processing-session-card:hover {
+    @apply shadow-md;
+}
+
+.processing-session-card h3 {
+    @apply text-lg font-semibold text-gray-900;
+}
+
+.processing-session-list {
+    @apply space-y-4;
+}
+
+.processing-session-header {
+    @apply flex items-start justify-between;
+}
+
+.processing-session-info {
+    @apply flex-grow;
+}
+
+.processing-session-title {
+    @apply flex items-center space-x-3 mb-2;
+}
+
+.processing-session-meta {
+    @apply text-sm text-gray-600 space-y-1;
+}
+
+.processing-session-actions {
+    @apply flex flex-col space-y-2 ml-4;
+}
+
+.processing-session-notes {
+    @apply mt-3 p-3 bg-gray-50 rounded-md text-sm text-gray-700;
+}
+
+/* Badges */
+.frame-type-badge {
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0.25rem 0.5rem;
+    border-radius: 9999px;
+}
+
+.processing-status-badge {
+    @apply px-2 py-1 text-xs rounded-full font-medium;
+}
+
+.file-count-badge {
+    @apply inline-flex items-center px-2 py-1 rounded-full text-xs font-medium;
+}
+
+.file-count-light {
+    @apply bg-blue-100 text-blue-800;
+}
+
+.file-count-dark {
+    @apply bg-gray-100 text-gray-800;
+}
+
+.file-count-flat {
+    @apply bg-yellow-100 text-yellow-800;
+}
+
+.file-count-bias {
+    @apply bg-purple-100 text-purple-800;
+}

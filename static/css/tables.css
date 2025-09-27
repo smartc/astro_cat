@@ -1,0 +1,102 @@
+/* FITS Cataloger - Table Styles */
+
+.table-container {
+    overflow-x: auto;
+    overflow-y: visible;
+    width: 100%;
+    max-width: 100%;
+}
+
+.table-container table {
+    min-width: 900px;
+}
+
+.header-cell {
+    position: relative;
+    padding: 0.5rem;
+    vertical-align: top;
+    border-right: 1px solid #e5e7eb;
+    min-width: 80px;
+}
+
+.header-cell:last-child {
+    border-right: none;
+}
+
+.sort-header {
+    cursor: pointer;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid #e5e7eb;
+    margin-bottom: 0.25rem;
+}
+
+.sort-header:hover {
+    background-color: #f3f4f6;
+}
+
+.header-title {
+    @apply flex items-center justify-between text-xs font-medium text-gray-500 uppercase tracking-wider;
+}
+
+.table-cell {
+    @apply px-4 py-4 whitespace-nowrap text-sm text-gray-900;
+}
+
+/* Filename Cell */
+.filename-cell {
+    max-width: 250px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    position: relative;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.filename-tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    background: black;
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    z-index: 60;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    margin-bottom: 0.25rem;
+}
+
+.filename-cell:hover .filename-tooltip {
+    opacity: 1;
+}
+
+/* Column Sizing */
+.exposure-col {
+    width: 80px;
+}
+
+.date-col {
+    width: 100px;
+}
+
+.narrow-input {
+    width: 100%;
+    font-size: 0.7rem;
+    padding: 0.125rem 0.25rem;
+}
+
+/* Pagination */
+.pagination-container {
+    @apply bg-gray-50 px-4 py-3 border-t border-gray-200 sm:px-6;
+}
+
+.pagination-button {
+    @apply px-3 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100 disabled:text-gray-400;
+}
+
+.pagination-button:not(:disabled):hover {
+    @apply bg-gray-50;
+}

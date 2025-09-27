@@ -1,0 +1,78 @@
+/* FITS Cataloger - Modal Styles */
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    max-width: 500px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    @apply text-lg font-bold mb-4 text-gray-900;
+}
+
+.modal-body {
+    @apply space-y-4;
+}
+
+.modal-footer {
+    @apply flex space-x-3 mt-6;
+}
+
+.modal-backdrop {
+    backdrop-filter: blur(2px);
+}
+
+/* Modal Scrollbar */
+.modal-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.modal-content::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 3px;
+}
+
+.modal-content::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+
+.modal-content::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* Calibration Modal */
+.calibration-match-card {
+    transition: background-color 0.2s ease;
+}
+
+.calibration-match-card:hover {
+    background-color: #f8fafc;
+}
+
+.calibration-checkbox:checked {
+    background-color: #3b82f6;
+    border-color: #3b82f6;
+}
+
+.calibration-checkbox:focus {
+    ring-color: #3b82f6;
+    ring-opacity: 0.5;
+}

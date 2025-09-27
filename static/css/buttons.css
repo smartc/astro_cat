@@ -1,0 +1,63 @@
+/* FITS Cataloger - Button Styles */
+
+/* Base Button */
+.btn {
+    @apply px-4 py-2 rounded font-medium transition cursor-pointer;
+}
+
+/* Button Variants */
+.btn-blue {
+    @apply bg-blue-500 hover:bg-blue-600 text-white;
+}
+
+.btn-red {
+    @apply bg-red-500 hover:bg-red-600 text-white;
+}
+
+.btn-green {
+    @apply bg-green-500 hover:bg-green-600 text-white;
+}
+
+.btn-purple {
+    background-color: #7c3aed;
+    color: white;
+    border: 1px solid #7c3aed;
+}
+
+.btn-purple:hover {
+    background-color: #6d28d9;
+    border-color: #6d28d9;
+}
+
+.btn-purple:disabled {
+    background-color: #a78bfa;
+    border-color: #a78bfa;
+    cursor: not-allowed;
+}
+
+.btn-yellow {
+    background-color: #f59e0b;
+    color: white;
+    border: 1px solid #f59e0b;
+}
+
+.btn-yellow:hover {
+    background-color: #d97706;
+    border-color: #d97706;
+}
+
+.btn-gray {
+    background-color: #6b7280;
+    color: white;
+    border: 1px solid #6b7280;
+}
+
+.btn-gray:hover {
+    background-color: #4b5563;
+    border-color: #4b5563;
+}
+
+/* Operation Buttons */
+.operation-button {
+    @apply text-white py-4 px-8 rounded-lg transition font-semibold text-lg;
+}
