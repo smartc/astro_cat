@@ -907,6 +907,59 @@ async def run_validation_operation(task_id: str):
     await loop.run_in_executor(executor, _run_validation_sync, task_id)
 
 
+def _run_migration_sync(task_id: str):
+    """Synchronous migration wrapper."""
+    if task_id in _processing_tasks:
+        return
+    
+    _processing_tasks.add(task_id)
+    
+    try:
+        background_tasks_status[task_id]["status"] = "running"
+        background_tasks_status[task_id]["message"] = "Migrating files..."
+        
+        logger.info(f"Starting migration operation {task_id}")
+        
+        # Use FileOrganizer to migrate files
+        file_organizer = FileOrganizer(config, db_service)
+        stats = file_organizer.migrate_files(limit=None, auto_cleanup=True)
+        
+        background_tasks_status[task_id] = {
+            "status": "completed",
+            "message": f"Migration completed: {stats['moved']} files moved",
+            "progress": 100,
+            "started_at": background_tasks_status[task_id]["started_at"],
+            "completed_at": datetime.now(),
+            "results": {
+                "moved": stats['moved'],
+                "processed": stats['processed'],
+                "errors": stats['errors'],
+                "skipped": stats['skipped'],
+                "duplicates_moved": stats['duplicates_moved'],
+                "bad_files_moved": stats['bad_files_moved'],
+                "left_for_review": stats['left_for_review']
+            }
+        }
+        
+        logger.info(f"Migration operation {task_id} completed: {stats['moved']} files moved")
+        
+    except Exception as e:
+        background_tasks_status[task_id] = {
+            "status": "error",
+            "message": f"Migration failed: {str(e)}",
+            "completed_at": datetime.now()
+        }
+        logger.error(f"Background migration failed: {e}")
+    finally:
+        _processing_tasks.discard(task_id)
+
+
+async def run_migration_operation(task_id: str):
+    """Async wrapper that runs sync migration in executor."""
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(executor, _run_migration_sync, task_id)
+
+
 @app.post("/api/operations/scan")
 async def start_scan(background_tasks: BackgroundTasks):
     task_id = f"scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -943,9 +996,18 @@ async def start_validation(background_tasks: BackgroundTasks):
 async def start_migration(background_tasks: BackgroundTasks):
     """Start a file migration operation."""
     task_id = f"migrate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    # TODO: Add migration background task implementation
-    logger.info(f"Migration operation {task_id} requested (not yet implemented)")
-    return {"task_id": task_id, "message": "Migration started (placeholder)"}
+    
+    # Initialize status BEFORE background task starts
+    background_tasks_status[task_id] = {
+        "status": "pending",
+        "message": "Migration queued...",
+        "progress": 0,
+        "started_at": datetime.now()
+    }
+    
+    background_tasks.add_task(run_migration_operation, task_id)
+    return {"task_id": task_id, "message": "Migration started"}
+
 
 @app.get("/api/operations/status/{task_id}")
 async def get_operation_status(task_id: str):
@@ -953,7 +1015,10 @@ async def get_operation_status(task_id: str):
     if task_id not in background_tasks_status:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    return background_tasks_status[task_id]
+    # Include task_id in the response
+    status_data = background_tasks_status[task_id].copy()
+    status_data["task_id"] = task_id
+    return status_data
 
 # ============================================================================
 # WEB INTERFACE ROUTES (unchanged)
