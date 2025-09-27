@@ -3,6 +3,7 @@
 import logging
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 from tqdm import tqdm
@@ -20,6 +21,7 @@ class ValidationResult:
     migration_ready: bool
     notes: List[str]
     breakdown: Dict[str, float]
+    file_exists: bool = True
 
 
 class FitsValidator:
@@ -43,7 +45,7 @@ class FitsValidator:
         if self._cameras is None:
             cameras = self.db_service.get_cameras()
             self._cameras = {cam.name for cam in cameras}
-            self._camera_types = {cam.name: getattr(cam, 'rgb', True) for cam in cameras}  # Default to OSC if not specified
+            self._camera_types = {cam.name: getattr(cam, 'rgb', True) for cam in cameras}
             
         if self._telescopes is None:
             telescopes = self.db_service.get_telescopes()
@@ -51,8 +53,12 @@ class FitsValidator:
             
         if self._filter_mappings is None:
             mappings = self.db_service.get_filter_mappings()
-            # Get all valid filter names (both raw and standard)
             self._filter_mappings = set(mappings.keys()) | set(mappings.values())
+    
+    def _check_file_exists(self, db_record: FitsFile) -> bool:
+        """Check if the physical file exists on disk."""
+        file_path = Path(db_record.folder) / db_record.file
+        return file_path.exists()
     
     def _score_equipment(self, equipment_name: str, equipment_set: set, full_points: float) -> Tuple[float, str]:
         """Score equipment field based on standardization."""
@@ -217,7 +223,7 @@ class FitsValidator:
         breakdown['telescope'] = tel_score
         notes.append(f"Telescope: {tel_note}")
         
-        # filter (25 points)
+        # filter (25 points) - critical for flats
         filter_name = record.get('filter')
         filt_score, filt_note = self._score_filter(filter_name, camera, 25.0)
         score += filt_score
@@ -280,8 +286,6 @@ class FitsValidator:
         score += exp_score
         breakdown['exposure'] = exp_score
         
-        # Note: No telescope or object requirements for DARK frames
-        
         migration_ready = score >= self.AUTO_MIGRATE_THRESHOLD
         
         return ValidationResult(
@@ -328,6 +332,8 @@ class FitsValidator:
     
     def validate_record(self, record: Dict) -> ValidationResult:
         """Validate a single FITS file record."""
+        self._load_equipment_data()
+        
         frame_type = record.get('frame_type', '').upper()
         
         if frame_type == 'LIGHT':
@@ -339,7 +345,6 @@ class FitsValidator:
         elif frame_type == 'BIAS':
             return self._validate_bias_frame(record)
         else:
-            # Unknown frame type gets minimal score
             return ValidationResult(
                 score=0.0,
                 max_possible=100,
@@ -348,11 +353,20 @@ class FitsValidator:
                 breakdown={'frame_type': 0.0}
             )
     
-    def validate_all_files(self, limit: Optional[int] = None, progress_callback=None) -> Dict[str, int]:
-        """Validate all FITS files in the database."""
+    def validate_all_files(self, limit: Optional[int] = None, 
+                          check_files: bool = True,
+                          progress_callback=None) -> Dict[str, int]:
+        """
+        Validate all FITS files in the database.
+        
+        Args:
+            limit: Maximum number of files to validate
+            check_files: If True, also check if physical files exist
+            progress_callback: Optional callback for progress updates
+        """
         import uuid
         run_id = str(uuid.uuid4())[:8]
-        logger.info(f"VALIDATION START - Run ID: {run_id}")
+        logger.info(f"VALIDATION START - Run ID: {run_id}, Check files: {check_files}")
 
         self._load_equipment_data()
         
@@ -362,6 +376,7 @@ class FitsValidator:
             'auto_migrate': 0,
             'needs_review': 0,
             'manual_only': 0,
+            'missing_files': 0,
             'updated': 0,
             'errors': 0
         }
@@ -379,6 +394,15 @@ class FitsValidator:
             with tqdm(total=len(records), desc="Validating files") as pbar:
                 for i, db_record in enumerate(records):
                     try:
+                        # Check if file exists on disk
+                        file_exists = True
+                        if check_files:
+                            file_exists = self._check_file_exists(db_record)
+                            if not file_exists:
+                                stats['missing_files'] += 1
+                                db_record.file_not_found = True
+                                logger.warning(f"File not found: {db_record.folder}/{db_record.file}")
+                        
                         # Convert database record to dict
                         record_dict = {
                             'object': db_record.object,
@@ -387,22 +411,23 @@ class FitsValidator:
                             'telescope': db_record.telescope,
                             'filter': db_record.filter,
                             'exposure': db_record.exposure,
+                            'frame_type': db_record.frame_type,
                             'focal_length': db_record.focal_length,
                             'ra': db_record.ra,
-                            'dec': db_record.dec,
-                            'frame_type': db_record.frame_type
+                            'dec': db_record.dec
                         }
                         
-                        # Validate the record
+                        # Validate metadata
                         result = self.validate_record(record_dict)
+                        result.file_exists = file_exists
                         
                         # Update database record
                         db_record.validation_score = result.score
-                        db_record.migration_ready = result.migration_ready
-                        db_record.validation_notes = "; ".join(result.notes[:5])
+                        db_record.migration_ready = result.migration_ready and file_exists
+                        db_record.validation_notes = "; ".join(result.notes) if result.notes else None
                         
                         # Update stats
-                        if result.score >= self.AUTO_MIGRATE_THRESHOLD:
+                        if result.score >= self.AUTO_MIGRATE_THRESHOLD and file_exists:
                             stats['auto_migrate'] += 1
                         elif result.score >= self.REVIEW_THRESHOLD:
                             stats['needs_review'] += 1
@@ -411,32 +436,71 @@ class FitsValidator:
                         
                         stats['updated'] += 1
                         
-                        # Update progress callback every 100 files
-                        if progress_callback and (i % 100 == 0 or i == len(records) - 1):
+                        # Progress callback
+                        if progress_callback and i % 100 == 0:
                             progress = int((i + 1) / len(records) * 100)
                             progress_callback(progress, stats)
                         
-                        # Commit every 100 records
-                        if stats['updated'] % 100 == 0:
-                            session.commit()
-                            pbar.set_postfix({
-                                'auto': stats['auto_migrate'],
-                                'review': stats['needs_review'],
-                                'manual': stats['manual_only']
-                            })
-                    
                     except Exception as e:
-                        logger.error(f"Error validating record ID {db_record.id}: {e}")
+                        logger.error(f"Error validating file {db_record.file}: {e}")
                         stats['errors'] += 1
                     
                     pbar.update(1)
             
-            # Final commit
+            # Commit all changes
             session.commit()
             
+            logger.info(f"VALIDATION COMPLETE - Run ID: {run_id}")
+            logger.info(f"Stats: {stats}")
+            
         except Exception as e:
-            logger.error(f"Error during validation: {e}")
             session.rollback()
+            logger.error(f"Validation failed: {e}")
+            raise
+        finally:
+            session.close()
+        
+        return stats
+    
+    def remove_missing_files(self, dry_run: bool = True) -> Dict[str, int]:
+        """
+        Remove database records for files that don't exist on disk.
+        
+        Args:
+            dry_run: If True, only report what would be deleted
+        
+        Returns:
+            Statistics about removed files
+        """
+        session = self.db_service.db_manager.get_session()
+        stats = {
+            'checked': 0,
+            'missing': 0,
+            'removed': 0
+        }
+        
+        try:
+            # Get all files marked as not found
+            missing_files = session.query(FitsFile).filter(
+                FitsFile.file_not_found == True
+            ).all()
+            
+            stats['missing'] = len(missing_files)
+            
+            if not dry_run:
+                for db_record in missing_files:
+                    logger.info(f"Removing missing file: {db_record.folder}/{db_record.file}")
+                    session.delete(db_record)
+                    stats['removed'] += 1
+                
+                session.commit()
+                logger.info(f"Removed {stats['removed']} missing file records")
+            else:
+                logger.info(f"Dry run: Would remove {stats['missing']} missing file records")
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error removing missing files: {e}")
             raise
         finally:
             session.close()
@@ -444,41 +508,30 @@ class FitsValidator:
         return stats
     
     def get_validation_summary(self) -> Dict:
-        """Get summary of validation scores across all files."""
+        """Get validation summary statistics."""
         session = self.db_service.db_manager.get_session()
+        
         try:
             from sqlalchemy import func
             
-            # Get counts by score ranges
-            total = session.query(FitsFile).count()
-            auto_migrate = session.query(FitsFile).filter(
-                FitsFile.validation_score >= self.AUTO_MIGRATE_THRESHOLD
-            ).count()
-            needs_review = session.query(FitsFile).filter(
-                FitsFile.validation_score >= self.REVIEW_THRESHOLD,
-                FitsFile.validation_score < self.AUTO_MIGRATE_THRESHOLD
-            ).count()
-            manual_only = session.query(FitsFile).filter(
-                FitsFile.validation_score < self.REVIEW_THRESHOLD
-            ).count()
-            
             # Get average scores by frame type
-            frame_type_scores = session.query(
+            frame_type_stats = session.query(
                 FitsFile.frame_type,
-                func.avg(FitsFile.validation_score),
-                func.count(FitsFile.id)
+                func.avg(FitsFile.validation_score).label('avg_score'),
+                func.count(FitsFile.id).label('count')
             ).group_by(FitsFile.frame_type).all()
             
-            return {
-                'total_files': total,
-                'auto_migrate': auto_migrate,
-                'needs_review': needs_review, 
-                'manual_only': manual_only,
-                'frame_type_averages': {
-                    frame_type: {'avg_score': round(avg_score, 1), 'count': count}
-                    for frame_type, avg_score, count in frame_type_scores
-                }
+            summary = {
+                'frame_type_averages': {}
             }
+            
+            for frame_type, avg_score, count in frame_type_stats:
+                summary['frame_type_averages'][frame_type or 'UNKNOWN'] = {
+                    'avg_score': float(avg_score) if avg_score else 0.0,
+                    'count': count
+                }
+            
+            return summary
             
         finally:
             session.close()

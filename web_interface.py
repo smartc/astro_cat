@@ -36,6 +36,10 @@ logger = logging.getLogger(__name__)
 # Global variables for managing background tasks
 background_tasks_status: Dict[str, Dict] = {}
 
+# Operation lock to prevent concurrent operations
+operation_lock = asyncio.Lock()
+current_operation = None
+
 # Initialize FastAPI
 app = FastAPI(
     title="FITS Cataloger", 
@@ -104,6 +108,26 @@ def get_db_session():
         yield session
     finally:
         session.close()
+
+# ============================================================================
+# OPERATION STATUS AND LOCKING
+# ============================================================================
+
+@app.get("/api/operations/current")
+async def get_current_operation():
+    """Get the currently running operation, if any."""
+    if current_operation:
+        return {
+            "operation_in_progress": True,
+            "operation_type": current_operation,
+            "task_id": [k for k, v in background_tasks_status.items() 
+                       if v.get('status') == 'running']
+        }
+    return {
+        "operation_in_progress": False,
+        "operation_type": None
+    }
+
 
 # ============================================================================
 # EXISTING API ROUTES (unchanged)
@@ -325,6 +349,9 @@ async def get_stats(session: Session = Depends(get_db_session)):
         if total_files == 0:
             return {
                 "total_files": 0,
+                "quarantine_files": 0,
+                "staged_files": 0,
+                "missing_files": 0,
                 "validation": {
                     "total_files": 0,
                     "auto_migrate": 0,
@@ -332,10 +359,15 @@ async def get_stats(session: Session = Depends(get_db_session)):
                     "manual_only": 0,
                     "no_score": 0
                 },
+                "processing_sessions": {
+                    "total": 0,
+                    "active": 0
+                },
                 "recent_files": 0,
                 "by_frame_type": {},
                 "by_camera": {},
-                "by_telescope": {}
+                "by_telescope": {},
+                "last_updated": datetime.now().isoformat()
             }
         
         # Add validation statistics
@@ -383,8 +415,30 @@ async def get_stats(session: Session = Depends(get_db_session)):
             func.count(FitsFile.id)
         ).group_by(FitsFile.telescope).all()
         
+        # Missing files
+        missing_files = session.query(FitsFile).filter(
+            FitsFile.file_not_found == True
+        ).count()
+
+        # Quarantine files
+        quarantine_files = session.query(FitsFile).filter(
+            FitsFile.folder.like(f"%{config.paths.quarantine_dir}%")
+        ).count()
+
+        # Staged files
+        staged_files = session.query(ProcessingSessionFile).count()
+
+        # Processing sessions
+        total_sessions = session.query(ProcessingSession).count()
+        active_sessions = session.query(ProcessingSession).filter(
+            ProcessingSession.status.in_(['not_started', 'in_progress'])
+        ).count()
+
         stats = {
             "total_files": total_files,
+            "quarantine_files": quarantine_files,
+            "staged_files": staged_files,
+            "missing_files": missing_files,
             "validation": {
                 "total_files": total_files,
                 "auto_migrate": auto_migrate,
@@ -392,10 +446,15 @@ async def get_stats(session: Session = Depends(get_db_session)):
                 "manual_only": manual_only,
                 "no_score": no_score
             },
+            "processing_sessions": {
+                "total": total_sessions,
+                "active": active_sessions
+            },
             "recent_files": recent_files,
             "by_frame_type": {ft: count for ft, count in frame_type_counts if ft},
             "by_camera": {cam: count for cam, count in camera_counts if cam},
-            "by_telescope": {tel: count for tel, count in telescope_counts if tel}
+            "by_telescope": {tel: count for tel, count in telescope_counts if tel},
+            "last_updated": datetime.now().isoformat()
         }
         
         logger.info(f"Stats compiled: {stats}")
@@ -858,10 +917,14 @@ _processing_tasks = set()
 
 def _run_scan_sync(task_id: str):
     """Synchronous scan wrapper."""
+
+    global current_operation
+
     if task_id in _processing_tasks:
         return
-    
+
     _processing_tasks.add(task_id)
+    current_operation = "scan"
     
     try:
         background_tasks_status[task_id]["status"] = "running"
@@ -927,6 +990,11 @@ def _run_scan_sync(task_id: str):
         }
         logger.error(f"Background scan failed: {e}")
 
+    finally:
+        _processing_tasks.discard(task_id)
+        current_operation = None
+
+
 async def run_scan_operation(task_id: str):
     """Async wrapper."""
     loop = asyncio.get_event_loop()
@@ -934,10 +1002,14 @@ async def run_scan_operation(task_id: str):
 
 
 def _run_validation_sync(task_id: str):
+
+    global current_operation
+
     if task_id in _processing_tasks:
         return
     
     _processing_tasks.add(task_id)
+    current_operation = "validation"
     
     # Update from pending to running
     background_tasks_status[task_id]["status"] = "running"
@@ -956,7 +1028,10 @@ def _run_validation_sync(task_id: str):
             background_tasks_status[task_id]["message"] = f"Validating: {stats['auto_migrate']} auto"
         
         validator = FitsValidator(db_service)
-        stats = validator.validate_all_files(progress_callback=update_progress)
+        stats = validator.validate_all_files(
+            check_files=check_files,
+            progress_callback=update_progress
+        )
         
         background_tasks_status[task_id].update({
             "status": "completed",
@@ -971,15 +1046,20 @@ def _run_validation_sync(task_id: str):
             "message": str(e),
             "completed_at": datetime.now()
         }
+    finally:
+        _processing_tasks.discard(task_id)
+        current_operation = None
 
-async def run_validation_operation(task_id: str):
+async def run_validation_operation(task_id: str, check_files: bool = True):
     """Async wrapper that runs sync validation in executor."""
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(executor, _run_validation_sync, task_id)
+    await loop.run_in_executor(executor, _run_validation_sync, task_id, check_files)
 
 
 def _run_migration_sync(task_id: str):
     """Synchronous migration wrapper."""
+    global current_operation
+
     if task_id in _processing_tasks:
         return
     
@@ -1023,6 +1103,7 @@ def _run_migration_sync(task_id: str):
         logger.error(f"Background migration failed: {e}")
     finally:
         _processing_tasks.discard(task_id)
+        current_operation = None
 
 
 async def run_migration_operation(task_id: str):
@@ -1033,6 +1114,12 @@ async def run_migration_operation(task_id: str):
 
 @app.post("/api/operations/scan")
 async def start_scan(background_tasks: BackgroundTasks):
+    if current_operation:
+        raise HTTPException(
+            status_code=409, 
+            detail=f"Cannot start scan: {current_operation} operation already in progress"
+        )
+
     task_id = f"scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
     # Initialize status first
@@ -1048,7 +1135,15 @@ async def start_scan(background_tasks: BackgroundTasks):
 
 
 @app.post("/api/operations/validate")
-async def start_validation(background_tasks: BackgroundTasks):
+async def start_validation(
+    background_tasks: BackgroundTasks,
+    check_files: bool = Query(True, description="Check if physical files exist") ):
+    if current_operation:
+        raise HTTPException(
+            status_code=409, 
+            detail=f"Cannot start validation: {current_operation} operation already in progress"
+        )
+    
     task_id = f"validate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
     # Initialize status BEFORE background task starts
@@ -1059,13 +1154,18 @@ async def start_validation(background_tasks: BackgroundTasks):
         "started_at": datetime.now()
     }
     
-    background_tasks.add_task(run_validation_operation, task_id)
+    background_tasks.add_task(run_validation_operation, task_id, check_files)
     return {"task_id": task_id, "message": "Validation started"}
 
 
 @app.post("/api/operations/migrate")
 async def start_migration(background_tasks: BackgroundTasks):
-    """Start a file migration operation."""
+    if current_operation:  # ADD THIS CHECK
+        raise HTTPException(
+            status_code=409, 
+            detail=f"Cannot start migration: {current_operation} operation already in progress"
+        )
+
     task_id = f"migrate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
     # Initialize status BEFORE background task starts
@@ -1090,6 +1190,27 @@ async def get_operation_status(task_id: str):
     status_data = background_tasks_status[task_id].copy()
     status_data["task_id"] = task_id
     return status_data
+
+@app.delete("/api/operations/remove-missing")
+async def remove_missing_files(dry_run: bool = Query(True)):
+    """Remove database records for missing files."""
+    if current_operation:
+        raise HTTPException(
+            status_code=409, 
+            detail=f"Cannot remove files: {current_operation} operation already in progress"
+        )
+    
+    try:
+        validator = FitsValidator(db_service)
+        stats = validator.remove_missing_files(dry_run=dry_run)
+        
+        return {
+            "message": "Dry run completed" if dry_run else "Missing files removed",
+            "stats": stats
+        }
+    except Exception as e:
+        logger.error(f"Error removing missing files: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
 # WEB INTERFACE ROUTES (unchanged)
@@ -1117,7 +1238,8 @@ async def health_check():
         return {
             "status": "healthy",
             "timestamp": datetime.now().isoformat(),
-            "total_files": total_files
+            "total_files": total_files,
+            "operation_in_progress": current_operation is not None  # ADD THIS
         }
     except Exception as e:
         return {
