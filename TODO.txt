@@ -1,0 +1,11 @@
+Updated: Sept 27, 2925
+Version: v0.4.0
+
+1. Add functionality to add-to-session from Imaging Session Details modal.
+2. Live update of dropdown filters to limit to current selection.  (ie: Only objects already in filtered list)
+3. Add markdown editor for imaging and processing session notes.
+4. Add config screen to allow viewing and updating of equipment.
+5. Extend functionality of valdiation to flag missing files / remove from database.
+6. Block Scan, Validation and Migration actions when an operation is already in progress.
+7. Add stats for staged / quarantined files to main dashboard.
+8. Add functionality to apply filters upon pressing 'enter' in filter fields
