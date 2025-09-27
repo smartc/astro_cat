@@ -400,6 +400,138 @@ async def get_imaging_sessions(
         logger.error(f"Error fetching imaging sessions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/imaging-sessions/{session_id}/details")
+async def get_imaging_session_details(
+    session_id: str,
+    session: Session = Depends(get_db_session)
+):
+    """Get detailed information about a specific imaging session including object-level summaries."""
+    try:
+        # Get session metadata
+        imaging_session = session.query(SessionModel).filter(
+            SessionModel.session_id == session_id
+        ).first()
+        
+        if not imaging_session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Get all files for this session
+        files = session.query(FitsFile).filter(
+            FitsFile.session_id == session_id
+        ).all()
+        
+        if not files:
+            return {
+                "session": {
+                    "session_id": imaging_session.session_id,
+                    "session_date": imaging_session.session_date,
+                    "telescope": imaging_session.telescope,
+                    "camera": imaging_session.camera,
+                    "site_name": imaging_session.site_name,
+                    "observer": imaging_session.observer,
+                    "latitude": imaging_session.latitude,
+                    "longitude": imaging_session.longitude,
+                    "elevation": imaging_session.elevation,
+                    "notes": imaging_session.notes,
+                    "created_at": imaging_session.created_at.isoformat() if imaging_session.created_at else None
+                },
+                "summary": {
+                    "total_files": 0,
+                    "frame_types": {},
+                    "objects": []
+                }
+            }
+        
+        # Calculate session-level statistics
+        total_files = len(files)
+        frame_type_counts = {}
+        
+        # Group files by object
+        objects_data = {}
+        
+        for file in files:
+            # Session-level frame type counts
+            frame_type = file.frame_type or 'UNKNOWN'
+            frame_type_counts[frame_type] = frame_type_counts.get(frame_type, 0) + 1
+            
+            # Object-level data
+            obj_name = file.object or 'UNKNOWN'
+            
+            if obj_name not in objects_data:
+                objects_data[obj_name] = {
+                    'name': obj_name,
+                    'total_files': 0,
+                    'frame_types': {},
+                    'filters': {},
+                    'total_imaging_time': {}  # by filter for LIGHT frames only
+                }
+            
+            objects_data[obj_name]['total_files'] += 1
+            
+            # Frame type counts by object
+            objects_data[obj_name]['frame_types'][frame_type] = \
+                objects_data[obj_name]['frame_types'].get(frame_type, 0) + 1
+            
+            # Track filters used
+            if file.filter:
+                objects_data[obj_name]['filters'][file.filter] = \
+                    objects_data[obj_name]['filters'].get(file.filter, 0) + 1
+            
+            # Calculate imaging time for LIGHT frames only
+            if frame_type == 'LIGHT' and file.exposure:
+                filter_name = file.filter or 'No Filter'
+                if filter_name not in objects_data[obj_name]['total_imaging_time']:
+                    objects_data[obj_name]['total_imaging_time'][filter_name] = 0
+                objects_data[obj_name]['total_imaging_time'][filter_name] += file.exposure
+        
+        # Convert imaging times to hours:minutes:seconds format
+        for obj_data in objects_data.values():
+            formatted_times = {}
+            for filter_name, total_seconds in obj_data['total_imaging_time'].items():
+                hours = int(total_seconds // 3600)
+                minutes = int((total_seconds % 3600) // 60)
+                seconds = int(total_seconds % 60)
+                formatted_times[filter_name] = {
+                    'seconds': total_seconds,
+                    'formatted': f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                }
+            obj_data['total_imaging_time'] = formatted_times
+        
+        # Sort objects by total files (descending)
+        objects_list = sorted(
+            objects_data.values(), 
+            key=lambda x: x['total_files'], 
+            reverse=True
+        )
+        
+        return {
+            "session": {
+                "session_id": imaging_session.session_id,
+                "session_date": imaging_session.session_date,
+                "telescope": imaging_session.telescope,
+                "camera": imaging_session.camera,
+                "site_name": imaging_session.site_name,
+                "observer": imaging_session.observer,
+                "latitude": imaging_session.latitude,
+                "longitude": imaging_session.longitude,
+                "elevation": imaging_session.elevation,
+                "notes": imaging_session.notes,
+                "created_at": imaging_session.created_at.isoformat() if imaging_session.created_at else None
+            },
+            "summary": {
+                "total_files": total_files,
+                "frame_types": frame_type_counts,
+                "objects": objects_list
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching imaging session details: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/equipment")
 async def get_equipment():
     """Get equipment lists and filter mappings."""

@@ -22,6 +22,7 @@ createApp({
             // Import Component Data
             ...FilesBrowserComponent.data(),
             ...ImagingSessionsComponent.data(),
+            ...ImagingSessionDetailModal.data(),
             ...ProcessingSessionsComponent.data(),
             ...CalibrationModalComponent.data(),
         };
@@ -176,6 +177,7 @@ createApp({
         
         ...FilesBrowserComponent.methods,
         ...ImagingSessionsComponent.methods,
+        ...ImagingSessionDetailModal.methods,
         ...ProcessingSessionsComponent.methods,
         ...CalibrationModalComponent.methods,
     },
