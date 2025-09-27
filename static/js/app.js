@@ -42,7 +42,7 @@ createApp({
     computed: {
         // Import Component Computed Properties
         ...FilesBrowserComponent.computed,
-        // ...ImagingSessionsComponent.computed,
+        ...ImagingSessionsComponent.computed,
     },
     
     methods: {

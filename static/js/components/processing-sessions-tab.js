@@ -13,14 +13,14 @@ const ProcessingSessionsTab = {
                         <button @click="$root.showCreateProcessingSessionModal()" class="btn btn-green">
                             Create Session
                         </button>
-                        <button @click="loadProcessingSessions" class="btn btn-blue">Refresh</button>
+                        <button @click="$root.loadProcessingSessions" class="btn btn-blue">Apply Filters</button>
                     </div>
                 </div>
                 
                 <!-- Status Filter -->
                 <div class="mb-4">
                     <label class="block text-xs font-medium text-gray-700 mb-1">Status Filter</label>
-                    <select v-model="processingSessionStatusFilter" @change="loadProcessingSessions" class="border border-gray-300 rounded px-3 py-2">
+                    <select v-model="processingSessionStatusFilter" @change="$root.loadProcessingSessions" class="border border-gray-300 rounded px-3 py-2">
                         <option value="">All Statuses</option>
                         <option value="not_started">Not Started</option>
                         <option value="in_progress">In Progress</option>
@@ -93,13 +93,13 @@ const ProcessingSessionsTab = {
                             of {{ processingSessionPagination.total }} sessions
                         </div>
                         <div class="flex space-x-2">
-                            <button @click="prevProcessingSessionPage" :disabled="processingSessionPagination.page <= 1" class="pagination-button">
+                            <button @click="$root.prevProcessingSessionPage" :disabled="processingSessionPagination.page <= 1" class="pagination-button">
                                 Previous
                             </button>
                             <span class="px-3 py-1 text-sm text-gray-700">
                                 Page {{ processingSessionPagination.page }} of {{ processingSessionPagination.pages }}
                             </span>
-                            <button @click="nextProcessingSessionPage" :disabled="processingSessionPagination.page >= processingSessionPagination.pages" class="pagination-button">
+                            <button @click="$root.nextProcessingSessionPage" :disabled="processingSessionPagination.page >= processingSessionPagination.pages" class="pagination-button">
                                 Next
                             </button>
                         </div>

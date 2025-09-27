@@ -10,8 +10,8 @@ const ImagingSessionsTab = {
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="text-xl font-bold">Imaging Sessions</h2>
                     <div class="flex space-x-4 items-center">
-                        <button @click="resetImagingSessionFilters" class="btn btn-red">Reset Filters</button>
-                        <button @click="loadImagingSessions" class="btn btn-blue">Refresh</button>
+                        <button @click="$root.resetImagingSessionFilters" class="btn btn-red">Reset Filters</button>
+                        <button @click="$root.loadImagingSessions" class="btn btn-blue">Apply Filters</button>
                     </div>
                 </div>
                 
@@ -28,14 +28,14 @@ const ImagingSessionsTab = {
                     <div>
                         <label class="block text-xs font-medium text-gray-700 mb-1">Camera</label>
                         <div class="relative">
-                            <button @click="toggleImagingSessionFilter('cameras')" class="filter-button">
+                            <button @click="$root.toggleImagingSessionFilter('cameras')" class="filter-button">
                                 <span>{{ getImagingSessionFilterText('cameras') }}</span>
                                 <span class="text-gray-400">▼</span>
                             </button>
                             <div v-show="activeImagingSessionFilter === 'cameras'" class="filter-dropdown">
                                 <div class="p-2">
                                     <label v-for="option in filterOptions.cameras" :key="option" class="filter-option">
-                                        <input type="checkbox" :checked="imagingSessionFilters.cameras.includes(option)" @change="toggleImagingSessionFilterOption('cameras', option)">
+                                        <input type="checkbox" :checked="imagingSessionFilters.cameras.includes(option)" @change="$root.toggleImagingSessionFilterOption('cameras', option)">
                                         <span>{{ option }}</span>
                                     </label>
                                 </div>
@@ -46,14 +46,14 @@ const ImagingSessionsTab = {
                     <div>
                         <label class="block text-xs font-medium text-gray-700 mb-1">Telescope</label>
                         <div class="relative">
-                            <button @click="toggleImagingSessionFilter('telescopes')" class="filter-button">
+                            <button @click="$root.toggleImagingSessionFilter('telescopes')" class="filter-button">
                                 <span>{{ getImagingSessionFilterText('telescopes') }}</span>
                                 <span class="text-gray-400">▼</span>
                             </button>
                             <div v-show="activeImagingSessionFilter === 'telescopes'" class="filter-dropdown">
                                 <div class="p-2">
                                     <label v-for="option in filterOptions.telescopes" :key="option" class="filter-option">
-                                        <input type="checkbox" :checked="imagingSessionFilters.telescopes.includes(option)" @change="toggleImagingSessionFilterOption('telescopes', option)">
+                                        <input type="checkbox" :checked="imagingSessionFilters.telescopes.includes(option)" @change="$root.toggleImagingSessionFilterOption('telescopes', option)">
                                         <span>{{ option }}</span>
                                     </label>
                                 </div>
@@ -105,13 +105,13 @@ const ImagingSessionsTab = {
                             of {{ imagingSessionPagination.total }} sessions
                         </div>
                         <div class="flex space-x-2">
-                            <button @click="prevImagingSessionPage" :disabled="imagingSessionPagination.page <= 1" class="pagination-button">
+                            <button @click="$root.prevImagingSessionPage" :disabled="imagingSessionPagination.page <= 1" class="pagination-button">
                                 Previous
                             </button>
                             <span class="px-3 py-1 text-sm text-gray-700">
                                 Page {{ imagingSessionPagination.page }} of {{ imagingSessionPagination.pages }}
                             </span>
-                            <button @click="nextImagingSessionPage" :disabled="imagingSessionPagination.page >= imagingSessionPagination.pages" class="pagination-button">
+                            <button @click="$root.nextImagingSessionPage" :disabled="imagingSessionPagination.page >= imagingSessionPagination.pages" class="pagination-button">
                                 Next
                             </button>
                         </div>
