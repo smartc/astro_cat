@@ -1,9 +1,11 @@
-// ============================================================================
-// FILE: static/js/components/imaging-sessions-tab.js
-// ============================================================================
+/**
+ * Imaging Sessions Tab Component
+ */
+
 const ImagingSessionsTab = {
     template: `
         <div class="space-y-6">
+            <!-- Session Controls -->
             <div class="bg-white rounded-lg shadow p-4">
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="text-xl font-bold">Imaging Sessions</h2>
@@ -13,12 +15,13 @@ const ImagingSessionsTab = {
                     </div>
                 </div>
                 
+                <!-- Session Filters -->
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                     <div>
                         <label class="block text-xs font-medium text-gray-700 mb-1">Date Range</label>
                         <div class="space-y-1">
-                            <input v-model="imagingSessionFilters.date_start" type="date" @change="loadImagingSessions" placeholder="Start date" class="filter-input">
-                            <input v-model="imagingSessionFilters.date_end" type="date" @change="loadImagingSessions" placeholder="End date" class="filter-input">
+                            <input v-model="imagingSessionFilters.date_start" type="date" placeholder="Start date" class="filter-input">
+                            <input v-model="imagingSessionFilters.date_end" type="date" placeholder="End date" class="filter-input">
                         </div>
                     </div>
                     
@@ -67,12 +70,13 @@ const ImagingSessionsTab = {
                 </div>
             </div>
 
+            <!-- Sessions List -->
             <div class="bg-white rounded-lg shadow">
                 <div class="p-6">
                     <div class="space-y-4">
                         <div v-for="session in imagingSessions" :key="session.session_id" 
-                            @click="viewSessionDetails(session.session_id)"
-                            class="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-4 cursor-pointer border border-gray-200">
+                            @click="$root.viewSessionDetails(session.session_id)"
+                            class="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-4 cursor-pointer">
                             <div class="flex justify-between items-start">
                                 <div>
                                     <h3 class="font-semibold text-lg">{{ session.session_date }}</h3>
@@ -80,11 +84,19 @@ const ImagingSessionsTab = {
                                     <p class="text-sm text-gray-500">{{ session.file_count }} files</p>
                                     <p class="text-sm text-gray-500" v-if="session.site_name">{{ session.site_name }}</p>
                                 </div>
+                                <div class="text-right">
+                                    <p class="text-xs text-gray-500 font-mono">{{ session.session_id }}</p>
+                                    <p class="text-xs text-gray-500" v-if="session.observer">{{ session.observer }}</p>
+                                </div>
+                            </div>
+                            <div v-if="session.notes" class="mt-2 text-sm text-gray-700">
+                                {{ session.notes }}
                             </div>
                         </div>
                     </div>
                 </div>
-
+                
+                <!-- Sessions Pagination -->
                 <div class="pagination-container">
                     <div class="flex items-center justify-between">
                         <div class="text-sm text-gray-700">
@@ -93,9 +105,15 @@ const ImagingSessionsTab = {
                             of {{ imagingSessionPagination.total }} sessions
                         </div>
                         <div class="flex space-x-2">
-                            <button @click="prevImagingSessionPage" :disabled="imagingSessionPagination.page <= 1" class="pagination-button">Previous</button>
-                            <span class="px-3 py-1 text-sm text-gray-700">Page {{ imagingSessionPagination.page }} of {{ imagingSessionPagination.pages }}</span>
-                            <button @click="nextImagingSessionPage" :disabled="imagingSessionPagination.page >= imagingSessionPagination.pages" class="pagination-button">Next</button>
+                            <button @click="prevImagingSessionPage" :disabled="imagingSessionPagination.page <= 1" class="pagination-button">
+                                Previous
+                            </button>
+                            <span class="px-3 py-1 text-sm text-gray-700">
+                                Page {{ imagingSessionPagination.page }} of {{ imagingSessionPagination.pages }}
+                            </span>
+                            <button @click="nextImagingSessionPage" :disabled="imagingSessionPagination.page >= imagingSessionPagination.pages" class="pagination-button">
+                                Next
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -104,6 +122,7 @@ const ImagingSessionsTab = {
     `,
     
     methods: ImagingSessionsComponent.methods,
+    
     computed: {
         imagingSessions() { return this.$root.imagingSessions; },
         imagingSessionPagination() { return this.$root.imagingSessionPagination; },

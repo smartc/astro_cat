@@ -1,6 +1,5 @@
 /**
  * Files Tab Component
- * Save as: static/js/components/files-tab.js
  */
 
 const FilesTab = {
@@ -128,6 +127,7 @@ const FilesTab = {
                                         class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                                     >
                                 </th>
+                                
                                 <th class="header-cell id-col text-left">
                                     <div @click="sortBy('id')" class="sort-header">
                                         <div class="header-title justify-start">
@@ -138,6 +138,7 @@ const FilesTab = {
                                         </div>
                                     </div>
                                 </th>
+                                
                                 <th class="header-cell file-col text-left">
                                     <div @click="sortBy('file')" class="sort-header">
                                         <div class="header-title justify-start">
@@ -147,8 +148,9 @@ const FilesTab = {
                                             </span>
                                         </div>
                                     </div>
-                                    <input v-model="searchFilters.file" placeholder="Filter..." class="filter-input">
+                                    <input v-model="searchFilters.filename" placeholder="Search..." class="filter-input">
                                 </th>
+                                
                                 <th class="header-cell text-left">
                                     <div @click="sortBy('object')" class="sort-header">
                                         <div class="header-title justify-start">
@@ -158,8 +160,25 @@ const FilesTab = {
                                             </span>
                                         </div>
                                     </div>
-                                    <input v-model="searchFilters.object" placeholder="Filter..." class="filter-input">
+                                    <div class="space-y-1">
+                                        <input v-model="objectSearchText" @input="filterObjectOptions" placeholder="Search..." class="filter-input">
+                                        <div class="relative">
+                                            <button @click="toggleFilter('objects')" class="filter-button">
+                                                <span>{{ getFilterText('objects') }}</span>
+                                                <span class="text-gray-400">▼</span>
+                                            </button>
+                                            <div v-show="activeFilter === 'objects'" class="filter-dropdown">
+                                                <div class="p-2">
+                                                    <label v-for="option in filteredObjectOptions" :key="option" class="filter-option">
+                                                        <input type="checkbox" :checked="fileFilters.objects.includes(option)" @change="toggleFilterOption('objects', option)">
+                                                        <span>{{ option }}</span>
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </th>
+                                
                                 <th class="header-cell type-col text-left">
                                     <div @click="sortBy('frame_type')" class="sort-header">
                                         <div class="header-title justify-start">
@@ -169,8 +188,22 @@ const FilesTab = {
                                             </span>
                                         </div>
                                     </div>
-                                    <input v-model="searchFilters.frame_type" placeholder="Type..." class="filter-input">
+                                    <div class="relative">
+                                        <button @click="toggleFilter('frame_types')" class="filter-button">
+                                            <span>{{ getFilterText('frame_types') }}</span>
+                                            <span class="text-gray-400">▼</span>
+                                        </button>
+                                        <div v-show="activeFilter === 'frame_types'" class="filter-dropdown">
+                                            <div class="p-2">
+                                                <label v-for="option in filterOptions.frame_types" :key="option" class="filter-option">
+                                                    <input type="checkbox" :checked="fileFilters.frame_types.includes(option)" @change="toggleFilterOption('frame_types', option)">
+                                                    <span>{{ option }}</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </th>
+                                
                                 <th class="header-cell text-left">
                                     <div @click="sortBy('camera')" class="sort-header">
                                         <div class="header-title justify-start">
@@ -180,8 +213,22 @@ const FilesTab = {
                                             </span>
                                         </div>
                                     </div>
-                                    <input v-model="searchFilters.camera" placeholder="Camera..." class="filter-input">
+                                    <div class="relative">
+                                        <button @click="toggleFilter('cameras')" class="filter-button">
+                                            <span>{{ getFilterText('cameras') }}</span>
+                                            <span class="text-gray-400">▼</span>
+                                        </button>
+                                        <div v-show="activeFilter === 'cameras'" class="filter-dropdown">
+                                            <div class="p-2">
+                                                <label v-for="option in filterOptions.cameras" :key="option" class="filter-option">
+                                                    <input type="checkbox" :checked="fileFilters.cameras.includes(option)" @change="toggleFilterOption('cameras', option)">
+                                                    <span>{{ option }}</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </th>
+                                
                                 <th class="header-cell text-left">
                                     <div @click="sortBy('telescope')" class="sort-header">
                                         <div class="header-title justify-start">
@@ -191,8 +238,22 @@ const FilesTab = {
                                             </span>
                                         </div>
                                     </div>
-                                    <input v-model="searchFilters.telescope" placeholder="Telescope..." class="filter-input">
+                                    <div class="relative">
+                                        <button @click="toggleFilter('telescopes')" class="filter-button">
+                                            <span>{{ getFilterText('telescopes') }}</span>
+                                            <span class="text-gray-400">▼</span>
+                                        </button>
+                                        <div v-show="activeFilter === 'telescopes'" class="filter-dropdown">
+                                            <div class="p-2">
+                                                <label v-for="option in filterOptions.telescopes" :key="option" class="filter-option">
+                                                    <input type="checkbox" :checked="fileFilters.telescopes.includes(option)" @change="toggleFilterOption('telescopes', option)">
+                                                    <span>{{ option }}</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </th>
+                                
                                 <th class="header-cell filter-col text-left">
                                     <div @click="sortBy('filter')" class="sort-header">
                                         <div class="header-title justify-start">
@@ -202,8 +263,22 @@ const FilesTab = {
                                             </span>
                                         </div>
                                     </div>
-                                    <input v-model="searchFilters.filter" placeholder="Filter..." class="filter-input">
+                                    <div class="relative">
+                                        <button @click="toggleFilter('filters')" class="filter-button">
+                                            <span>{{ getFilterText('filters') }}</span>
+                                            <span class="text-gray-400">▼</span>
+                                        </button>
+                                        <div v-show="activeFilter === 'filters'" class="filter-dropdown">
+                                            <div class="p-2">
+                                                <label v-for="option in filterOptions.filters" :key="option" class="filter-option">
+                                                    <input type="checkbox" :checked="fileFilters.filters.includes(option)" @change="toggleFilterOption('filters', option)">
+                                                    <span>{{ option }}</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </th>
+                                
                                 <th class="header-cell exp-col text-right">
                                     <div @click="sortBy('exposure')" class="sort-header">
                                         <div class="header-title justify-end">
@@ -213,8 +288,12 @@ const FilesTab = {
                                             </span>
                                         </div>
                                     </div>
-                                    <input v-model="searchFilters.exposure" placeholder="Exp..." class="filter-input text-right">
+                                    <div class="space-y-1">
+                                        <input v-model="searchFilters.exposure_min" placeholder="Min" type="number" class="narrow-input">
+                                        <input v-model="searchFilters.exposure_max" placeholder="Max" type="number" class="narrow-input">
+                                    </div>
                                 </th>
+                                
                                 <th class="header-cell date-col text-right">
                                     <div @click="sortBy('obs_date')" class="sort-header">
                                         <div class="header-title justify-end">
@@ -224,8 +303,12 @@ const FilesTab = {
                                             </span>
                                         </div>
                                     </div>
-                                    <input v-model="searchFilters.obs_date" placeholder="Date..." class="filter-input text-right">
+                                    <div class="space-y-1">
+                                        <input v-model="searchFilters.date_start" placeholder="Start" type="date" class="narrow-input">
+                                        <input v-model="searchFilters.date_end" placeholder="End" type="date" class="narrow-input">
+                                    </div>
                                 </th>
+                                
                                 <th class="header-cell text-left">
                                     <div @click="sortBy('session_id')" class="sort-header">
                                         <div class="header-title justify-start">
@@ -276,7 +359,6 @@ const FilesTab = {
                     </table>
                 </div>
                 
-                <!-- Pagination -->
                 <div class="pagination-container">
                     <div class="flex items-center justify-between">
                         <div class="text-sm text-gray-700">
@@ -301,8 +383,35 @@ const FilesTab = {
         </div>
     `,
     
-    // Extend methods from FilesBrowserComponent
-    methods: FilesBrowserComponent.methods,
+    methods: {
+        ...FilesBrowserComponent.methods,
+        
+        getFrameTypeClass(frameType) {
+            const classes = {
+                'LIGHT': 'bg-blue-100 text-blue-800',
+                'DARK': 'bg-gray-100 text-gray-800',
+                'FLAT': 'bg-yellow-100 text-yellow-800',
+                'BIAS': 'bg-purple-100 text-purple-800'
+            };
+            return classes[frameType] || 'bg-gray-100 text-gray-800';
+        },
+        
+        addToNewSession() {
+            this.$root.addToNewSession();
+        },
+        
+        showAddToExistingModal() {
+            this.$root.showAddToExistingModal();
+        },
+        
+        selectAllCurrentPage() {
+            this.$root.selectAllCurrentPage();
+        },
+        
+        async selectAllFilteredFiles() {
+            await this.$root.selectAllFilteredFiles();
+        }
+    },
     
     computed: {
         files() { return this.$root.files; },
@@ -311,13 +420,22 @@ const FilesTab = {
         fileSorting() { return this.$root.fileSorting; },
         searchFilters() { return this.$root.searchFilters; },
         fileFilters() { return this.$root.fileFilters; },
+        filterOptions() { return this.$root.filterOptions; },
         showSelectionOptions: {
             get() { return this.$root.showSelectionOptions; },
             set(val) { this.$root.showSelectionOptions = val; }
         },
-        // Add these missing computed properties from FilesBrowserComponent
+        activeFilter: {
+            get() { return this.$root.activeFilter; },
+            set(val) { this.$root.activeFilter = val; }
+        },
+        objectSearchText: {
+            get() { return this.$root.objectSearchText; },
+            set(val) { this.$root.objectSearchText = val; }
+        },
         hasActiveFilters() { return this.$root.hasActiveFilters || false; },
         allFilesSelected() { return this.$root.allFilteredFilesSelected || false; },
+        allFilteredFilesSelected() { return this.$root.allFilteredFilesSelected; },
         currentPageSelectedCount() { 
             return this.files.filter(f => this.selectedFiles.includes(f.id)).length; 
         },
@@ -325,7 +443,7 @@ const FilesTab = {
             if (this.selectedFiles.length === 0) return '';
             return `${this.selectedFiles.length} file${this.selectedFiles.length === 1 ? '' : 's'} selected`;
         },
-        allFilteredFilesSelected() { return this.$root.allFilteredFilesSelected; }
+        filteredObjectOptions() { return this.$root.filteredObjectOptions; }
     }
 };
 

@@ -1,18 +1,23 @@
-// ============================================================================
-// FILE: static/js/components/processing-sessions-tab.js
-// ============================================================================
+/**
+ * Processing Sessions Tab Component
+ */
+
 const ProcessingSessionsTab = {
     template: `
         <div class="space-y-6">
+            <!-- Processing Session Controls -->
             <div class="bg-white rounded-lg shadow p-4">
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="text-xl font-bold">Processing Sessions</h2>
                     <div class="flex space-x-4 items-center">
-                        <button @click="showCreateProcessingSessionModal" class="btn btn-green">Create Session</button>
+                        <button @click="$root.showCreateProcessingSessionModal()" class="btn btn-green">
+                            Create Session
+                        </button>
                         <button @click="loadProcessingSessions" class="btn btn-blue">Refresh</button>
                     </div>
                 </div>
                 
+                <!-- Status Filter -->
                 <div class="mb-4">
                     <label class="block text-xs font-medium text-gray-700 mb-1">Status Filter</label>
                     <select v-model="processingSessionStatusFilter" @change="loadProcessingSessions" class="border border-gray-300 rounded px-3 py-2">
@@ -24,6 +29,7 @@ const ProcessingSessionsTab = {
                 </div>
             </div>
 
+            <!-- Processing Sessions List -->
             <div class="bg-white rounded-lg shadow">
                 <div class="p-6">
                     <div v-if="processingSessions.length === 0" class="text-center py-8 text-gray-500">
@@ -33,7 +39,7 @@ const ProcessingSessionsTab = {
                     </div>
                     <div v-else class="space-y-4">
                         <div v-for="session in processingSessions" :key="session.id" 
-                             @click="viewProcessingSession(session.id)"
+                             @click="$root.viewProcessingSession(session.id)"
                              class="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-4 cursor-pointer border border-gray-200">
                             <div class="flex justify-between items-start">
                                 <div class="flex-grow">
@@ -57,19 +63,28 @@ const ProcessingSessionsTab = {
                                         </p>
                                     </div>
                                     <div v-if="session.notes" class="mt-2">
-                                        <p class="text-sm text-gray-700 bg-gray-50 p-2 rounded">{{ session.notes }}</p>
+                                        <p class="text-sm text-gray-700 bg-gray-50 p-2 rounded">
+                                            {{ session.notes }}
+                                        </p>
                                     </div>
                                 </div>
                                 <div class="flex flex-col space-y-2 ml-4">
-                                    <button @click.stop="findCalibrationFiles(session.id)" class="btn btn-purple text-sm">🔍 Find Calibration</button>
-                                    <button @click.stop="updateProcessingSessionStatus(session.id)" class="btn btn-yellow text-sm">Update Status</button>
-                                    <button @click.stop="deleteProcessingSession(session.id)" class="btn btn-red text-sm">Delete</button>
+                                    <button @click.stop="$root.findCalibrationFiles(session.id)" class="btn btn-purple text-sm">
+                                        🔍 Find Calibration
+                                    </button>
+                                    <button @click.stop="$root.updateProcessingSessionStatus(session.id)" class="btn btn-yellow text-sm">
+                                        Update Status
+                                    </button>
+                                    <button @click.stop="$root.deleteProcessingSession(session.id)" class="btn btn-red text-sm">
+                                        Delete
+                                    </button>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
+                <!-- Pagination -->
                 <div v-if="processingSessions.length > 0" class="pagination-container">
                     <div class="flex items-center justify-between">
                         <div class="text-sm text-gray-700">
@@ -78,9 +93,15 @@ const ProcessingSessionsTab = {
                             of {{ processingSessionPagination.total }} sessions
                         </div>
                         <div class="flex space-x-2">
-                            <button @click="prevProcessingSessionPage" :disabled="processingSessionPagination.page <= 1" class="pagination-button">Previous</button>
-                            <span class="px-3 py-1 text-sm text-gray-700">Page {{ processingSessionPagination.page }} of {{ processingSessionPagination.pages }}</span>
-                            <button @click="nextProcessingSessionPage" :disabled="processingSessionPagination.page >= processingSessionPagination.pages" class="pagination-button">Next</button>
+                            <button @click="prevProcessingSessionPage" :disabled="processingSessionPagination.page <= 1" class="pagination-button">
+                                Previous
+                            </button>
+                            <span class="px-3 py-1 text-sm text-gray-700">
+                                Page {{ processingSessionPagination.page }} of {{ processingSessionPagination.pages }}
+                            </span>
+                            <button @click="nextProcessingSessionPage" :disabled="processingSessionPagination.page >= processingSessionPagination.pages" class="pagination-button">
+                                Next
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -88,7 +109,33 @@ const ProcessingSessionsTab = {
         </div>
     `,
     
-    methods: ProcessingSessionsComponent.methods,
+    methods: {
+        ...ProcessingSessionsComponent.methods,
+        
+        getProcessingStatusClass(status) {
+            const classes = {
+                'not_started': 'bg-gray-100 text-gray-800',
+                'in_progress': 'bg-blue-100 text-blue-800',
+                'complete': 'bg-green-100 text-green-800'
+            };
+            return classes[status] || 'bg-gray-100 text-gray-800';
+        },
+        
+        formatProcessingStatus(status) {
+            const labels = {
+                'not_started': 'Not Started',
+                'in_progress': 'In Progress',
+                'complete': 'Complete'
+            };
+            return labels[status] || status;
+        },
+        
+        formatDate(dateString) {
+            if (!dateString) return 'N/A';
+            return new Date(dateString).toLocaleDateString();
+        }
+    },
+    
     computed: {
         processingSessions() { return this.$root.processingSessions; },
         processingSessionPagination() { return this.$root.processingSessionPagination; },

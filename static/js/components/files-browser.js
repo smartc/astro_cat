@@ -97,6 +97,8 @@ const FilesBrowserComponent = {
         async loadFilterOptions() {
             try {
                 const response = await ApiService.files.getFilterOptions();
+                console.log('Filter options loaded:', response.data);
+                console.log('Objects array:', response.data.objects);
                 this.filterOptions = response.data;
             } catch (error) {
                 console.error('Error loading filter options:', error);
@@ -206,6 +208,38 @@ const FilesBrowserComponent = {
         // ==================
         // Selection Methods
         // ==================
+
+
+        selectAllCurrentPage() {
+            const currentPageIds = this.files.map(file => file.id);
+            const newSelections = currentPageIds.filter(id => !this.selectedFiles.includes(id));
+            this.selectedFiles.push(...newSelections);
+        },
+
+        async selectAllFilteredFiles() {
+            try {
+                const params = {};
+                
+                for (const [key, values] of Object.entries(this.fileFilters)) {
+                    if (values.length > 0) {
+                        params[key] = values.join(',');
+                    }
+                }
+                
+                for (const [key, value] of Object.entries(this.searchFilters)) {
+                    if (value) {
+                        params[key] = value;
+                    }
+                }
+                
+                const response = await ApiService.files.getAllFileIds(params);
+                this.selectedFiles = response.data.file_ids;
+                this.allFilteredFilesSelected = true;
+            } catch (error) {
+                console.error('Error selecting all filtered files:', error);
+                this.errorMessage = 'Failed to select all files';
+            }
+        },
         
         toggleSelectAll() {
             if (this.selectAllMode === 'all') {
