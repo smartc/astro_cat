@@ -6,6 +6,11 @@ const { createApp } = Vue;
 createApp({
     // Register all modal components
     components: {
+        'dashboard-tab': DashboardTab,
+        'files-tab': FilesTab,
+        'imaging-sessions-tab': ImagingSessionsTab,
+        'processing-sessions-tab': ProcessingSessionsTab,
+        'operations-tab': OperationsTab,
         'imaging-session-detail-modal': ImagingSessionDetailModal,
         'calibration-modal': CalibrationModalComponent,
         'processing-session-details-modal': ProcessingSessionDetailsModal,
@@ -36,8 +41,8 @@ createApp({
     
     computed: {
         // Import Component Computed Properties
-        ...FilesBrowserComponent.computed,
-        ...ImagingSessionsComponent.computed,
+        // ...FilesBrowserComponent.computed,
+        // ...ImagingSessionsComponent.computed,
     },
     
     methods: {
