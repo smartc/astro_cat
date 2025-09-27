@@ -1,12 +1,15 @@
-// FITS Cataloger Vue.js Application - Refactored Phase 3
-// Final modular version with all components extracted
+// FITS Cataloger Vue.js Application - Fully Refactored
+// All modals extracted to components
 
 const { createApp } = Vue;
 
 createApp({
-    // Register components
+    // Register all modal components
     components: {
-        'imaging-session-detail-modal': ImagingSessionDetailModal
+        'imaging-session-detail-modal': ImagingSessionDetailModal,
+        'calibration-modal': CalibrationModalComponent,
+        'processing-session-details-modal': ProcessingSessionDetailsModal,
+        'processing-session-modals': ProcessingSessionModals
     },
     
     data() {
@@ -24,12 +27,10 @@ createApp({
             operationStatus: null,
             operationPolling: null,
             
-            // Import Component Data
+            // Import Component Data (only non-modal components)
             ...FilesBrowserComponent.data(),
             ...ImagingSessionsComponent.data(),
-            // ...ImagingSessionDetailModal.data(),
             ...ProcessingSessionsComponent.data(),
-            ...CalibrationModalComponent.data(),
         };
     },
     
@@ -100,7 +101,35 @@ createApp({
         },
         
         // ===================
-        // Operations Methods
+        // Modal Interaction Methods
+        // ===================
+        
+        viewSessionDetails(sessionId) {
+            this.$refs.sessionDetailModal.viewSessionDetails(sessionId);
+        },
+        
+        findCalibrationFiles(sessionId) {
+            this.$refs.calibrationModal.findCalibrationFiles(sessionId);
+        },
+        
+        viewProcessingSession(sessionId) {
+            this.$refs.processingDetailsModal.viewProcessingSession(sessionId);
+        },
+        
+        showCreateProcessingSessionModal() {
+            this.$refs.processingModals.showCreateProcessingSessionModal();
+        },
+        
+        addToNewSession() {
+            this.$refs.processingModals.addToNewSession();
+        },
+        
+        async showAddToExistingModal() {
+            await this.$refs.processingModals.showAddToExistingModal();
+        },
+        
+        // ===================
+        // Operations Methods (ORIGINAL - UNCHANGED)
         // ===================
         
         async startOperation(operationType) {
@@ -111,6 +140,8 @@ createApp({
                 let response;
                 if (operationType === 'scan') {
                     response = await ApiService.operations.startScan();
+                } else if (operationType === 'validate') {
+                    response = await ApiService.operations.startValidate();
                 } else if (operationType === 'organize') {
                     response = await ApiService.operations.startOrganize();
                 } else if (operationType === 'migrate') {
@@ -178,9 +209,7 @@ createApp({
         
         ...FilesBrowserComponent.methods,
         ...ImagingSessionsComponent.methods,
-        // ...ImagingSessionDetailModal.methods,
         ...ProcessingSessionsComponent.methods,
-        ...CalibrationModalComponent.methods,
     },
     
     async mounted() {
