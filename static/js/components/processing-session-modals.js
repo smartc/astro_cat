@@ -222,15 +222,15 @@ const ProcessingSessionModals = {
                     return;
                 }
                 
-                const payload = {
-                    file_ids: app.selectedFiles
-                };
-                
-                await ApiService.processingSessions.addFiles(this.selectedExistingSession, payload);
+                await ApiService.processingSessions.addFiles(
+                    this.selectedExistingSession, 
+                    app.selectedFiles
+                );
                 
                 this.showAddToExistingSessionModal = false;
+                const fileCount = app.selectedFiles.length;
                 app.clearSelection();
-                alert(`Added ${payload.file_ids.length} files to session!`);
+                alert(`Added ${fileCount} files to session!`);
                 await app.loadProcessingSessions();
                 
             } catch (error) {

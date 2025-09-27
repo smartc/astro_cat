@@ -1,3 +1,5 @@
+/* Replace the content in static/css/tables.css */
+
 /* FITS Cataloger - Table Styles */
 
 .table-container {
@@ -8,16 +10,25 @@
 }
 
 .table-container table {
-    min-width: 900px;
+    min-width: 1100px;
 }
 
+/* Header Cells */
 .header-cell {
     position: relative;
-    padding: 0.5rem;
+    padding: 0.75rem 1rem;
     vertical-align: top;
     border-right: 1px solid #e5e7eb;
     min-width: 80px;
 }
+
+/* Specific column widths */
+.id-col { width: 70px; min-width: 70px; }
+.file-col { width: 350px; min-width: 350px; }
+.type-col { width: 100px; min-width: 100px; }
+.filter-col { width: 120px; min-width: 120px; }
+.exp-col { width: 90px; min-width: 90px; }
+.date-col { width: 120px; min-width: 120px; }
 
 .header-cell:last-child {
     border-right: none;
@@ -35,11 +46,34 @@
 }
 
 .header-title {
-    @apply flex items-center justify-between text-xs font-medium text-gray-500 uppercase tracking-wider;
+    @apply flex items-center text-xs font-medium text-gray-500 uppercase tracking-wider;
 }
 
+/* Table Body Cells - Base with better spacing */
+.table-cell-left {
+    @apply whitespace-nowrap text-sm text-gray-900;
+    text-align: left;
+    padding-left: 1rem;
+    padding-right: 1rem;
+}
+
+.table-cell-right {
+    @apply whitespace-nowrap text-sm text-gray-900;
+    text-align: right;
+    padding-left: 1rem;
+    padding-right: 1rem;
+}
+
+.table-cell-center {
+    @apply whitespace-nowrap text-sm text-gray-900;
+    text-align: center;
+    padding-left: 1rem;
+    padding-right: 1rem;
+}
+
+/* Deprecated - kept for backwards compatibility */
 .table-cell {
-    @apply px-4 py-4 whitespace-nowrap text-sm text-gray-900;
+    @apply px-4 py-3 whitespace-nowrap text-sm text-gray-900;
 }
 
 /* Filename Cell */
@@ -50,6 +84,7 @@
     white-space: nowrap;
     position: relative;
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    text-align: left;
 }
 
 .filename-tooltip {
@@ -71,6 +106,22 @@
 
 .filename-cell:hover .filename-tooltip {
     opacity: 1;
+}
+
+/* Filter Inputs */
+.filter-input {
+    width: 100%;
+    font-size: 0.7rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.25rem;
+}
+
+.filter-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    ring: 1px;
+    ring-color: #3b82f6;
 }
 
 /* Column Sizing */

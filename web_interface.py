@@ -775,7 +775,12 @@ async def add_files_to_processing_session(
             raise HTTPException(status_code=404, detail="Processing session not found")
         
         return {"message": f"Added {len(file_ids)} files to processing session {session_id}"}
+    except ValueError as e:
+        # User input validation errors (duplicates, missing files, etc)
+        logger.warning(f"Validation error adding files to session {session_id}: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        # Unexpected server errors
         logger.error(f"Error adding files to processing session {session_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
