@@ -201,8 +201,8 @@ window.ImagingSessionDetailModal = {
                 </div>
             </div>
         </div>
-    `,
-    
+    `,        
+
     data() {
         return {
             showDetailModal: false,
@@ -215,19 +215,14 @@ window.ImagingSessionDetailModal = {
     
     methods: {
         async viewSessionDetails(sessionId) {
-            console.log('viewSessionDetails called with:', sessionId);
-            console.log('Before setting modal:', this.showDetailModal);
             this.showDetailModal = true;
-            console.log('After setting modal:', this.showDetailModal);
             this.loadingDetails = true;
             this.detailsError = null;
             this.sessionDetails = null;
             this.selectedSessionId = sessionId;
             
             try {
-                console.log('Calling API...');
                 const response = await ApiService.imagingSessions.getDetails(sessionId);
-                console.log('API response:', response.data);
                 this.sessionDetails = response.data;
             } catch (error) {
                 console.error('Error loading session details:', error);
@@ -236,7 +231,7 @@ window.ImagingSessionDetailModal = {
                 this.loadingDetails = false;
             }
         },
-        
+
         closeSessionDetails() {
             this.showDetailModal = false;
             this.sessionDetails = null;
@@ -245,10 +240,13 @@ window.ImagingSessionDetailModal = {
         },
         
         viewSessionFiles() {
-            this.activeTab = 'files';
-            this.searchFilters.session_id = this.selectedSessionId;
+            // Navigate to files tab with session filter
+            // Access parent app through Vue's $root
+            const app = this.$root || this;
+            app.activeTab = 'files';
+            app.searchFilters.session_id = this.selectedSessionId;
             this.closeSessionDetails();
-            this.loadFiles();
+            app.loadFiles();
         },
         
         getTotalImagingTime() {
@@ -294,6 +292,16 @@ window.ImagingSessionDetailModal = {
         
         formatElevation(elevation) {
             return `${elevation}m`;
+        },
+        
+        getFrameTypeClass(frameType) {
+            const classes = {
+                'LIGHT': 'bg-blue-100 text-blue-800',
+                'DARK': 'bg-gray-100 text-gray-800',
+                'FLAT': 'bg-yellow-100 text-yellow-800',
+                'BIAS': 'bg-purple-100 text-purple-800'
+            };
+            return classes[frameType] || 'bg-gray-100 text-gray-800';
         }
     }
 };

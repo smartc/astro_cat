@@ -4,6 +4,11 @@
 const { createApp } = Vue;
 
 createApp({
+    // Register components
+    components: {
+        'imaging-session-detail-modal': ImagingSessionDetailModal
+    },
+    
     data() {
         return {
             // Core UI State
@@ -22,7 +27,7 @@ createApp({
             // Import Component Data
             ...FilesBrowserComponent.data(),
             ...ImagingSessionsComponent.data(),
-            ...ImagingSessionDetailModal.data(),
+            // ...ImagingSessionDetailModal.data(),
             ...ProcessingSessionsComponent.data(),
             ...CalibrationModalComponent.data(),
         };
@@ -106,18 +111,14 @@ createApp({
                 let response;
                 if (operationType === 'scan') {
                     response = await ApiService.operations.startScan();
-                } else if (operationType === 'validate') {
-                    response = await ApiService.operations.startValidate();
+                } else if (operationType === 'organize') {
+                    response = await ApiService.operations.startOrganize();
                 } else if (operationType === 'migrate') {
                     response = await ApiService.operations.startMigrate();
                 }
                 
-                this.activeOperation = {
-                    type: operationType,
-                    taskId: response.data.task_id,
-                    message: response.data.message
-                };
-                
+                this.activeOperation = operationType;
+                this.operationStatus = response.data;
                 this.pollOperationStatus();
                 
             } catch (error) {
@@ -129,13 +130,13 @@ createApp({
         },
         
         async checkOperationStatus() {
-            if (!this.activeOperation) return;
+            if (!this.operationStatus?.task_id) return;
             
             try {
-                const response = await ApiService.operations.getStatus(this.activeOperation.taskId);
+                const response = await ApiService.operations.getStatus(this.operationStatus.task_id);
                 this.operationStatus = response.data;
                 
-                if (this.operationStatus.status === 'completed' || this.operationStatus.status === 'error') {
+                if (this.operationStatus.status === 'completed' || this.operationStatus.status === 'failed') {
                     this.stopOperationPolling();
                     
                     if (this.operationStatus.status === 'completed') {
@@ -177,7 +178,7 @@ createApp({
         
         ...FilesBrowserComponent.methods,
         ...ImagingSessionsComponent.methods,
-        ...ImagingSessionDetailModal.methods,
+        // ...ImagingSessionDetailModal.methods,
         ...ProcessingSessionsComponent.methods,
         ...CalibrationModalComponent.methods,
     },

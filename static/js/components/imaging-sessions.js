@@ -110,6 +110,12 @@ window.ImagingSessionsComponent = {
             this.imagingSessionPagination.page = 1;
             this.loadImagingSessions();
         },
+
+        viewSessionDetails(sessionId) {
+            // Access the component via ref
+            this.$refs.sessionDetailModal.viewSessionDetails(sessionId);
+        },
+
     }
 };
 
