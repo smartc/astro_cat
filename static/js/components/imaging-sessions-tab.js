@@ -20,15 +20,15 @@ const ImagingSessionsTab = {
                     <div>
                         <label class="block text-xs font-medium text-gray-700 mb-1">Date Range</label>
                         <div class="space-y-1">
-                            <input v-model="imagingSessionFilters.date_start" type="date" placeholder="Start date" class="filter-input">
-                            <input v-model="imagingSessionFilters.date_end" type="date" placeholder="End date" class="filter-input">
+                            <input v-model="imagingSessionFilters.date_start" type="date" placeholder="Start date" class="filter-input" @change="$root.loadImagingSessions">
+                            <input v-model="imagingSessionFilters.date_end" type="date" placeholder="End date" class="filter-input" @change="$root.loadImagingSessions">
                         </div>
                     </div>
                     
                     <div>
                         <label class="block text-xs font-medium text-gray-700 mb-1">Camera</label>
                         <div class="relative">
-                            <button @click="$root.toggleImagingSessionFilter('cameras')" class="filter-button">
+                            <button @click.stop="$root.toggleImagingSessionFilter('cameras')" class="filter-button">
                                 <span>{{ getImagingSessionFilterText('cameras') }}</span>
                                 <span class="text-gray-400">▼</span>
                             </button>
@@ -46,7 +46,7 @@ const ImagingSessionsTab = {
                     <div>
                         <label class="block text-xs font-medium text-gray-700 mb-1">Telescope</label>
                         <div class="relative">
-                            <button @click="$root.toggleImagingSessionFilter('telescopes')" class="filter-button">
+                            <button @click.stop="$root.toggleImagingSessionFilter('telescopes')" class="filter-button">
                                 <span>{{ getImagingSessionFilterText('telescopes') }}</span>
                                 <span class="text-gray-400">▼</span>
                             </button>

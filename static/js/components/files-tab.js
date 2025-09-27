@@ -163,7 +163,7 @@ const FilesTab = {
                                     <div class="space-y-1">
                                         <input v-model="objectSearchText" @input="$root.filterObjectOptions" placeholder="Search..." class="filter-input">
                                         <div class="relative">
-                                            <button @click="$root.toggleFilter('objects')" class="filter-button">
+                                            <button @click.stop="$root.toggleFilter('objects')" class="filter-button">
                                                 <span>{{ getFilterText('objects') }}</span>
                                                 <span class="text-gray-400">▼</span>
                                             </button>
@@ -189,7 +189,7 @@ const FilesTab = {
                                         </div>
                                     </div>
                                     <div class="relative">
-                                        <button @click="$root.toggleFilter('frame_types')" class="filter-button">
+                                        <button @click.stop="$root.toggleFilter('frame_types')" class="filter-button">
                                             <span>{{ getFilterText('frame_types') }}</span>
                                             <span class="text-gray-400">▼</span>
                                         </button>
@@ -214,7 +214,7 @@ const FilesTab = {
                                         </div>
                                     </div>
                                     <div class="relative">
-                                        <button @click="$root.toggleFilter('cameras')" class="filter-button">
+                                        <button @click.stop="$root.toggleFilter('cameras')" class="filter-button">
                                             <span>{{ getFilterText('cameras') }}</span>
                                             <span class="text-gray-400">▼</span>
                                         </button>
@@ -239,7 +239,7 @@ const FilesTab = {
                                         </div>
                                     </div>
                                     <div class="relative">
-                                        <button @click="$root.toggleFilter('telescopes')" class="filter-button">
+                                        <button @click.stop="$root.toggleFilter('telescopes')" class="filter-button">
                                             <span>{{ getFilterText('telescopes') }}</span>
                                             <span class="text-gray-400">▼</span>
                                         </button>
@@ -264,7 +264,7 @@ const FilesTab = {
                                         </div>
                                     </div>
                                     <div class="relative">
-                                        <button @click="$root.toggleFilter('filters')" class="filter-button">
+                                        <button @click.stop="$root.toggleFilter('filters')" class="filter-button">
                                             <span>{{ getFilterText('filters') }}</span>
                                             <span class="text-gray-400">▼</span>
                                         </button>
@@ -304,8 +304,8 @@ const FilesTab = {
                                         </div>
                                     </div>
                                     <div class="space-y-1">
-                                        <input v-model="searchFilters.date_start" placeholder="Start" type="date" class="narrow-input">
-                                        <input v-model="searchFilters.date_end" placeholder="End" type="date" class="narrow-input">
+                                        <input v-model="searchFilters.date_start" placeholder="Start" type="date" class="narrow-input" @change="$root.loadFiles">
+                                        <input v-model="searchFilters.date_end" placeholder="End" type="date" class="narrow-input" @change="$root.loadFiles">
                                     </div>
                                 </th>
                                 
@@ -329,7 +329,7 @@ const FilesTab = {
                                         type="checkbox" 
                                         :value="file.id" 
                                         :checked="selectedFiles.includes(file.id)"
-                                        @change="toggleFileSelection(file.id)"
+                                        @change="$root.toggleFileSelection(file.id)"
                                         class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                                     >
                                 </td>

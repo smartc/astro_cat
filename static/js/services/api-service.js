@@ -9,7 +9,8 @@ const ApiService = {
 
     files: {
         getFiles: (params) => axios.get('/api/files', { params }),
-        getFilterOptions: () => axios.get('/api/filter-options')
+        getFilterOptions: () => axios.get('/api/filter-options'),
+        getAllFileIds: (params) => axios.get('/api/files/ids', { params }) 
     },
 
     imagingSessions: {

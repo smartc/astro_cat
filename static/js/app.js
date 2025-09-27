@@ -218,6 +218,15 @@ createApp({
     },
     
     async mounted() {
+        // Close dropdowns when clicking outside
+        document.addEventListener('click', (e) => {
+            const isDropdownButton = e.target.closest('.filter-button');
+            if (!isDropdownButton) {
+                this.activeFilter = null;
+                this.activeImagingSessionFilter = null;
+            }
+        });
+
         await this.loadStats();
         await this.loadFilterOptions();
         await this.loadFiles();

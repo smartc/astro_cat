@@ -152,35 +152,34 @@ const CalibrationModalComponent = {
         
         async addSelectedCalibrationFiles() {
             try {
-                const selectedMatches = [];
+                const fileIds = [];
                 
+                // Extract file IDs from selected calibration types
                 Object.keys(this.selectedCalibrationTypes).forEach(frameType => {
                     if (this.selectedCalibrationTypes[frameType]) {
                         this.calibrationMatches[frameType].forEach(match => {
-                            selectedMatches.push({
-                                capture_session_id: match.capture_session_id,
-                                frame_type: frameType.toUpperCase()
-                            });
+                            // Each match has a file_ids array
+                            if (match.file_ids && Array.isArray(match.file_ids)) {
+                                fileIds.push(...match.file_ids);
+                            }
                         });
                     }
                 });
                 
-                if (selectedMatches.length === 0) {
+                if (fileIds.length === 0) {
                     return;
                 }
                 
-                const app = this.$root;
-                const payload = {
-                    calibration_matches: selectedMatches
-                };
+                console.log('Sending file IDs:', fileIds);
                 
-                await ApiService.processingSessions.addCalibrationFiles(
+                const app = this.$root;
+                await ApiService.processingSessions.addFiles(
                     this.currentCalibrationSession.id,
-                    payload
+                    fileIds
                 );
                 
                 this.closeCalibrationModal();
-                alert(`Added ${this.getSelectedCalibrationCount()} calibration files to session!`);
+                alert(`Added ${fileIds.length} calibration files to session!`);
                 
                 await app.loadProcessingSessions();
                 

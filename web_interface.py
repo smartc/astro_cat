@@ -246,6 +246,72 @@ async def get_files(
         logger.error(f"Error fetching files: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/files/ids")
+async def get_file_ids(
+    frame_types: Optional[str] = Query(None),
+    cameras: Optional[str] = Query(None),
+    telescopes: Optional[str] = Query(None),
+    objects: Optional[str] = Query(None),
+    filters: Optional[str] = Query(None),
+    filename: Optional[str] = None,
+    session_id: Optional[str] = None,
+    exposure_min: Optional[float] = None,
+    exposure_max: Optional[float] = None,
+    date_start: Optional[str] = None,
+    date_end: Optional[str] = None,
+    session: Session = Depends(get_db_session)
+):
+    """Get file IDs matching filters (for bulk selection)."""
+    try:
+        query = session.query(FitsFile.id)
+        
+        # Apply same filters as /api/files
+        if frame_types:
+            frame_type_list = [ft.strip() for ft in frame_types.split(',') if ft.strip()]
+            if frame_type_list:
+                query = query.filter(FitsFile.frame_type.in_(frame_type_list))
+        
+        if cameras:
+            camera_list = [c.strip() for c in cameras.split(',') if c.strip()]
+            if camera_list:
+                query = query.filter(FitsFile.camera.in_(camera_list))
+        
+        if telescopes:
+            telescope_list = [t.strip() for t in telescopes.split(',') if t.strip()]
+            if telescope_list:
+                query = query.filter(FitsFile.telescope.in_(telescope_list))
+        
+        if objects:
+            object_list = [o.strip() for o in objects.split(',') if o.strip()]
+            if object_list:
+                query = query.filter(FitsFile.object.in_(object_list))
+        
+        if filters:
+            filter_list = [f.strip() for f in filters.split(',') if f.strip()]
+            if filter_list:
+                query = query.filter(FitsFile.filter.in_(filter_list))
+        
+        if filename:
+            query = query.filter(FitsFile.file.ilike(f"%{filename}%"))
+        if session_id:
+            query = query.filter(FitsFile.session_id.ilike(f"%{session_id}%"))
+        if exposure_min is not None:
+            query = query.filter(FitsFile.exposure >= exposure_min)
+        if exposure_max is not None:
+            query = query.filter(FitsFile.exposure <= exposure_max)
+        if date_start:
+            query = query.filter(FitsFile.obs_date >= date_start)
+        if date_end:
+            query = query.filter(FitsFile.obs_date <= date_end)
+        
+        file_ids = [row[0] for row in query.all()]
+        
+        return {"file_ids": file_ids}
+        
+    except Exception as e:
+        logger.error(f"Error fetching file IDs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/stats")
 async def get_stats(session: Session = Depends(get_db_session)):
     """Get comprehensive database statistics."""
