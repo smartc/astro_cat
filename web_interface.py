@@ -989,6 +989,7 @@ def _run_scan_sync(task_id: str):
             "completed_at": datetime.now()
         }
         logger.error(f"Background scan failed: {e}")
+        current_operation = None
 
     finally:
         _processing_tasks.discard(task_id)
@@ -1046,6 +1047,7 @@ def _run_validation_sync(task_id: str):
             "message": str(e),
             "completed_at": datetime.now()
         }
+        current_operation = None
     finally:
         _processing_tasks.discard(task_id)
         current_operation = None
@@ -1101,6 +1103,7 @@ def _run_migration_sync(task_id: str):
             "completed_at": datetime.now()
         }
         logger.error(f"Background migration failed: {e}")
+        current_operation = None
     finally:
         _processing_tasks.discard(task_id)
         current_operation = None
@@ -1145,7 +1148,7 @@ async def start_validation(
         )
     
     task_id = f"validate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    
+    logger.info("Started Validation Scan: " + task_id)
     # Initialize status BEFORE background task starts
     background_tasks_status[task_id] = {
         "status": "pending",
