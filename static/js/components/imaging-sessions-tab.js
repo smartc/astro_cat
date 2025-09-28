@@ -34,9 +34,9 @@ const ImagingSessionsTab = {
                             </button>
                             <div v-show="activeImagingSessionFilter === 'cameras'" class="filter-dropdown">
                                 <div class="p-2">
-                                    <label v-for="option in filterOptions.cameras" :key="option" class="filter-option">
-                                        <input type="checkbox" :checked="imagingSessionFilters.cameras.includes(option)" @change="$root.toggleImagingSessionFilterOption('cameras', option)">
-                                        <span>{{ option }}</span>
+                                    <label v-for="camera in filterOptions.cameras" :key="camera" class="block">
+                                        <input type="checkbox" :value="camera" v-model="imagingSessionFilters.cameras" @change="$root.loadImagingSessions" class="mr-2">
+                                        {{ camera }}
                                     </label>
                                 </div>
                             </div>
@@ -52,19 +52,19 @@ const ImagingSessionsTab = {
                             </button>
                             <div v-show="activeImagingSessionFilter === 'telescopes'" class="filter-dropdown">
                                 <div class="p-2">
-                                    <label v-for="option in filterOptions.telescopes" :key="option" class="filter-option">
-                                        <input type="checkbox" :checked="imagingSessionFilters.telescopes.includes(option)" @change="$root.toggleImagingSessionFilterOption('telescopes', option)">
-                                        <span>{{ option }}</span>
+                                    <label v-for="telescope in filterOptions.telescopes" :key="telescope" class="block">
+                                        <input type="checkbox" :value="telescope" v-model="imagingSessionFilters.telescopes" @change="$root.loadImagingSessions" class="mr-2">
+                                        {{ telescope }}
                                     </label>
                                 </div>
                             </div>
                         </div>
                     </div>
                     
-                    <div class="flex items-end">
-                        <div class="text-sm text-gray-600">
-                            <div>Total: {{ imagingSessionPagination.total }} sessions</div>
-                            <div v-if="hasActiveImagingSessionFilters" class="text-blue-600">Filtered results</div>
+                    <div v-if="hasActiveImagingSessionFilters" class="flex items-end">
+                        <div class="filter-tag-container">
+                            <div class="text-xs text-gray-600 mb-1">Active Filters</div>
+                            <div @click="$root.clearImagingSessionFilters" class="text-blue-600">Filtered results</div>
                         </div>
                     </div>
                 </div>
@@ -73,31 +73,41 @@ const ImagingSessionsTab = {
             <!-- Sessions List -->
             <div class="bg-white rounded-lg shadow">
                 <div class="p-6">
-                    <div class="space-y-4">
+                    <div v-if="imagingSessions.length === 0" class="text-center py-8 text-gray-500">
+                        <div class="text-6xl mb-4">📅</div>
+                        <p class="text-lg">No imaging sessions found</p>
+                        <p class="text-sm">Import or scan your FITS files to see sessions</p>
+                    </div>
+                    <div v-else class="space-y-4">
                         <div v-for="session in imagingSessions" :key="session.session_id" 
-                            @click="$root.viewSessionDetails(session.session_id)"
-                            class="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-4 cursor-pointer">
+                            class="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-4">
                             <div class="flex justify-between items-start">
-                                <div>
+                                <!-- Session Info (clickable) -->
+                                <div @click="$root.viewSessionDetails(session.session_id)" class="flex-1 cursor-pointer">
                                     <h3 class="font-semibold text-lg">{{ session.session_date }}</h3>
                                     <p class="text-gray-600">{{ session.camera }} + {{ session.telescope }}</p>
                                     <p class="text-sm text-gray-500">{{ session.file_count }} files</p>
                                     <p class="text-sm text-gray-500" v-if="session.site_name">{{ session.site_name }}</p>
-                                </div>
-                                <div class="text-right">
                                     <p class="text-xs text-gray-500 font-mono">{{ session.session_id }}</p>
                                     <p class="text-xs text-gray-500" v-if="session.observer">{{ session.observer }}</p>
+                                    <div v-if="session.notes" class="mt-2 text-sm text-gray-700">
+                                        {{ session.notes }}
+                                    </div>
                                 </div>
-                            </div>
-                            <div v-if="session.notes" class="mt-2 text-sm text-gray-700">
-                                {{ session.notes }}
+                                
+                                <!-- Action Buttons -->
+                                <div class="flex flex-col space-y-2 ml-4">
+                                    <button @click="openImagingSessionEditor(session.session_id, session.session_date, session.telescope, $event)" class="btn btn-green text-sm">
+                                        📝 Edit Notes
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
                 
                 <!-- Sessions Pagination -->
-                <div class="pagination-container">
+                <div v-if="imagingSessions.length > 0" class="pagination-container">
                     <div class="flex items-center justify-between">
                         <div class="text-sm text-gray-700">
                             Showing {{ (imagingSessionPagination.page - 1) * imagingSessionPagination.limit + 1 }} to 
@@ -121,7 +131,16 @@ const ImagingSessionsTab = {
         </div>
     `,
     
-    methods: ImagingSessionsComponent.methods,
+    methods: {
+        ...ImagingSessionsComponent.methods,
+        
+        openImagingSessionEditor(sessionId, sessionDate, telescope, event) {
+            event.stopPropagation(); // Prevent detail modal from opening
+            const sessionName = `${sessionDate} - ${telescope || 'Unknown'}`;
+            const url = `/imaging-editor?session_id=${sessionId}&session_name=${encodeURIComponent(sessionName)}`;
+            window.open(url, '_blank');
+        }
+    },
     
     computed: {
         imagingSessions() { return this.$root.imagingSessions; },

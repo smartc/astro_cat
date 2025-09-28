@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 import traceback
+import os
+
 
 from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks, Body
 from fastapi.staticfiles import StaticFiles
@@ -1396,6 +1398,266 @@ async def save_processing_session_info(
     except Exception as e:
         logger.error(f"Error saving session info: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# Add these routes to your web_interface.py file, before the "if __name__ == "__main__":" section
+
+# First, add this route for the editor page
+@app.get("/imaging-editor", response_class=HTMLResponse)
+async def imaging_session_markdown_editor():
+    """Markdown editor for imaging sessions."""
+    return FileResponse("static/editor.html")
+
+# Add the API endpoints for imaging session notes
+@app.get("/api/imaging-sessions/{session_id}/session-info")
+async def get_imaging_session_info(session_id: str, session: Session = Depends(get_db_session)):
+    """Get session_info.md file for imaging session, creating default content if none exists."""
+    try:
+        # Verify session exists in database
+        imaging_session = session.query(SessionModel).filter(
+            SessionModel.session_id == session_id
+        ).first()
+        
+        if not imaging_session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Get image directory from config
+        base_dir = Path(config.paths.image_dir)
+        
+        # Create session_info folder structure
+        session_date = datetime.strptime(imaging_session.session_date, '%Y-%m-%d')
+        year = session_date.year
+        session_info_dir = base_dir / ".session_info" / str(year)
+        session_info_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Session info file path
+        info_file = session_info_dir / f"{session_id}_session_notes.md"
+        
+        if info_file.exists():
+            return {"content": info_file.read_text(encoding='utf-8')}
+        else:
+            # Generate default content from database
+            default_content = generate_imaging_session_default_content(session_id, session)
+            return {"content": default_content}
+            
+    except Exception as e:
+        logger.error(f"Error reading imaging session info: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/imaging-sessions/{session_id}/session-info")
+async def save_imaging_session_info(
+    session_id: str,
+    content: str = Body(...),
+    session: Session = Depends(get_db_session)
+):
+    """Save session_info.md file for imaging session."""
+    try:
+        # Verify session exists
+        imaging_session = session.query(SessionModel).filter(
+            SessionModel.session_id == session_id
+        ).first()
+        
+        if not imaging_session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Get image directory from config
+        base_dir = Path(config.paths.image_dir)
+        
+        # Create session_info folder structure
+        session_date = datetime.strptime(imaging_session.session_date, '%Y-%m-%d')
+        year = session_date.year
+        session_info_dir = base_dir / ".session_info" / str(year)
+        session_info_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save file
+        info_file = session_info_dir / f"{session_id}_session_notes.md"
+        info_file.write_text(content, encoding='utf-8')
+        
+        logger.info(f"Saved imaging session info for {session_id}: {len(content)} characters")
+        
+        return {"message": "Session info saved successfully", "file_path": str(info_file)}
+        
+    except Exception as e:
+        logger.error(f"Error saving imaging session info: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def generate_imaging_session_default_content(session_id: str, db_session: Session) -> str:
+    """Generate default markdown content for an imaging session."""
+    try:
+        # Get session details
+        imaging_session = db_session.query(SessionModel).filter(
+            SessionModel.session_id == session_id
+        ).first()
+        
+        if not imaging_session:
+            return f"# Imaging Session: {session_id}\n\nSession not found in database."
+        
+        # Get all files for this session for statistics
+        files = db_session.query(FitsFile).filter(
+            FitsFile.session_id == session_id
+        ).all()
+        
+        # Calculate statistics
+        total_files = len(files)
+        frame_type_counts = {}
+        objects_data = {}
+        filters_used = set()
+        total_exposure_time = 0
+        
+        for file in files:
+            # Frame type counts
+            frame_type = file.frame_type or 'UNKNOWN'
+            frame_type_counts[frame_type] = frame_type_counts.get(frame_type, 0) + 1
+            
+            # Object grouping - FIXED: use file.object not file.object_name
+            obj_name = file.object or 'UNKNOWN'
+            if obj_name not in objects_data:
+                objects_data[obj_name] = {
+                    'light': 0, 'dark': 0, 'flat': 0, 'bias': 0,
+                    'filters': {}, 'total_exposure': 0
+                }
+            
+            objects_data[obj_name][frame_type.lower()] = objects_data[obj_name].get(frame_type.lower(), 0) + 1
+            
+            # Track filters and exposure for light frames
+            if frame_type == 'LIGHT':
+                filter_name = file.filter or 'None'
+                filters_used.add(filter_name)
+                
+                if filter_name not in objects_data[obj_name]['filters']:
+                    objects_data[obj_name]['filters'][filter_name] = {'count': 0, 'exposure': 0}
+                
+                objects_data[obj_name]['filters'][filter_name]['count'] += 1
+                
+                if file.exposure:
+                    exposure_seconds = float(file.exposure)
+                    objects_data[obj_name]['filters'][filter_name]['exposure'] += exposure_seconds
+                    objects_data[obj_name]['total_exposure'] += exposure_seconds
+                    total_exposure_time += exposure_seconds
+        
+        # Format exposure time
+        def format_time(seconds):
+            if seconds == 0:
+                return "0h 0m 0s"
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            secs = int(seconds % 60)
+            return f"{hours}h {minutes}m {secs}s"
+        
+        # Build markdown content
+        content = f"""# Imaging Session: {session_id}
+
+## Session Information
+
+* **Session ID:** {session_id}
+* **Observer:** {imaging_session.observer or 'Unknown'}
+* **Imaging Date:** {imaging_session.session_date}
+* **Location:** {imaging_session.site_name or 'Unknown'}"""
+        
+        if imaging_session.latitude and imaging_session.longitude:
+            content += f"""
+* **Coordinates:** {imaging_session.latitude:.4f}°, {imaging_session.longitude:.4f}°"""
+        
+        if imaging_session.elevation:
+            content += f"""
+* **Elevation:** {imaging_session.elevation}m"""
+        
+        content += f"""
+
+## Equipment Information
+
+* **Telescope:** {imaging_session.telescope or 'Unknown'}
+* **Camera:** {imaging_session.camera or 'Unknown'}"""
+        
+        if filters_used:
+            filters_list = ', '.join(sorted(filters_used))
+            content += f"""
+* **Filters Used:** {filters_list}"""
+        
+        content += f"""
+
+## Session Summary
+
+* **Total Files:** {total_files}
+* **Light Frames:** {frame_type_counts.get('LIGHT', 0)}
+* **Dark Frames:** {frame_type_counts.get('DARK', 0)}
+* **Flat Frames:** {frame_type_counts.get('FLAT', 0)}
+* **Bias Frames:** {frame_type_counts.get('BIAS', 0)}
+* **Total Imaging Time:** {format_time(total_exposure_time)} (light frames only)
+
+## Objects Imaged
+"""
+        
+        if objects_data:
+            for obj_name, obj_info in sorted(objects_data.items()):
+                content += f"""
+### {obj_name}
+
+* **Light Frames:** {obj_info.get('light', 0)}
+* **Dark Frames:** {obj_info.get('dark', 0)}
+* **Flat Frames:** {obj_info.get('flat', 0)}
+* **Bias Frames:** {obj_info.get('bias', 0)}
+* **Total Imaging Time:** {format_time(obj_info['total_exposure'])}"""
+                
+                if obj_info['filters']:
+                    content += f"""
+
+**Filter Breakdown:**"""
+                    for filter_name, filter_info in sorted(obj_info['filters'].items()):
+                        filter_time = format_time(filter_info['exposure'])
+                        content += f"""
+* **{filter_name}:** {filter_info['count']} frames, {filter_time}"""
+        else:
+            content += """
+No objects found in this session.
+"""
+        
+        # Add weather section if available
+        content += f"""
+
+## Weather Information
+
+*Weather data to be added during imaging...*
+
+## Session Notes
+
+*Add your notes about this imaging session here...*
+
+### Equipment Performance
+
+*Notes about how equipment performed during this session...*
+
+### Seeing Conditions
+
+*Notes about atmospheric conditions, seeing, transparency...*
+
+### Issues Encountered
+
+*Any problems or issues that occurred during imaging...*
+
+### Processing Plans
+
+*Plans or notes for processing these images...*
+"""
+        
+        return content
+        
+    except Exception as e:
+        logger.error(f"Error generating default content for session {session_id}: {e}")
+        return f"""# Imaging Session: {session_id}
+
+## Session Information
+
+*Error loading session details from database.*
+
+## Session Notes
+
+*Add your notes about this imaging session here...*
+"""
+
 
 # ============================================================================
 # MAIN

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Processing Notes Editor</title>
+    <title>Session Notes Editor</title>
     <link rel="stylesheet" href="/static/js/lib/toastui-editor.min.css">
     <style>
         body {
@@ -78,7 +78,7 @@
 <body>
     <div class="header">
         <div>
-            <h1 id="session-name">Processing Notes</h1>
+            <h1 id="session-name">Session Notes</h1>
             <div class="session-id" id="session-id"></div>
         </div>
         <div class="controls">
@@ -98,9 +98,14 @@
         const sessionId = urlParams.get('session_id');
         const sessionName = decodeURIComponent(urlParams.get('session_name') || 'Unknown Session');
         
+        // Determine if this is an imaging session or processing session based on URL path
+        const isImagingSession = window.location.pathname.includes('imaging-editor');
+        const sessionType = isImagingSession ? 'Imaging Session' : 'Processing Session';
+        const apiBase = isImagingSession ? '/api/imaging-sessions' : '/api/processing-sessions';
+        
         // Update page title and header
-        document.title = `${sessionName} - Processing Notes`;
-        document.getElementById('session-name').textContent = `${sessionName} - Processing Notes`;
+        document.title = `${sessionName} - ${sessionType} Notes`;
+        document.getElementById('session-name').textContent = `${sessionName} - ${sessionType} Notes`;
         document.getElementById('session-id').textContent = `Session ID: ${sessionId}`;
         
         // Initialize Toast UI Editor
@@ -109,7 +114,7 @@
             height: '100%',
             initialEditType: 'wysiwyg',
             previewStyle: 'vertical',
-            placeholder: 'Enter your processing session notes here...',
+            placeholder: `Enter your ${sessionType.toLowerCase()} notes here...`,
             autofocus: true
         });
         
@@ -123,9 +128,9 @@
         
         // Load notes on page load
         async function loadNotes() {
-            console.log('Loading notes for session:', sessionId);
+            console.log(`Loading ${sessionType.toLowerCase()} notes for session:`, sessionId);
             try {
-                const response = await fetch(`/api/processing-sessions/${sessionId}/session-info`);
+                const response = await fetch(`${apiBase}/${sessionId}/session-info`);
                 console.log('Response status:', response.status);
                 
                 if (response.ok) {
@@ -136,27 +141,17 @@
                     hasUnsavedChanges = false;
                     console.log('Markdown set successfully');
                 } else {
-                    console.log('No existing session info, creating default');
-                    const defaultContent = `# Processing Session: ${sessionName}
-
-## Processing Notes
-Add your processing notes here...
-
-## Processing Checklist
-- [ ] Calibration frames applied
-- [ ] Stacking completed
-- [ ] Background extraction
-- [ ] Noise reduction
-- [ ] Final processing
-
-## Results
-`;
+                    console.log(`No existing ${sessionType.toLowerCase()} info, creating default`);
+                    const defaultContent = isImagingSession ? 
+                        `# Imaging Session: ${sessionName}\n\n## Session Notes\nAdd your imaging session notes here...\n\n## Weather Information\n\n## Equipment Performance\n\n## Processing Plans\n` :
+                        `# Processing Session: ${sessionName}\n\n## Processing Notes\nAdd your processing notes here...\n\n## Processing Checklist\n- [ ] Calibration frames applied\n- [ ] Stacking completed\n- [ ] Background extraction\n- [ ] Noise reduction\n- [ ] Final processing\n\n## Results\n`;
+                    
                     editor.setMarkdown(defaultContent);
                     hasUnsavedChanges = false;
                 }
             } catch (error) {
                 console.error('Error loading notes:', error);
-                editor.setMarkdown(`# Processing Session: ${sessionName}\n\nAdd your notes here...`);
+                editor.setMarkdown(`# ${sessionType}: ${sessionName}\n\nAdd your notes here...`);
                 hasUnsavedChanges = false;
             }
         }
@@ -169,7 +164,7 @@ Add your processing notes here...
                 
                 const content = editor.getMarkdown();
                 
-                const response = await fetch(`/api/processing-sessions/${sessionId}/session-info`, {
+                const response = await fetch(`${apiBase}/${sessionId}/session-info`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(content)
@@ -211,7 +206,6 @@ Add your processing notes here...
             if (hasUnsavedChanges) {
                 e.preventDefault();
                 e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
-                return 'You have unsaved changes. Are you sure you want to leave?';
             }
         });
         
