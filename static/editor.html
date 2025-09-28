@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Processing Notes Editor</title>
-    <link rel="stylesheet" href="/static/js/lib/easymde.min.css">
+    <link rel="stylesheet" href="/static/js/lib/toastui-editor.min.css">
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -61,24 +61,12 @@
             flex-direction: column;
             min-height: 0;
         }
-        .EasyMDEContainer {
+        .toastui-editor {
+            height: 100% !important;
+            flex: 1;
+        }
+        .toastui-editor .ProseMirror {
             height: 100%;
-            display: flex;
-            flex-direction: column;
-        }
-        .editor-toolbar {
-            flex-shrink: 0;
-            background: white !important;
-            border-bottom: 1px solid #ddd !important;
-            border-radius: 8px 8px 0 0;
-        }
-        .CodeMirror {
-            flex: 1 !important;
-            height: auto !important;
-            border-radius: 0 0 8px 8px;
-        }
-        .CodeMirror-scroll {
-            padding-top: 10px;
         }
         .auto-save {
             color: #10b981;
@@ -100,10 +88,10 @@
     </div>
     
     <div class="editor-container">
-        <textarea id="editor"></textarea>
+        <div id="editor"></div>
     </div>
 
-    <script src="/static/js/lib/easymde.min.js"></script>
+    <script src="/static/js/lib/toastui-editor-all.min.js"></script>
     <script>
         // Get URL parameters
         const urlParams = new URLSearchParams(window.location.search);
@@ -115,25 +103,21 @@
         document.getElementById('session-name').textContent = `${sessionName} - Processing Notes`;
         document.getElementById('session-id').textContent = `Session ID: ${sessionId}`;
         
-        // Initialize EasyMDE
-        const editor = new EasyMDE({
-            element: document.querySelector('#editor'),
-            spellChecker: false,
-            autofocus: true,
-            toolbar: [
-                'bold', 'italic', 'heading', '|',
-                'unordered-list', 'ordered-list', '|',
-                'link', 'code', '|',
-                'preview', 'side-by-side', 'fullscreen'
-            ],
-            placeholder: 'Enter your processing session notes here...'
+        // Initialize Toast UI Editor
+        const editor = new toastui.Editor({
+            el: document.querySelector('#editor'),
+            height: '100%',
+            initialEditType: 'markdown',
+            previewStyle: 'vertical',
+            placeholder: 'Enter your processing session notes here...',
+            autofocus: true
         });
         
         let autoSaveTimer;
         let hasUnsavedChanges = false;
         
         // Track changes for unsaved prompt
-        editor.codemirror.on('change', () => {
+        editor.on('change', () => {
             hasUnsavedChanges = true;
         });
         
@@ -148,7 +132,7 @@
                     const data = await response.json();
                     console.log('Loaded content length:', data.content.length);
                     console.log('Setting markdown content...');
-                    editor.value(data.content);
+                    editor.setMarkdown(data.content);
                     hasUnsavedChanges = false;
                     console.log('Markdown set successfully');
                 } else {
@@ -167,12 +151,12 @@ Add your processing notes here...
 
 ## Results
 `;
-                    editor.value(defaultContent);
+                    editor.setMarkdown(defaultContent);
                     hasUnsavedChanges = false;
                 }
             } catch (error) {
                 console.error('Error loading notes:', error);
-                editor.value(`# Processing Session: ${sessionName}\n\nAdd your notes here...`);
+                editor.setMarkdown(`# Processing Session: ${sessionName}\n\nAdd your notes here...`);
                 hasUnsavedChanges = false;
             }
         }
@@ -183,7 +167,7 @@ Add your processing notes here...
                 document.getElementById('save-btn').disabled = true;
                 document.getElementById('save-btn').textContent = 'Saving...';
                 
-                const content = editor.value();
+                const content = editor.getMarkdown();
                 
                 const response = await fetch(`/api/processing-sessions/${sessionId}/session-info`, {
                     method: 'PUT',
