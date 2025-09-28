@@ -109,25 +109,6 @@ def get_db_session():
     finally:
         session.close()
 
-# ============================================================================
-# OPERATION STATUS AND LOCKING
-# ============================================================================
-
-@app.get("/api/operations/current")
-async def get_current_operation():
-    """Get the currently running operation, if any."""
-    if current_operation:
-        return {
-            "operation_in_progress": True,
-            "operation_type": current_operation,
-            "task_id": [k for k, v in background_tasks_status.items() 
-                       if v.get('status') == 'running']
-        }
-    return {
-        "operation_in_progress": False,
-        "operation_type": None
-    }
-
 
 # ============================================================================
 # EXISTING API ROUTES (unchanged)
@@ -912,12 +893,11 @@ async def add_files_to_processing_session(
 # ============================================================================
 # EXISTING OPERATION ROUTES (unchanged)
 # ============================================================================
-
+# Background task tracking
 _processing_tasks = set()
 
 def _run_scan_sync(task_id: str):
     """Synchronous scan wrapper."""
-
     global current_operation
 
     if task_id in _processing_tasks:
@@ -989,7 +969,6 @@ def _run_scan_sync(task_id: str):
             "completed_at": datetime.now()
         }
         logger.error(f"Background scan failed: {e}")
-        current_operation = None
 
     finally:
         _processing_tasks.discard(task_id)
@@ -997,13 +976,13 @@ def _run_scan_sync(task_id: str):
 
 
 async def run_scan_operation(task_id: str):
-    """Async wrapper."""
+    """Async wrapper that runs sync scan in executor."""
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(executor, _run_scan_sync, task_id)
 
 
-def _run_validation_sync(task_id: str):
-
+def _run_validation_sync(task_id: str, check_files: bool = True):
+    """Synchronous validation wrapper - FIXED: Added check_files parameter."""
     global current_operation
 
     if task_id in _processing_tasks:
@@ -1012,21 +991,16 @@ def _run_validation_sync(task_id: str):
     _processing_tasks.add(task_id)
     current_operation = "validation"
     
-    # Update from pending to running
-    background_tasks_status[task_id]["status"] = "running"
-    background_tasks_status[task_id]["message"] = "Running validation..."
-
     try:
-        background_tasks_status[task_id] = {
-            "status": "running",
-            "message": "Running validation...",
-            "progress": 0,
-            "started_at": datetime.now()
-        }
+        # Update from pending to running
+        background_tasks_status[task_id]["status"] = "running"
+        background_tasks_status[task_id]["message"] = "Running validation..."
         
         def update_progress(progress, stats):
             background_tasks_status[task_id]["progress"] = progress
             background_tasks_status[task_id]["message"] = f"Validating: {stats['auto_migrate']} auto"
+        
+        logger.info(f"Starting validation operation {task_id} with check_files={check_files}")
         
         validator = FitsValidator(db_service)
         stats = validator.validate_all_files(
@@ -1041,31 +1015,36 @@ def _run_validation_sync(task_id: str):
             "completed_at": datetime.now(),
             "results": stats
         })
+        
+        logger.info(f"Validation operation {task_id} completed: {stats}")
+        
     except Exception as e:
         background_tasks_status[task_id] = {
             "status": "error",
             "message": str(e),
             "completed_at": datetime.now()
         }
-        current_operation = None
+        logger.error(f"Background validation failed: {e}")
     finally:
         _processing_tasks.discard(task_id)
         current_operation = None
 
+
 async def run_validation_operation(task_id: str, check_files: bool = True):
-    """Async wrapper that runs sync validation in executor."""
+    """Async wrapper that runs sync validation in executor - FIXED: Pass check_files parameter."""
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(executor, _run_validation_sync, task_id)
+    await loop.run_in_executor(executor, _run_validation_sync, task_id, check_files)
 
 
 def _run_migration_sync(task_id: str):
-    """Synchronous migration wrapper."""
+    """Synchronous migration wrapper - FIXED: Added current_operation assignment."""
     global current_operation
 
     if task_id in _processing_tasks:
         return
     
     _processing_tasks.add(task_id)
+    current_operation = "migration"  # FIXED: This was missing!
     
     try:
         background_tasks_status[task_id]["status"] = "running"
@@ -1088,9 +1067,9 @@ def _run_migration_sync(task_id: str):
                 "processed": stats['processed'],
                 "errors": stats['errors'],
                 "skipped": stats['skipped'],
-                "duplicates_moved": stats['duplicates_moved'],
-                "bad_files_moved": stats['bad_files_moved'],
-                "left_for_review": stats['left_for_review']
+                "duplicates_moved": stats.get('duplicates_moved', 0),
+                "bad_files_moved": stats.get('bad_files_moved', 0),
+                "left_for_review": stats.get('left_for_review', 0)
             }
         }
         
@@ -1103,7 +1082,6 @@ def _run_migration_sync(task_id: str):
             "completed_at": datetime.now()
         }
         logger.error(f"Background migration failed: {e}")
-        current_operation = None
     finally:
         _processing_tasks.discard(task_id)
         current_operation = None
@@ -1115,15 +1093,21 @@ async def run_migration_operation(task_id: str):
     await loop.run_in_executor(executor, _run_migration_sync, task_id)
 
 
+
+
 @app.post("/api/operations/scan")
 async def start_scan(background_tasks: BackgroundTasks):
+    logger.info("🔍 Scan request received")
+    
     if current_operation:
+        logger.warning(f"❌ Cannot start scan: {current_operation} operation already in progress")
         raise HTTPException(
             status_code=409, 
             detail=f"Cannot start scan: {current_operation} operation already in progress"
         )
 
     task_id = f"scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    logger.info(f"🆔 Created scan task: {task_id}")
     
     # Initialize status first
     background_tasks_status[task_id] = {
@@ -1133,43 +1117,63 @@ async def start_scan(background_tasks: BackgroundTasks):
         "started_at": datetime.now()
     }
     
-    background_tasks.add_task(run_scan_operation, task_id)
-    return {"task_id": task_id, "message": "Scan started"}
+    try:
+        background_tasks.add_task(run_scan_operation, task_id)
+        logger.info(f"✅ Scan task {task_id} queued successfully")
+        return {"task_id": task_id, "message": "Scan started"}
+    except Exception as e:
+        logger.error(f"❌ Failed to queue scan task: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start scan: {e}")
 
 
 @app.post("/api/operations/validate")
 async def start_validation(
     background_tasks: BackgroundTasks,
-    check_files: bool = Query(True, description="Check if physical files exist") ):
+    check_files: bool = Query(True, description="Check if physical files exist")
+):
+    logger.info(f"🔍 Validation request received: check_files={check_files}")
+    
     if current_operation:
+        logger.warning(f"❌ Cannot start validation: {current_operation} operation already in progress")
         raise HTTPException(
             status_code=409, 
             detail=f"Cannot start validation: {current_operation} operation already in progress"
         )
     
     task_id = f"validate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    logger.info("Started Validation Scan: " + task_id)
+    logger.info(f"🆔 Created validation task: {task_id}")
+    
     # Initialize status BEFORE background task starts
     background_tasks_status[task_id] = {
         "status": "pending",
         "message": "Validation queued...",
         "progress": 0,
-        "started_at": datetime.now()
+        "started_at": datetime.now(),
+        "check_files": check_files  # Store the parameter for debugging
     }
     
-    background_tasks.add_task(run_validation_operation, task_id, check_files)
-    return {"task_id": task_id, "message": "Validation started"}
+    try:
+        background_tasks.add_task(run_validation_operation, task_id, check_files)
+        logger.info(f"✅ Validation task {task_id} queued successfully with check_files={check_files}")
+        return {"task_id": task_id, "message": "Validation started"}
+    except Exception as e:
+        logger.error(f"❌ Failed to queue validation task: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start validation: {e}")
 
 
 @app.post("/api/operations/migrate")
 async def start_migration(background_tasks: BackgroundTasks):
-    if current_operation:  # ADD THIS CHECK
+    logger.info("🔍 Migration request received")
+    
+    if current_operation:
+        logger.warning(f"❌ Cannot start migration: {current_operation} operation already in progress")
         raise HTTPException(
             status_code=409, 
             detail=f"Cannot start migration: {current_operation} operation already in progress"
         )
 
     task_id = f"migrate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    logger.info(f"🆔 Created migration task: {task_id}")
     
     # Initialize status BEFORE background task starts
     background_tasks_status[task_id] = {
@@ -1179,21 +1183,43 @@ async def start_migration(background_tasks: BackgroundTasks):
         "started_at": datetime.now()
     }
     
-    background_tasks.add_task(run_migration_operation, task_id)
-    return {"task_id": task_id, "message": "Migration started"}
+    try:
+        background_tasks.add_task(run_migration_operation, task_id)
+        logger.info(f"✅ Migration task {task_id} queued successfully")
+        return {"task_id": task_id, "message": "Migration started"}
+    except Exception as e:
+        logger.error(f"❌ Failed to queue migration task: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start migration: {e}")
 
 
 @app.get("/api/operations/status/{task_id}")
 async def get_operation_status(task_id: str):
-    """Get status of a background operation."""
+    """Get status of a background operation with enhanced debugging."""
     if task_id not in background_tasks_status:
+        logger.warning(f"Task {task_id} not found in background_tasks_status")
+        logger.debug(f"Available tasks: {list(background_tasks_status.keys())}")
         raise HTTPException(status_code=404, detail="Task not found")
     
-    # Include task_id in the response
+    # Include task_id and debug info in the response
     status_data = background_tasks_status[task_id].copy()
     status_data["task_id"] = task_id
+    status_data["debug_info"] = {
+        "current_operation": current_operation,
+        "processing_tasks": list(_processing_tasks),
+        "total_tracked_tasks": len(background_tasks_status)
+    }
+    
     return status_data
 
+
+@app.get("/api/operations/current")
+async def get_current_operation():
+    """Get current operation status."""
+    return {
+        "current_operation": current_operation,
+        "processing_tasks": list(_processing_tasks),
+        "total_tracked_tasks": len(background_tasks_status)
+    }
 @app.delete("/api/operations/remove-missing")
 async def remove_missing_files(dry_run: bool = Query(True)):
     """Remove database records for missing files."""
@@ -1250,6 +1276,78 @@ async def health_check():
             "error": str(e),
             "timestamp": datetime.now().isoformat()
         }
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize application on startup with enhanced error checking."""
+    global config, db_manager, db_service, cameras, telescopes, filter_mappings, processing_manager, executor
+    
+    try:
+        logger.info("🚀 Starting FITS Cataloger Web Interface...")
+        
+        # Load configuration with error handling
+        try:
+            config, cameras, telescopes, filter_mappings = load_config()
+            logger.info(f"✅ Configuration loaded: {len(cameras)} cameras, {len(telescopes)} telescopes")
+        except Exception as e:
+            logger.error(f"❌ Failed to load configuration: {e}")
+            raise
+        
+        # Initialize database with error handling
+        try:
+            db_manager = DatabaseManager(config.database.connection_string)
+            db_service = DatabaseService(db_manager)
+            logger.info("✅ Database service initialized")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize database: {e}")
+            raise
+        
+        # Test database connection
+        try:
+            session = db_manager.get_session()
+            test_count = session.query(func.count(FitsFile.id)).scalar()
+            session.close()
+            logger.info(f"✅ Database connection verified: {test_count} files in database")
+        except Exception as e:
+            logger.error(f"❌ Database connection test failed: {e}")
+            raise
+        
+        # Initialize processing session manager
+        try:
+            processing_manager = ProcessingSessionManager(config, db_service)
+            logger.info("✅ Processing session manager initialized")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize processing manager: {e}")
+            raise
+        
+        # Verify critical modules can be imported
+        try:
+            from validation import FitsValidator
+            from file_organizer import FileOrganizer
+            from fits_processor import OptimizedFitsProcessor
+            logger.info("✅ All critical modules imported successfully")
+        except ImportError as e:
+            logger.error(f"❌ Failed to import critical module: {e}")
+            raise
+        
+        # Test creating instances
+        try:
+            test_validator = FitsValidator(db_service)
+            test_organizer = FileOrganizer(config, db_service)
+            test_processor = OptimizedFitsProcessor(config, cameras, telescopes, filter_mappings, db_service)
+            logger.info("✅ All service instances created successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to create service instances: {e}")
+            raise
+        
+        logger.info("🎉 Web interface startup completed successfully!")
+        
+    except Exception as e:
+        logger.error(f"💥 CRITICAL: Web interface startup failed: {e}")
+        raise
+
+
 
 # ============================================================================
 # MAIN
