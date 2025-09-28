@@ -373,10 +373,11 @@ def monitor(ctx, interval):
 
 
 @cli.command()
-@click.option('--limit', '-l', type=int, help='Maximum number of files to validate')
+@click.option('--check-files/--no-check-files', default=True, help='Check if physical files exist')
+@click.option('--limit', type=int, help='Limit number of files to validate')
 @click.pass_context
-def validate(ctx, limit):
-    """Run validation scoring on all FITS files in database."""
+def validate(ctx, check_files, limit):
+    """Validate files and check for missing files."""
     config_path = ctx.obj['config_path']
     verbose = ctx.obj['verbose']
     
@@ -387,24 +388,27 @@ def validate(ctx, limit):
         cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
         validator = FitsValidator(cataloger.db_service)
         
-        click.echo("Starting FITS file validation...")
+        click.echo("Starting validation...")
+        if check_files:
+            click.echo("Checking for missing files on disk...")
         
-        # Run validation
-        stats = validator.validate_all_files(limit)
+        stats = validator.validate_all_files(limit=limit, check_files=check_files)
         
-        # Show results
-        click.echo("Validation completed!")
-        click.echo(f"  Total files:        {stats['total']:>6}")
-        click.echo(f"  Auto-migrate ready: {stats['auto_migrate']:>6} (≥95 points)")
-        click.echo(f"  Needs review:       {stats['needs_review']:>6} (80-94 points)")
-        click.echo(f"  Manual only:        {stats['manual_only']:>6} (<80 points)")
-        click.echo(f"  Errors:             {stats['errors']:>6}")
+        click.echo("\nValidation Results:")
+        click.echo(f"  Total files:      {stats['total']:>6}")
+        click.echo(f"  Auto-migrate:     {stats['auto_migrate']:>6} (≥95 points)")
+        click.echo(f"  Needs review:     {stats['needs_review']:>6} (80-94 points)")
+        click.echo(f"  Manual only:      {stats['manual_only']:>6} (<80 points)")
         
-        # Show summary by frame type
-        summary = validator.get_validation_summary()
-        click.echo("\nAverage scores by frame type:")
-        for frame_type, data in summary['frame_type_averages'].items():
-            click.echo(f"  {frame_type:>5}: {data['avg_score']:>5.1f} pts ({data['count']:>5} files)")
+        if check_files:
+            click.echo(f"  Missing files:    {stats['missing_files']:>6}")
+            
+            if stats['missing_files'] > 0:
+                click.echo(f"\n⚠ Found {stats['missing_files']} files that don't exist on disk")
+                click.echo("  Use 'remove-missing' command to clean database")
+        
+        click.echo(f"  Updated:          {stats['updated']:>6}")
+        click.echo(f"  Errors:           {stats['errors']:>6}")
         
         cataloger.cleanup()
         
@@ -412,6 +416,45 @@ def validate(ctx, limit):
         click.echo(f"Error during validation: {e}")
         sys.exit(1)
 
+
+@cli.command()
+@click.option('--dry-run/--execute', default=True, help='Dry run mode (default) or execute removal')
+@click.pass_context
+def remove_missing(ctx, dry_run):
+    """Remove database records for files that don't exist on disk."""
+    config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        validator = FitsValidator(cataloger.db_service)
+        
+        if dry_run:
+            click.echo("DRY RUN MODE - No files will be removed")
+        else:
+            if not click.confirm("This will permanently remove missing file records from the database. Continue?"):
+                return
+        
+        stats = validator.remove_missing_files(dry_run=dry_run)
+        
+        click.echo(f"\nResults:")
+        click.echo(f"  Missing files found: {stats['missing']}")
+        
+        if dry_run:
+            click.echo(f"  Would remove: {stats['missing']} records")
+            click.echo("\nRun with --execute to actually remove records")
+        else:
+            click.echo(f"  Removed: {stats['removed']} records")
+            click.echo("✓ Database cleaned")
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error removing missing files: {e}")
+        sys.exit(1)
 
 @cli.command()
 @click.pass_context

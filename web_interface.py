@@ -1053,7 +1053,7 @@ def _run_validation_sync(task_id: str):
 async def run_validation_operation(task_id: str, check_files: bool = True):
     """Async wrapper that runs sync validation in executor."""
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(executor, _run_validation_sync, task_id, check_files)
+    await loop.run_in_executor(executor, _run_validation_sync, task_id)
 
 
 def _run_migration_sync(task_id: str):
