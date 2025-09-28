@@ -152,6 +152,9 @@ const ProcessingSessionDetailsModal = {
             await app.updateProcessingSessionStatus(sessionId);
             // Reload the session details to show updated status
             await this.viewProcessingSession(sessionId);
+            
+            // REFRESH STATS AFTER STATUS UPDATE
+            await window.refreshStats();
         },
         
         getProcessingStatusClass(status) {

@@ -1,6 +1,13 @@
 // FITS Cataloger Vue.js Application - Fully Refactored
 // All modals extracted to components
 
+window.refreshStats = async function() {
+    const app = window.vueApp;
+    if (app) {
+        await app.loadStats();
+    }
+};
+
 const { createApp } = Vue;
 
 createApp({
@@ -172,27 +179,37 @@ createApp({
                 const response = await ApiService.operations.getStatus(this.operationStatus.task_id);
                 this.operationStatus = response.data;
                 
-                if (this.operationStatus.status === 'completed' || this.operationStatus.status === 'failed') {
-                    this.stopOperationPolling();
+                if (this.operationStatus.status === 'completed' || 
+                    this.operationStatus.status === 'error') {
+                    clearInterval(this.operationPolling);
+                    this.operationPolling = null;
+                    this.activeOperation = null;
+                    
+                    // REFRESH STATS AFTER OPERATION COMPLETES
+                    await this.loadStats();
                     
                     if (this.operationStatus.status === 'completed') {
-                        await this.loadStats();
+                        // Also refresh any relevant data tabs
                         if (this.activeTab === 'files') {
                             await this.loadFiles();
+                        } else if (this.activeTab === 'imaging-sessions') {
+                            await this.loadImagingSessions();
                         }
                     }
                 }
-                
             } catch (error) {
                 console.error('Error checking operation status:', error);
-                this.stopOperationPolling();
             }
         },
         
         pollOperationStatus() {
-            this.operationPolling = setInterval(() => {
-                this.checkOperationStatus();
-            }, 1000);
+            if (this.operationPolling) {
+                clearInterval(this.operationPolling);
+            }
+            
+            this.operationPolling = setInterval(async () => {
+                await this.checkOperationStatus();
+            }, 2000);
         },
         
         stopOperationPolling() {
@@ -218,19 +235,26 @@ createApp({
     },
     
     async mounted() {
-        // Close dropdowns when clicking outside
-        document.addEventListener('click', (e) => {
-            const isDropdownButton = e.target.closest('.filter-button');
-            if (!isDropdownButton) {
-                this.activeFilter = null;
-                this.activeImagingSessionFilter = null;
-            }
-        });
-
-        await this.loadStats();
-        await this.loadFilterOptions();
-        await this.loadFiles();
-        await this.loadImagingSessions();
-        await this.loadProcessingSessions();
+        this.loadStats();
+        this.loadFiles();
+        this.loadImagingSessions();
+        this.loadProcessingSessions();
+        
+        // Store app reference globally for refreshStats
+        window.vueApp = this;
+        
+        // Refresh stats periodically (every 30 seconds)
+        this.statsRefreshInterval = setInterval(() => {
+            this.loadStats();
+        }, 30000);
+    },
+    
+    beforeUnmount() {
+        if (this.statsRefreshInterval) {
+            clearInterval(this.statsRefreshInterval);
+        }
+        if (this.operationPolling) {
+            clearInterval(this.operationPolling);
+        }
     }
-}).mount('#app');
+});

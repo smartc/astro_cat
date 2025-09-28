@@ -82,6 +82,9 @@ const ProcessingSessionsComponent = {
                 this.loadProcessingSessions();
                 alert(`Status updated to: ${statusLabels[index]}`);
                 
+                // REFRESH STATS AFTER STATUS UPDATE
+                await window.refreshStats();
+
             } catch (error) {
                 console.error('Error updating processing session status:', error);
                 this.errorMessage = `Failed to update status: ${error.response?.data?.detail || error.message}`;
@@ -100,8 +103,9 @@ const ProcessingSessionsComponent = {
                 
                 this.loadProcessingSessions();
                 alert('Processing session deleted successfully');
-                await refreshStats();
-                //this.loadProcessingSessions();
+                
+                // REFRESH STATS AFTER DELETION
+                await window.refreshStats();
                 
             } catch (error) {
                 console.error('Error deleting processing session:', error);

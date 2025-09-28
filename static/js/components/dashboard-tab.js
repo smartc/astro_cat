@@ -164,8 +164,8 @@ const DashboardTab = {
                 if (response.ok) {
                     const result = await response.json();
                     alert(`Removed ${result.stats.removed} missing file records`);
-                    // Refresh stats
-                    this.$root.loadStats();
+                    // Refresh stats - use the global function for consistency
+                    await window.refreshStats();
                 } else {
                     const error = await response.json();
                     alert(`Error: ${error.detail}`);
@@ -185,6 +185,11 @@ const DashboardTab = {
         this.statusInterval = setInterval(() => {
             this.checkOperationStatus();
         }, 5000);
+
+        // Listen for custom events if needed
+        window.addEventListener('stats-updated', () => {
+            // Stats will auto-update from parent
+        });
     },
     
     beforeUnmount() {

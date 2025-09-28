@@ -140,7 +140,9 @@ const ProcessingSessionModals = {
                 const app = this.$root;
                 await app.loadProcessingSessions();
                 alert(`Processing session "${this.newProcessingSession.name}" created successfully with ${fileIds.length} files!`);
-                
+        
+                // REFRESH STATS AFTER CREATING SESSION
+                await window.refreshStats();
             } catch (error) {
                 console.error('Error creating processing session:', error);
                 alert(`Failed to create processing session: ${error.response?.data?.detail || error.message}`);
@@ -184,6 +186,9 @@ const ProcessingSessionModals = {
                 app.clearSelection();
                 alert(`Processing session "${this.newSessionFromFiles.name}" created successfully with ${payload.file_ids.length} files!`);
                 await app.loadProcessingSessions();
+
+                // REFRESH STATS AFTER ADDING FILES
+                await window.refreshStats();                
                 
             } catch (error) {
                 console.error('Error creating processing session from files:', error);
@@ -232,6 +237,9 @@ const ProcessingSessionModals = {
                 app.clearSelection();
                 alert(`Added ${fileCount} files to session!`);
                 await app.loadProcessingSessions();
+
+                // REFRESH STATS AFTER ADDING FILES
+                await window.refreshStats();
                 
             } catch (error) {
                 console.error('Error adding files to session:', error);

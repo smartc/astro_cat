@@ -182,6 +182,9 @@ const CalibrationModalComponent = {
                 alert(`Added ${fileIds.length} calibration files to session!`);
                 
                 await app.loadProcessingSessions();
+
+                // REFRESH STATS AFTER ADDING CALIBRATION
+                await window.refreshStats();
                 
             } catch (error) {
                 console.error('Error adding calibration files:', error);
