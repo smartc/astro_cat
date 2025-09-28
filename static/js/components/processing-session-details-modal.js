@@ -92,6 +92,9 @@ const ProcessingSessionDetailsModal = {
                             Last updated: {{ formatDateTime(currentSessionDetails.created_at) }}
                         </div>
                         <div class="flex space-x-3">
+                            <button @click="openMarkdownEditor" class="btn btn-blue text-sm">
+                                📝 Edit Notes
+                            </button>        
                             <button @click="findCalibrationFromDetails" class="btn btn-purple text-sm">
                                 🔍 Find Calibration
                             </button>
@@ -184,6 +187,14 @@ const ProcessingSessionDetailsModal = {
         formatDateTime(dateString) {
             if (!dateString) return 'N/A';
             return new Date(dateString).toLocaleString();
+        },
+
+        openMarkdownEditor() {
+            const sessionId = this.currentSessionDetails.id.trim();
+            const sessionName = this.currentSessionDetails.name.trim();
+            const url = `/editor?session_id=${sessionId}&session_name=${encodeURIComponent(sessionName)}`;
+            window.open(url, '_blank');
+            this.closeSessionDetailsModal();
         }
     }
 };

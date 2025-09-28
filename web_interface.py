@@ -1348,6 +1348,54 @@ async def startup_event():
         raise
 
 
+# Add these endpoints to web_interface.py
+
+@app.get("/editor", response_class=HTMLResponse)
+async def markdown_editor():
+    return FileResponse("static/editor.html")
+
+
+@app.get("/api/processing-sessions/{session_id}/session-info")
+async def get_processing_session_info(session_id: str):
+    """Get session_info.md file for processing session."""
+    try:
+        session_info = processing_manager.get_processing_session(session_id)
+        if not session_info:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        info_file = Path(session_info.folder_path) / "session_info.md"
+        
+        if info_file.exists():
+            return {"content": info_file.read_text(encoding='utf-8')}
+        else:
+            raise HTTPException(status_code=404, detail="Session info file not found")
+            
+    except Exception as e:
+        logger.error(f"Error reading session info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/processing-sessions/{session_id}/session-info")
+async def save_processing_session_info(
+    session_id: str,
+    content: str = Body(...)
+):
+    """Save session_info.md file for processing session."""
+    try:
+        session_info = processing_manager.get_processing_session(session_id)
+        if not session_info:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        info_file = Path(session_info.folder_path) / "session_info.md"
+        info_file.parent.mkdir(parents=True, exist_ok=True)
+        info_file.write_text(content, encoding='utf-8')
+        
+        logger.info(f"Saved session info for {session_id}: {len(content)} characters")
+        
+        return {"message": "Session info saved successfully", "file_path": str(info_file)}
+        
+    except Exception as e:
+        logger.error(f"Error saving session info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
 # MAIN
