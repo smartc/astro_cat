@@ -5,7 +5,7 @@ from typing import Optional, List, Dict, Tuple
 
 from sqlalchemy import (
     Boolean, DateTime, Float, Integer, String, Text, 
-    create_engine, Column, Index, ForeignKey
+    create_engine, Column, Index, ForeignKey, event
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -234,6 +234,15 @@ class DatabaseManager:
     
     def __init__(self, connection_string: str):
         self.engine = create_engine(connection_string, echo=False)
+
+        # Enable foreign keys for SQLite
+        if 'sqlite' in connection_string:
+            @event.listens_for(self.engine, "connect")
+            def set_sqlite_pragma(dbapi_connection, connection_record):
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.close()
+
         self.SessionLocal = sessionmaker(bind=self.engine)
     
     def create_tables(self):

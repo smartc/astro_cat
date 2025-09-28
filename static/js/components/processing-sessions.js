@@ -100,6 +100,8 @@ const ProcessingSessionsComponent = {
                 
                 this.loadProcessingSessions();
                 alert('Processing session deleted successfully');
+                await refreshStats();
+                //this.loadProcessingSessions();
                 
             } catch (error) {
                 console.error('Error deleting processing session:', error);

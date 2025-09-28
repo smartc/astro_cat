@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
 # Import your existing modules
-from models import DatabaseManager, DatabaseService, FitsFile, Session as SessionModel, ProcessingSession
+from models import DatabaseManager, DatabaseService, FitsFile, Session as SessionModel, ProcessingSession, ProcessingSessionFile
 from config import load_config
 from validation import FitsValidator
 from file_organizer import FileOrganizer
