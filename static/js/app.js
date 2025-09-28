@@ -235,11 +235,21 @@ createApp({
     },
     
     async mounted() {
-        this.loadStats();
-        this.loadFiles();
-        this.loadImagingSessions();
-        this.loadProcessingSessions();
-        
+        // Close dropdowns when clicking outside
+        document.addEventListener('click', (e) => {
+            const isDropdownButton = e.target.closest('.filter-button');
+            if (!isDropdownButton) {
+                this.activeFilter = null;
+                this.activeImagingSessionFilter = null;
+            }
+        });
+
+        await this.loadFilterOptions();
+        await this.loadStats();
+        await this.loadFiles();
+        await this.loadImagingSessions();
+        await this.loadProcessingSessions();
+
         // Store app reference globally for refreshStats
         window.vueApp = this;
         
@@ -257,4 +267,4 @@ createApp({
             clearInterval(this.operationPolling);
         }
     }
-});
+}).mount('#app');

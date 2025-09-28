@@ -150,6 +150,7 @@ const ProcessingSessionDetailsModal = {
             const app = this.$root;
             const sessionId = this.currentSessionDetails.id;
             await app.updateProcessingSessionStatus(sessionId);
+            
             // Reload the session details to show updated status
             await this.viewProcessingSession(sessionId);
             
