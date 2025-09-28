@@ -69,6 +69,9 @@ const ProcessingSessionsTab = {
                                     </div>
                                 </div>
                                 <div class="flex flex-col space-y-2 ml-4">
+                                    <button @click="openEditor(session.id, session.name, $event)" class="btn btn-blue text-sm">
+                                        📝 Edit Notes
+                                    </button>
                                     <button @click.stop="$root.findCalibrationFiles(session.id)" class="btn btn-purple text-sm">
                                         🔍 Find Calibration
                                     </button>
@@ -133,6 +136,12 @@ const ProcessingSessionsTab = {
         formatDate(dateString) {
             if (!dateString) return 'N/A';
             return new Date(dateString).toLocaleDateString();
+        },
+
+        openEditor(sessionId, sessionName, event) {
+            event.stopPropagation(); // Prevent modal from opening
+            const url = `/editor?session_id=${sessionId}&session_name=${encodeURIComponent(sessionName)}`;
+            window.open(url, '_blank');
         }
     },
     
