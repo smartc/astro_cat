@@ -46,6 +46,19 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
+def get_globals():
+    """Return a dictionary of global application state."""
+    return {
+        'config': config,
+        'db_manager': db_manager,
+        'db_service': db_service,
+        'cameras': cameras,
+        'telescopes': telescopes,
+        'filter_mappings': filter_mappings,
+        'processing_manager': processing_manager
+    }
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize application on startup with enhanced error checking."""

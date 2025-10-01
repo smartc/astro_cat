@@ -34,6 +34,18 @@ class ProcessingSessionInfo:
     status: str
     created_at: datetime
     notes: Optional[str] = None
+    version: int = 1
+    astrobin_url: Optional[str] = None
+    social_urls: List[str] = None
+    processing_started: Optional[datetime] = None
+    processing_completed: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    def __post_init__(self):
+        """Ensure social_urls is a list."""
+        if self.social_urls is None:
+            self.social_urls = []
+
 
 
 @dataclass
@@ -761,7 +773,7 @@ _No processing steps completed yet_
         
         self._create_session_info_file(session_folder, ps.id, ps.name, objects, 
                                      frame_counts, ps.notes)
-    
+        
     def list_processing_sessions(self, status_filter: Optional[str] = None) -> List[ProcessingSessionInfo]:
         """List all processing sessions with optional status filter."""
         session = self.db_service.db_manager.get_session()
@@ -787,7 +799,9 @@ _No processing steps completed yet_
                     if frame_type in frame_counts:
                         frame_counts[frame_type] += 1
                 
+                # Parse JSON fields
                 objects = json.loads(ps.objects) if ps.objects else []
+                social_urls = json.loads(ps.social_urls) if ps.social_urls else []
                 
                 result.append(ProcessingSessionInfo(
                     id=ps.id,
@@ -801,13 +815,19 @@ _No processing steps completed yet_
                     folder_path=ps.folder_path,
                     status=ps.status,
                     created_at=ps.created_at,
-                    notes=ps.notes
+                    notes=ps.notes,
+                    version=ps.version,
+                    astrobin_url=ps.astrobin_url,
+                    social_urls=social_urls,
+                    processing_started=ps.processing_started,
+                    processing_completed=ps.processing_completed,
+                    updated_at=ps.updated_at
                 ))
             
             return result
             
         finally:
-            session.close()
+            session.close()    
     
     def get_processing_session(self, session_id: str) -> Optional[ProcessingSessionInfo]:
         """Get details for a specific processing session."""

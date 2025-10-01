@@ -24,44 +24,36 @@ async def get_processing_sessions(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     status: Optional[str] = Query(None),
-    session: Session = Depends(get_db_session)
+    processing_manager = Depends(get_processing_manager)
 ):
     """Get processing sessions with pagination and filtering."""
     try:
-        query = session.query(ProcessingSession).order_by(desc(ProcessingSession.created_at))
+        # Get sessions using ProcessingSessionManager which returns ProcessingSessionInfo objects
+        all_sessions = processing_manager.list_processing_sessions(status_filter=status)
         
-        # Apply status filter
-        if status:
-            query = query.filter(ProcessingSession.status == status)
-        
-        total = query.count()
+        # Apply pagination
+        total = len(all_sessions)
         offset = (page - 1) * limit
-        sessions = query.offset(offset).limit(limit).all()
+        sessions = all_sessions[offset:offset + limit]
         
+        # Build response using ProcessingSessionInfo attributes
         session_data = []
         for s in sessions:
-            # Parse objects JSON string to array
-            try:
-                objects = json.loads(s.objects) if s.objects else []
-            except (json.JSONDecodeError, TypeError):
-                objects = []
-            
-            # Parse social_urls JSON string to array
-            try:
-                social_urls = json.loads(s.social_urls) if s.social_urls else []
-            except (json.JSONDecodeError, TypeError):
-                social_urls = []
-            
             session_data.append({
                 "id": s.id,
                 "name": s.name,
-                "objects": objects,  # Now an array
+                "objects": s.objects,  # Already a list
                 "notes": s.notes,
                 "status": s.status,
                 "version": s.version,
                 "folder_path": s.folder_path,
                 "astrobin_url": s.astrobin_url,
-                "social_urls": social_urls,  # Now an array
+                "social_urls": s.social_urls,  # Already a list
+                "total_files": s.total_files,
+                "lights": s.lights,
+                "darks": s.darks,
+                "flats": s.flats,
+                "bias": s.bias,
                 "processing_started": s.processing_started.isoformat() if s.processing_started else None,
                 "processing_completed": s.processing_completed.isoformat() if s.processing_completed else None,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
@@ -99,28 +91,26 @@ async def get_processing_session(
         if not session_info:
             raise HTTPException(status_code=404, detail="Processing session not found")
         
-        # Parse objects if it's a JSON string
-        try:
-            objects = json.loads(session_info.objects) if session_info.objects else []
-        except (json.JSONDecodeError, TypeError, AttributeError):
-            objects = session_info.objects if isinstance(session_info.objects, list) else []
-        
+        # Return flat structure matching the list endpoint
         return {
-            "session": {
-                "id": session_info.id,  # FIX: Use .id not .session_id
-                "name": session_info.name,
-                "objects": objects,  # Now an array
-                "status": session_info.status,
-                "folder_path": session_info.folder_path,
-                "created_at": session_info.created_at.isoformat() if session_info.created_at else None
-            },
-            "files": {
-                "lights": session_info.light_files,
-                "darks": session_info.dark_files,
-                "flats": session_info.flat_files,
-                "bias": session_info.bias_files,
-                "total": session_info.total_files
-            }
+            "id": session_info.id,
+            "name": session_info.name,
+            "objects": session_info.objects,
+            "notes": session_info.notes,
+            "status": session_info.status,
+            "version": session_info.version,
+            "folder_path": session_info.folder_path,
+            "astrobin_url": session_info.astrobin_url,
+            "social_urls": session_info.social_urls,
+            "total_files": session_info.total_files,
+            "lights": session_info.lights,
+            "darks": session_info.darks,
+            "flats": session_info.flats,
+            "bias": session_info.bias,
+            "processing_started": session_info.processing_started.isoformat() if session_info.processing_started else None,
+            "processing_completed": session_info.processing_completed.isoformat() if session_info.processing_completed else None,
+            "created_at": session_info.created_at.isoformat() if session_info.created_at else None,
+            "updated_at": session_info.updated_at.isoformat() if session_info.updated_at else None
         }
     except HTTPException:
         raise
@@ -146,17 +136,16 @@ async def create_processing_session(
         
         session_info = processing_manager.create_processing_session(name, file_ids, notes)
         
-        logger.info(f"Created processing session: {session_info.session_id}")
+        logger.info(f"Created processing session: {session_info.id}")
         
         return {
             "message": "Processing session created successfully",
-            "session_id": session_info.id,  # FIX: Use .id not .session_id
+            "session_id": session_info.id,
             "name": session_info.name,
             "folder_path": session_info.folder_path,
             "total_files": session_info.total_files
         }
     except ValueError as e:
-        # User input validation errors
         logger.warning(f"Validation error creating processing session: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -221,7 +210,6 @@ async def add_files_to_processing_session(
             raise HTTPException(status_code=500, detail="Processing manager not initialized")
         
         logger.info(f"Adding {len(file_ids)} files to processing session {session_id}")
-        logger.debug(f"File IDs: {file_ids}")
         
         success = processing_manager.add_files_to_session(session_id, file_ids)
         if not success:
@@ -229,13 +217,11 @@ async def add_files_to_processing_session(
         
         return {"message": f"Added {len(file_ids)} files to processing session {session_id}"}
     except ValueError as e:
-        # User input validation errors (duplicates, missing files, etc)
         logger.warning(f"Validation error adding files to session {session_id}: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
-        # Unexpected server errors
         logger.error(f"Error adding files to processing session {session_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -270,7 +256,6 @@ async def get_calibration_matches(
     except Exception as e:
         logger.error(f"Error finding calibration matches for {session_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.get("/{session_id}/session-info")
 async def get_processing_session_info(
