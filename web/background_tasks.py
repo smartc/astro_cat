@@ -32,15 +32,21 @@ def get_task_status(task_id: str) -> Dict:
 
 def set_task_status(task_id: str, status: str, message: str, progress: int = None, **kwargs):
     """Update the status of a background task."""
-    background_tasks_status[task_id] = {
+    # Initialize if doesn't exist
+    if task_id not in background_tasks_status:
+        background_tasks_status[task_id] = {}
+    
+    # Update existing values instead of replacing
+    background_tasks_status[task_id].update({
         "status": status,
         "message": message,
         "progress": progress,
         "updated_at": datetime.now(),
         **kwargs
-    }
+    })
     
-    if status == "pending":
+    # Add timestamps
+    if status == "pending" and "started_at" not in background_tasks_status[task_id]:
         background_tasks_status[task_id]["started_at"] = datetime.now()
     elif status in ["completed", "failed"]:
         background_tasks_status[task_id]["completed_at"] = datetime.now()
@@ -58,6 +64,12 @@ async def clear_operation():
     global current_operation
     async with operation_lock:
         current_operation = None
+
+
+def clear_operation_sync():
+    """Clear the current operation (synchronous version for use in threads)."""
+    global current_operation
+    current_operation = None
 
 
 def get_current_operation() -> str:

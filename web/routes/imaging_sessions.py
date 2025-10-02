@@ -141,46 +141,55 @@ async def get_imaging_session_details(
             frame_type = file.frame_type or 'UNKNOWN'
             frame_type_counts[frame_type] = frame_type_counts.get(frame_type, 0) + 1
             
-            # Object-level grouping
-            obj = file.object or 'CALIBRATION'
-            if obj not in objects_data:
-                objects_data[obj] = {
-                    "object": obj,
-                    "files": [],
-                    "frame_types": {},
-                    "filters": set(),
-                    "total_exposure": 0.0
+            # Object-level data
+            obj_name = file.object or 'UNKNOWN'
+            
+            if obj_name not in objects_data:
+                objects_data[obj_name] = {
+                    'name': obj_name,  # Use 'name' for backwards compatibility
+                    'total_files': 0,
+                    'frame_types': {},
+                    'filters': {},  # Dict with counts, not list
+                    'total_imaging_time': {}  # by filter for LIGHT frames only
                 }
             
-            objects_data[obj]["files"].append({
-                "id": file.id,
-                "file": file.file,
-                "frame_type": file.frame_type,
-                "filter": file.filter,
-                "exposure": file.exposure,
-                "ra": file.ra,
-                "dec": file.dec,
-                "validation_score": file.validation_score
-            })
+            objects_data[obj_name]['total_files'] += 1
             
-            # Object-level frame type counts
-            objects_data[obj]["frame_types"][frame_type] = \
-                objects_data[obj]["frame_types"].get(frame_type, 0) + 1
+            # Frame type counts by object
+            objects_data[obj_name]['frame_types'][frame_type] = \
+                objects_data[obj_name]['frame_types'].get(frame_type, 0) + 1
             
-            # Filters used
+            # Track filters used with counts
             if file.filter:
-                objects_data[obj]["filters"].add(file.filter)
+                objects_data[obj_name]['filters'][file.filter] = \
+                    objects_data[obj_name]['filters'].get(file.filter, 0) + 1
             
-            # Total exposure
-            if file.exposure and file.frame_type == 'LIGHT':
-                objects_data[obj]["total_exposure"] += file.exposure
+            # Calculate imaging time for LIGHT frames only, broken down by filter
+            if frame_type == 'LIGHT' and file.exposure:
+                filter_name = file.filter or 'No Filter'
+                if filter_name not in objects_data[obj_name]['total_imaging_time']:
+                    objects_data[obj_name]['total_imaging_time'][filter_name] = 0
+                objects_data[obj_name]['total_imaging_time'][filter_name] += file.exposure
         
-        # Convert objects_data to list and serialize sets
-        objects_list = []
+        # Convert imaging times to hours:minutes:seconds format with seconds value
         for obj_data in objects_data.values():
-            obj_data["filters"] = sorted(list(obj_data["filters"]))
-            obj_data["file_count"] = len(obj_data["files"])
-            objects_list.append(obj_data)
+            formatted_times = {}
+            for filter_name, total_seconds in obj_data['total_imaging_time'].items():
+                hours = int(total_seconds // 3600)
+                minutes = int((total_seconds % 3600) // 60)
+                seconds = int(total_seconds % 60)
+                formatted_times[filter_name] = {
+                    'seconds': total_seconds,
+                    'formatted': f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                }
+            obj_data['total_imaging_time'] = formatted_times
+        
+        # Sort objects by total files (descending)
+        objects_list = sorted(
+            objects_data.values(), 
+            key=lambda x: x['total_files'], 
+            reverse=True
+        )
         
         result = {
             "session": {
@@ -291,4 +300,4 @@ async def save_imaging_session_info(
     except Exception as e:
         logger.error(f"Error saving imaging session info: {e}")
         logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))
