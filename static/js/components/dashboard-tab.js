@@ -1,6 +1,5 @@
 /**
- * Dashboard Tab Component - Enhanced with Quarantine and Staging Stats
- * Save as: static/js/components/dashboard-tab.js
+ * Dashboard Tab Component - Enhanced with Cleanup Information
  */
 
 const DashboardTab = {
@@ -29,10 +28,41 @@ const DashboardTab = {
                 </div>
             </div>
 
+            <!-- Cleanup Required Section - PROMINENT & CLICKABLE -->
+            <div v-if="cleanupTotal > 0" 
+                 @click="goToOperations"
+                 class="bg-red-50 border-2 border-red-200 rounded-lg shadow-md p-6 cursor-pointer hover:bg-red-100 transition">
+                <div class="flex items-center mb-4">
+                    <svg class="w-6 h-6 text-red-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                    </svg>
+                    <h2 class="text-xl font-bold text-red-800">Cleanup Required</h2>
+                    <span class="ml-auto text-sm text-red-600">Click to manage →</span>
+                </div>
+                <p class="text-sm text-red-700 mb-4">{{ cleanupTotal }} file(s) need attention</p>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-white rounded-lg p-4 border-l-4 border-orange-500">
+                        <h3 class="text-sm font-semibold text-gray-600 mb-1">Duplicate Files</h3>
+                        <p class="text-2xl font-bold text-orange-600">{{ (stats.cleanup && stats.cleanup.duplicates) || 0 }}</p>
+                        <p class="text-xs text-gray-500 mt-1">In quarantine/Duplicates</p>
+                    </div>
+                    <div class="bg-white rounded-lg p-4 border-l-4 border-red-500">
+                        <h3 class="text-sm font-semibold text-gray-600 mb-1">Bad Files</h3>
+                        <p class="text-2xl font-bold text-red-600">{{ (stats.cleanup && stats.cleanup.bad_files) || 0 }}</p>
+                        <p class="text-xs text-gray-500 mt-1">In quarantine/Bad</p>
+                    </div>
+                    <div class="bg-white rounded-lg p-4 border-l-4 border-gray-500">
+                        <h3 class="text-sm font-semibold text-gray-600 mb-1">Missing Files</h3>
+                        <p class="text-2xl font-bold text-gray-600">{{ (stats.cleanup && stats.cleanup.missing_files) || 0 }}</p>
+                        <p class="text-xs text-gray-500 mt-1">DB records, files not found</p>
+                    </div>
+                </div>
+            </div>
+
             <!-- File Location Stats -->
             <div class="bg-white rounded-lg shadow-md p-6">
                 <h2 class="text-xl font-bold text-gray-800 mb-4">File Locations</h2>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div class="border-l-4 border-orange-500 pl-4">
                         <h3 class="text-sm font-semibold text-gray-600 mb-1">Quarantine</h3>
                         <p class="text-2xl font-bold text-orange-600">{{ stats.quarantine_files || 0 }}</p>
@@ -42,18 +72,6 @@ const DashboardTab = {
                         <h3 class="text-sm font-semibold text-gray-600 mb-1">Staged</h3>
                         <p class="text-2xl font-bold text-purple-600">{{ stats.staged_files || 0 }}</p>
                         <p class="text-xs text-gray-500 mt-1">In processing sessions</p>
-                    </div>
-                    <div class="border-l-4 border-gray-500 pl-4">
-                        <h3 class="text-sm font-semibold text-gray-600 mb-1">Missing Files</h3>
-                        <p class="text-2xl font-bold text-gray-600">{{ stats.missing_files || 0 }}</p>
-                        <p class="text-xs text-gray-500 mt-1">Files not found on disk</p>
-                        <button 
-                            v-if="stats.missing_files > 0"
-                            @click="removeMissingFiles"
-                            class="mt-2 text-xs px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
-                        >
-                            Remove from DB
-                        </button>
                     </div>
                 </div>
             </div>
@@ -86,30 +104,13 @@ const DashboardTab = {
                         <p class="text-sm font-semibold text-gray-600 mb-1">DARK</p>
                         <p class="text-2xl font-bold text-gray-600">{{ (stats.by_frame_type && stats.by_frame_type.DARK) || 0 }}</p>
                     </div>
-                    <div class="text-center p-4 bg-yellow-50 rounded-lg">
+                    <div class="text-center p-4 bg-green-50 rounded-lg">
                         <p class="text-sm font-semibold text-gray-600 mb-1">FLAT</p>
-                        <p class="text-2xl font-bold text-yellow-600">{{ (stats.by_frame_type && stats.by_frame_type.FLAT) || 0 }}</p>
+                        <p class="text-2xl font-bold text-green-600">{{ (stats.by_frame_type && stats.by_frame_type.FLAT) || 0 }}</p>
                     </div>
                     <div class="text-center p-4 bg-purple-50 rounded-lg">
                         <p class="text-sm font-semibold text-gray-600 mb-1">BIAS</p>
                         <p class="text-2xl font-bold text-purple-600">{{ (stats.by_frame_type && stats.by_frame_type.BIAS) || 0 }}</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Operation Status Alert -->
-            <div v-if="operationInProgress" class="bg-yellow-50 border-l-4 border-yellow-400 p-4">
-                <div class="flex items-center">
-                    <div class="flex-shrink-0">
-                        <svg class="h-5 w-5 text-yellow-400 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                    </div>
-                    <div class="ml-3">
-                        <p class="text-sm text-yellow-700">
-                            <strong>{{ operationType }}</strong> operation in progress. Other operations are blocked until complete.
-                        </p>
                     </div>
                 </div>
             </div>
@@ -132,6 +133,12 @@ const DashboardTab = {
         stats() {
             return this.$root.stats;
         },
+        cleanupTotal() {
+            if (!this.stats.cleanup) return 0;
+            return (this.stats.cleanup.duplicates || 0) + 
+                   (this.stats.cleanup.bad_files || 0) + 
+                   (this.stats.cleanup.missing_files || 0);
+        },
         lastUpdated() {
             if (!this.stats.last_updated) return 'Never';
             const date = new Date(this.stats.last_updated);
@@ -144,52 +151,25 @@ const DashboardTab = {
             try {
                 const response = await fetch('/api/operations/current');
                 const data = await response.json();
-                this.operationInProgress = data.operation_in_progress;
-                this.operationType = data.operation_type || '';
+                this.operationInProgress = data.current_operation !== null;
+                this.operationType = data.current_operation || '';
             } catch (error) {
                 console.error('Error checking operation status:', error);
             }
         },
         
-        async removeMissingFiles() {
-            if (!confirm(`Remove ${this.stats.missing_files} missing file records from database? This cannot be undone.`)) {
-                return;
-            }
-            
-            try {
-                const response = await fetch('/api/operations/remove-missing?dry_run=false', {
-                    method: 'DELETE'
-                });
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    alert(`Removed ${result.stats.removed} missing file records`);
-                    // Refresh stats - use the global function for consistency
-                    await window.refreshStats();
-                } else {
-                    const error = await response.json();
-                    alert(`Error: ${error.detail}`);
-                }
-            } catch (error) {
-                console.error('Error removing missing files:', error);
-                alert('Failed to remove missing files');
-            }
+        goToOperations() {
+            // Switch to operations tab
+            this.$root.activeTab = 'operations';
         }
     },
     
     mounted() {
-        // Check operation status on mount
         this.checkOperationStatus();
         
-        // Check every 5 seconds for operation status
         this.statusInterval = setInterval(() => {
             this.checkOperationStatus();
         }, 5000);
-
-        // Listen for custom events if needed
-        window.addEventListener('stats-updated', () => {
-            // Stats will auto-update from parent
-        });
     },
     
     beforeUnmount() {

@@ -193,291 +193,323 @@ class FileOrganizer:
             shutil.rmtree(bad_files_folder)
             logger.debug(f"Deleted bad files folder: {bad_files_folder}")
     
-    def migrate_files(self, limit: Optional[int] = None, auto_cleanup: bool = False) -> Dict[str, int]:
-        """
-        Migrate files from quarantine to organized structure - only files with validation scores > 95.
-        
-        Args:
-            limit: Maximum number of files to process (None for all)
-            auto_cleanup: Automatically delete duplicates and bad files without prompting
+    def migrate_files(self, limit: Optional[int] = None, auto_cleanup: bool = False, 
+                         progress_callback=None, web_mode: bool = False) -> Dict[str, int]:
+            """
+            Migrate files from quarantine to organized structure - only files with validation scores > 95.
             
-        Returns:
-            Dict with migration statistics
-        """
-        click.echo("Starting file migration...")
-        logger.info("Starting file migration...")
-        
-        stats = {
-            'processed': 0,
-            'moved': 0,
-            'errors': 0,
-            'skipped': 0,
-            'duplicates_moved': 0,
-            'bad_files_moved': 0,
-            'left_for_review': 0
-        }
-        
-        # Create special folders for duplicates and bad files only
-        duplicates_folder = Path(self.config.paths.quarantine_dir) / "Duplicates"
-        bad_files_folder = Path(self.config.paths.quarantine_dir) / "Bad"
-        duplicates_folder.mkdir(exist_ok=True)
-        bad_files_folder.mkdir(exist_ok=True)
-        
-        quarantine_path = Path(self.config.paths.quarantine_dir)
-        session = self.db_service.db_manager.get_session()
-        
-        try:
-            # STEP 1: Only migrate files with scores > 95, leave everything else in place
-            click.echo("Getting files from database...")
-            
-            # Get database records for files still in quarantine
-            db_files = session.query(FitsFile).filter(
-                FitsFile.folder.like(f"%{self.config.paths.quarantine_dir}%")
-            ).all()
-            
-            # Only migrate files with scores > 95, leave everything else in place
-            auto_migrate_files = []
-            skipped_for_review = 0
-            
-            for db_file in db_files:
-                file_path = Path(db_file.folder) / db_file.file
-                if ("Duplicates" not in str(file_path) and 
-                    "Bad" not in str(file_path) and 
-                    file_path.exists()):
-                    
-                    # Get validation score
-                    validation_score = getattr(db_file, 'validation_score', None)
-                    
-                    # Only migrate files with excellent scores (>95)
-                    # The validation scoring already accounts for critical nulls and other issues
-                    if validation_score is not None and validation_score > 95.0:
-                        auto_migrate_files.append(db_file)
-                    else:
-                        skipped_for_review += 1
-            
-            # Set files to migrate (only high-scoring files)
-            files_to_migrate = auto_migrate_files
-            
-            if auto_migrate_files:
-                click.echo(f"Found {len(auto_migrate_files)} files with scores >95 ready for migration")
-            
-            if skipped_for_review > 0:
-                click.echo(f"Leaving {skipped_for_review} files in quarantine for review (scores ≤95, NULL scores, or data issues)")
-            
-            # Record how many files were left for review
-            stats['left_for_review'] = skipped_for_review
-            
-            if limit and len(files_to_migrate) > limit:
-                click.echo(f"Limiting migration to {limit} files")
-                files_to_migrate = files_to_migrate[:limit]
-            
-            if files_to_migrate:
-                click.echo(f"Migrating {len(files_to_migrate)} database files to organized structure...")
+            Args:
+                limit: Maximum number of files to process (None for all)
+                auto_cleanup: Automatically delete duplicates and bad files without prompting
+                progress_callback: Optional callback function(progress_pct, stats_dict) for progress updates
+                web_mode: If True, skip interactive prompts (for web interface use)
                 
-                # Convert database records to migration format with null handling
-                migration_records = []
-                for db_file in files_to_migrate:
-                    record = {
-                        'id': db_file.id,
-                        'file': db_file.file,
-                        'folder': db_file.folder,
-                        'object': db_file.object,
-                        'frame_type': db_file.frame_type,
-                        'camera': db_file.camera,
-                        'telescope': db_file.telescope,
-                        'filter': db_file.filter,
-                        'exposure': db_file.exposure,  # This can be None
-                        'obs_date': db_file.obs_date,
-                        'obs_timestamp': db_file.obs_timestamp,
-                        'md5sum': db_file.md5sum,
-                        'mosaic': getattr(db_file, 'mosaic', None)
-                    }
-                    migration_records.append(record)
+            Returns:
+                Dict with migration statistics
+            """
+            click.echo("Starting file migration...")
+            logger.info("Starting file migration...")
+            
+            stats = {
+                'processed': 0,
+                'moved': 0,
+                'errors': 0,
+                'skipped': 0,
+                'duplicates_moved': 0,
+                'bad_files_moved': 0,
+                'left_for_review': 0,
+                'duplicates_found': 0,
+                'bad_files_found': 0
+            }
+            
+            # Create special folders for duplicates and bad files only
+            duplicates_folder = Path(self.config.paths.quarantine_dir) / "Duplicates"
+            bad_files_folder = Path(self.config.paths.quarantine_dir) / "Bad"
+            duplicates_folder.mkdir(exist_ok=True)
+            bad_files_folder.mkdir(exist_ok=True)
+            
+            quarantine_path = Path(self.config.paths.quarantine_dir)
+            session = self.db_service.db_manager.get_session()
+            
+            # Calculate total work for progress tracking
+            # We'll weight the stages: file migration (70%), categorization (20%), cleanup (10%)
+            total_progress_units = 100
+            current_progress = 0
+            
+            def update_progress(stage_progress, stage_weight):
+                """Update overall progress based on stage completion."""
+                nonlocal current_progress
+                progress_pct = int(current_progress + (stage_progress * stage_weight))
+                if progress_callback:
+                    progress_callback(progress_pct, stats)
+            
+            try:
+                # STEP 1: Migrate files with scores > 95 (70% of total progress)
+                stage_weight = 0.70
+                click.echo("Getting files from database...")
+                update_progress(0, stage_weight)
                 
-                # Group by destination and migrate
-                file_groups = self.group_files_by_destination(migration_records)
-                next_catalog_id = self.get_next_catalog_id()
-                current_catalog_id = next_catalog_id
+                # Get database records for files still in quarantine
+                db_files = session.query(FitsFile).filter(
+                    FitsFile.folder.like(f"%{self.config.paths.quarantine_dir}%")
+                ).all()
                 
-                click.echo(f"Organizing into {len(file_groups)} destination folders...")
+                # Only migrate files with scores > 95, leave everything else in place
+                auto_migrate_files = []
+                skipped_for_review = 0
                 
-                with tqdm(total=len(migration_records), desc="Migrating files") as pbar:
-                    for dest_path, group_files in file_groups.items():
-                        # Create destination directory
-                        os.makedirs(dest_path, exist_ok=True)
+                for db_file in db_files:
+                    file_path = Path(db_file.folder) / db_file.file
+                    if ("Duplicates" not in str(file_path) and 
+                        "Bad" not in str(file_path) and 
+                        file_path.exists()):
                         
-                        # Process files in sequence
-                        for seq_num, file_record in enumerate(group_files, 1):
-                            try:
-                                stats['processed'] += 1
-                                
-                                # Current file paths
-                                old_filepath = Path(file_record['folder']) / file_record['file']
-                                
-                                # Skip if source file doesn't exist
-                                if not old_filepath.exists():
-                                    logger.warning(f"Source file not found: {old_filepath}")
-                                    stats['skipped'] += 1
-                                    pbar.update(1)
-                                    continue
-                                
-                                # Generate new filename
-                                new_filename = self.generate_standardized_filename(file_record, seq_num)
-                                new_filepath = Path(dest_path) / new_filename
-                                
-                                # Store original filename (stripped of catalog prefix)
-                                orig_filename = self.strip_catalog_prefix(file_record['file'])
-                                
-                                # Move file
-                                shutil.move(str(old_filepath), str(new_filepath))
-                                
-                                # Update database record
-                                db_record = session.query(FitsFile).filter_by(id=file_record['id']).first()
-                                if db_record:
-                                    db_record.id = current_catalog_id
-                                    db_record.file = new_filename
-                                    db_record.folder = dest_path
-                                    db_record.orig_file = orig_filename
-                                    db_record.orig_folder = file_record['folder']
+                        validation_score = getattr(db_file, 'validation_score', None)
+                        
+                        if validation_score is not None and validation_score > 95.0:
+                            auto_migrate_files.append(db_file)
+                        else:
+                            skipped_for_review += 1
+                
+                files_to_migrate = auto_migrate_files
+                
+                if auto_migrate_files:
+                    click.echo(f"Found {len(auto_migrate_files)} files with scores >95 ready for migration")
+                
+                if skipped_for_review > 0:
+                    click.echo(f"Leaving {skipped_for_review} files in quarantine for review (scores ≤95, NULL scores, or data issues)")
+                
+                stats['left_for_review'] = skipped_for_review
+                
+                if limit and len(files_to_migrate) > limit:
+                    click.echo(f"Limiting migration to {limit} files")
+                    files_to_migrate = files_to_migrate[:limit]
+                
+                if files_to_migrate:
+                    click.echo(f"Migrating {len(files_to_migrate)} database files to organized structure...")
+                    
+                    # Convert database records to migration format
+                    migration_records = []
+                    for db_file in files_to_migrate:
+                        record = {
+                            'id': db_file.id,
+                            'file': db_file.file,
+                            'folder': db_file.folder,
+                            'object': db_file.object,
+                            'frame_type': db_file.frame_type,
+                            'camera': db_file.camera,
+                            'telescope': db_file.telescope,
+                            'filter': db_file.filter,
+                            'exposure': db_file.exposure,
+                            'obs_date': db_file.obs_date,
+                            'obs_timestamp': db_file.obs_timestamp,
+                            'md5sum': db_file.md5sum,
+                            'mosaic': getattr(db_file, 'mosaic', None)
+                        }
+                        migration_records.append(record)
+                    
+                    # Group by destination and migrate
+                    file_groups = self.group_files_by_destination(migration_records)
+                    next_catalog_id = self.get_next_catalog_id()
+                    current_catalog_id = next_catalog_id
+                    
+                    click.echo(f"Organizing into {len(file_groups)} destination folders...")
+                    
+                    total_files = len(migration_records)
+                    files_processed = 0
+                    
+                    with tqdm(total=total_files, desc="Migrating files") as pbar:
+                        for dest_path, group_files in file_groups.items():
+                            os.makedirs(dest_path, exist_ok=True)
+                            
+                            for seq_num, file_record in enumerate(group_files, 1):
+                                try:
+                                    stats['processed'] += 1
+                                    files_processed += 1
                                     
-                                    current_catalog_id += 1
+                                    old_filepath = Path(file_record['folder']) / file_record['file']
+                                    
+                                    if not old_filepath.exists():
+                                        logger.warning(f"Source file not found: {old_filepath}")
+                                        stats['skipped'] += 1
+                                        pbar.update(1)
+                                        continue
+                                    
+                                    new_filename = self.generate_standardized_filename(file_record, seq_num)
+                                    new_filepath = Path(dest_path) / new_filename
+                                    orig_filename = self.strip_catalog_prefix(file_record['file'])
+                                    
+                                    shutil.move(str(old_filepath), str(new_filepath))
+                                    
+                                    db_record = session.query(FitsFile).filter_by(id=file_record['id']).first()
+                                    if db_record:
+                                        db_record.id = current_catalog_id
+                                        db_record.file = new_filename
+                                        db_record.folder = dest_path
+                                        db_record.orig_file = orig_filename
+                                        db_record.orig_folder = file_record['folder']
+                                        current_catalog_id += 1
+                                    
+                                    stats['moved'] += 1
+                                    
+                                    # Update progress every 10 files or at completion
+                                    if files_processed % 10 == 0 or files_processed == total_files:
+                                        file_progress = (files_processed / total_files) * 100
+                                        update_progress(file_progress, stage_weight)
+                                    
+                                except Exception as e:
+                                    logger.error(f"Error processing file {file_record['file']}: {e}")
+                                    stats['errors'] += 1
                                 
-                                stats['moved'] += 1
-                                
-                            except Exception as e:
-                                logger.error(f"Error processing file {file_record['file']}: {e}")
-                                stats['errors'] += 1
+                                pbar.update(1)
+                    
+                    session.commit()
+                    click.echo(f"Database migration complete: {stats['moved']} files moved")
+                
+                current_progress += 70  # Stage 1 complete
+                
+                # STEP 2: Categorize remaining files (20% of total progress)
+                stage_weight = 0.20
+                click.echo("Scanning for remaining files to categorize...")
+                update_progress(0, stage_weight)
+                
+                remaining_files = []
+                for ext in ['.fits', '.fit', '.fts']:
+                    files = list(quarantine_path.rglob(f"*{ext}"))
+                    files = [f for f in files if not any(folder in str(f) for folder in ["Duplicates", "Bad"])]
+                    remaining_files.extend(files)
+                
+                if remaining_files:
+                    click.echo(f"Found {len(remaining_files)} remaining files to categorize...")
+                    
+                    duplicates_to_move = []
+                    bad_files_to_move = []
+                    total_remaining = len(remaining_files)
+                    
+                    with tqdm(total=total_remaining, desc="Categorizing files") as pbar:
+                        for idx, physical_file in enumerate(remaining_files):
+                            
+                            if "BAD_" in physical_file.name:
+                                bad_files_to_move.append(physical_file)
+                                pbar.update(1)
+                                continue
+                            
+                            md5_hash = self._get_file_md5(str(physical_file))
+                            if md5_hash:
+                                existing_record = session.query(FitsFile).filter_by(md5sum=md5_hash).first()
+                                if existing_record:
+                                    original_path = Path(existing_record.folder) / existing_record.file
+                                    if original_path.exists():
+                                        duplicates_to_move.append(physical_file)
+                                    else:
+                                        logger.warning(f"Found file with database record but missing original: {physical_file}")
+                            
+                            # Update progress every 10 files
+                            if (idx + 1) % 10 == 0 or (idx + 1) == total_remaining:
+                                cat_progress = ((idx + 1) / total_remaining) * 100
+                                update_progress(cat_progress, stage_weight)
                             
                             pbar.update(1)
+                    
+                    # Move bad files
+                    if bad_files_to_move:
+                        click.echo(f"Moving {len(bad_files_to_move)} bad files...")
+                        with tqdm(total=len(bad_files_to_move), desc="Moving bad files") as pbar:
+                            for bad_file in bad_files_to_move:
+                                try:
+                                    bad_dest = bad_files_folder / bad_file.name
+                                    shutil.move(str(bad_file), str(bad_dest))
+                                    stats['bad_files_moved'] += 1
+                                except Exception as e:
+                                    logger.error(f"Error moving bad file {bad_file}: {e}")
+                                    stats['errors'] += 1
+                                pbar.update(1)
+                    
+                    # Move duplicates
+                    if duplicates_to_move:
+                        click.echo(f"Moving {len(duplicates_to_move)} duplicate files...")
+                        with tqdm(total=len(duplicates_to_move), desc="Moving duplicates") as pbar:
+                            for duplicate_file in duplicates_to_move:
+                                try:
+                                    duplicate_dest = duplicates_folder / duplicate_file.name
+                                    shutil.move(str(duplicate_file), str(duplicate_dest))
+                                    stats['duplicates_moved'] += 1
+                                except Exception as e:
+                                    logger.error(f"Error moving duplicate {duplicate_file}: {e}")
+                                    stats['errors'] += 1
+                                pbar.update(1)
                 
-                # Commit database changes
-                session.commit()
-                click.echo(f"Database migration complete: {stats['moved']} files moved")
+                current_progress += 20  # Stage 2 complete
+                
+            except Exception as e:
+                logger.error(f"Error during migration: {e}")
+                session.rollback()
+                raise
+            finally:
+                session.close()
             
-            # STEP 2: Handle remaining physical files in quarantine
-            click.echo("Scanning for remaining files to categorize...")
+            # STEP 3: Cleanup empty folders (5% of progress)
+            update_progress(0, 0.05)
+            try:
+                click.echo("Cleaning up empty folders...")
+                removed_count = self._cleanup_empty_folders()
+                if removed_count > 0:
+                    click.echo(f"Removed {removed_count} empty folders")
+            except Exception as e:
+                logger.error(f"Error during folder cleanup: {e}")
             
-            # Find all remaining physical files (excluding special folders)
-            remaining_files = []
-            for ext in ['.fits', '.fit', '.fts']:
-                files = list(quarantine_path.rglob(f"*{ext}"))
-                # Filter out special folders
-                files = [f for f in files if not any(folder in str(f) for folder in ["Duplicates", "Bad"])]
-                remaining_files.extend(files)
+            current_progress += 5
             
-            if remaining_files:
-                click.echo(f"Found {len(remaining_files)} remaining files to categorize...")
-                
-                duplicates_to_move = []
-                bad_files_to_move = []
-                
-                with tqdm(total=len(remaining_files), desc="Categorizing files") as pbar:
-                    for physical_file in remaining_files:
-                        
-                        # Check if it's a bad file
-                        if "BAD_" in physical_file.name:
-                            bad_files_to_move.append(physical_file)
-                            pbar.update(1)
-                            continue
-                        
-                        # Check if it's a duplicate by MD5
-                        md5_hash = self._get_file_md5(str(physical_file))
-                        if md5_hash:
-                            existing_record = session.query(FitsFile).filter_by(md5sum=md5_hash).first()
-                            if existing_record:
-                                # Check if original exists in organized structure
-                                original_path = Path(existing_record.folder) / existing_record.file
-                                if original_path.exists():
-                                    duplicates_to_move.append(physical_file)
-                                else:
-                                    logger.warning(f"Found file with database record but missing original: {physical_file}")
-                        
-                        pbar.update(1)
-                
-                # Move bad files
-                if bad_files_to_move:
-                    click.echo(f"Moving {len(bad_files_to_move)} bad files...")
-                    with tqdm(total=len(bad_files_to_move), desc="Moving bad files") as pbar:
-                        for bad_file in bad_files_to_move:
-                            try:
-                                bad_dest = bad_files_folder / bad_file.name
-                                shutil.move(str(bad_file), str(bad_dest))
-                                stats['bad_files_moved'] += 1
-                                logger.debug(f"Moved bad file: {bad_file} -> {bad_dest}")
-                            except Exception as e:
-                                logger.error(f"Error moving bad file {bad_file}: {e}")
-                                stats['errors'] += 1
-                            pbar.update(1)
-                
-                # Move duplicates
-                if duplicates_to_move:
-                    click.echo(f"Moving {len(duplicates_to_move)} duplicate files...")
-                    with tqdm(total=len(duplicates_to_move), desc="Moving duplicates") as pbar:
-                        for duplicate_file in duplicates_to_move:
-                            try:
-                                duplicate_dest = duplicates_folder / duplicate_file.name
-                                shutil.move(str(duplicate_file), str(duplicate_dest))
-                                stats['duplicates_moved'] += 1
-                                logger.debug(f"Moved duplicate: {duplicate_file} -> {duplicate_dest}")
-                            except Exception as e:
-                                logger.error(f"Error moving duplicate {duplicate_file}: {e}")
-                                stats['errors'] += 1
-                            pbar.update(1)
+            # STEP 4: Handle cleanup prompts (5% of progress)
+            remaining_duplicates = list(duplicates_folder.glob("*.fit*")) if duplicates_folder.exists() else []
+            remaining_bad_files = list(bad_files_folder.glob("*.fit*")) if bad_files_folder.exists() else []
             
-        except Exception as e:
-            logger.error(f"Error during migration: {e}")
-            session.rollback()
-            raise
-        finally:
-            session.close()
-        
-        # STEP 3: Cleanup empty folders
-        try:
-            click.echo("Cleaning up empty folders...")
-            removed_count = self._cleanup_empty_folders()
-            if removed_count > 0:
-                click.echo(f"Removed {removed_count} empty folders")
-        except Exception as e:
-            logger.error(f"Error during folder cleanup: {e}")
-        
-        # STEP 4: Handle cleanup prompts for duplicates and bad files only
-        remaining_duplicates = list(duplicates_folder.glob("*.fit*")) if duplicates_folder.exists() else []
-        remaining_bad_files = list(bad_files_folder.glob("*.fit*")) if bad_files_folder.exists() else []
+            stats['duplicates_found'] = len(remaining_duplicates)
+            stats['bad_files_found'] = len(remaining_bad_files)
 
-        if remaining_duplicates:
-            click.echo(f"Found {len(remaining_duplicates)} files in duplicates folder")
-            if auto_cleanup:
-                self._delete_duplicates_folder()
-                click.echo("Duplicate files deleted automatically")
-            else:
-                try:
-                    response = input(f"\nDelete {len(remaining_duplicates)} duplicate files? (y/N): ").lower().strip()
-                    if response == 'y':
-                        self._delete_duplicates_folder()
-                        click.echo("Duplicate files deleted")
-                    else:
-                        click.echo("Duplicate files kept for manual review")
-                except KeyboardInterrupt:
-                    click.echo("User interrupted. Duplicate files kept for manual review")
+            if remaining_duplicates:
+                click.echo(f"Found {len(remaining_duplicates)} files in duplicates folder")
+                if auto_cleanup:
+                    self._delete_duplicates_folder()
+                    click.echo("Duplicate files deleted automatically")
+                elif not web_mode:
+                    # Only prompt in terminal mode
+                    try:
+                        response = input(f"\nDelete {len(remaining_duplicates)} duplicate files? (y/N): ").lower().strip()
+                        if response == 'y':
+                            self._delete_duplicates_folder()
+                            click.echo("Duplicate files deleted")
+                        else:
+                            click.echo("Duplicate files kept for manual review")
+                    except KeyboardInterrupt:
+                        click.echo("User interrupted. Duplicate files kept for manual review")
+                # In web_mode, just report the count - no deletion
 
-        if remaining_bad_files:
-            click.echo(f"Found {len(remaining_bad_files)} files in bad files folder")
-            if auto_cleanup:
-                self._delete_bad_files_folder()
-                click.echo("Bad files deleted automatically")
-            else:
-                try:
-                    response = input(f"\nDelete {len(remaining_bad_files)} bad files? (y/N): ").lower().strip()
-                    if response == 'y':
-                        self._delete_bad_files_folder()
-                        click.echo("Bad files deleted")
-                    else:
-                        click.echo("Bad files kept for manual review")
-                except KeyboardInterrupt:
-                    click.echo("User interrupted. Bad files kept for manual review")
-        
-        return stats
-    
+            if remaining_bad_files:
+                click.echo(f"Found {len(remaining_bad_files)} files in bad files folder")
+                if auto_cleanup:
+                    self._delete_bad_files_folder()
+                    click.echo("Bad files deleted automatically")
+                elif not web_mode:
+                    # Only prompt in terminal mode
+                    try:
+                        response = input(f"\nDelete {len(remaining_bad_files)} bad files? (y/N): ").lower().strip()
+                        if response == 'y':
+                            self._delete_bad_files_folder()
+                            click.echo("Bad files deleted")
+                        else:
+                            click.echo("Bad files kept for manual review")
+                    except KeyboardInterrupt:
+                        click.echo("User interrupted. Bad files kept for manual review")
+                # In web_mode, just report the count - no deletion
+            
+            # Final progress update
+            if progress_callback:
+                progress_callback(100, stats)
+            
+            return stats
+
+
     def create_folder_structure_preview(self, limit: int = 10) -> List[str]:
         """Preview the folder structure that would be created without moving files."""
         session = self.db_service.db_manager.get_session()

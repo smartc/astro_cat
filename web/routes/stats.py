@@ -4,6 +4,7 @@ Statistics and dashboard data routes.
 
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -66,7 +67,7 @@ async def get_stats(session: Session = Depends(get_db_session), config = Depends
             func.count(FitsFile.id)
         ).group_by(FitsFile.telescope).all()
         
-        # Missing files
+        # Missing files (database records where physical file doesn't exist)
         missing_files = session.query(FitsFile).filter(
             FitsFile.file_not_found == True
         ).count()
@@ -84,12 +85,35 @@ async def get_stats(session: Session = Depends(get_db_session), config = Depends
         active_sessions = session.query(ProcessingSession).filter(
             ProcessingSession.status.in_(['not_started', 'in_progress'])
         ).count()
+        
+        # Cleanup counts - physical files in special folders
+        quarantine_path = Path(config.paths.quarantine_dir)
+        duplicates_folder = quarantine_path / "Duplicates"
+        bad_files_folder = quarantine_path / "Bad"
+        
+        # Count duplicate files
+        duplicates_count = 0
+        if duplicates_folder.exists():
+            for ext in ['.fits', '.fit', '.fts']:
+                duplicates_count += len(list(duplicates_folder.glob(f"*{ext}")))
+        
+        # Count bad files
+        bad_files_count = 0
+        if bad_files_folder.exists():
+            for ext in ['.fits', '.fit', '.fts']:
+                bad_files_count += len(list(bad_files_folder.glob(f"*{ext}")))
 
         stats = {
             "total_files": total_files,
             "quarantine_files": quarantine_files,
             "staged_files": staged_files,
             "missing_files": missing_files,
+            "cleanup": {
+                "duplicates": duplicates_count,
+                "bad_files": bad_files_count,
+                "missing_files": missing_files,
+                "total": duplicates_count + bad_files_count + missing_files
+            },
             "validation": {
                 "total_files": total_files,
                 "auto_migrate": auto_migrate,

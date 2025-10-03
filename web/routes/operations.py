@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from validation import FitsValidator
 from file_organizer import FileOrganizer
 from fits_processor import OptimizedFitsProcessor
-from web.dependencies import get_db_service
+from web.dependencies import get_config, get_db_service
 import web.background_tasks as bg_tasks
 
 logger = logging.getLogger(__name__)
@@ -124,34 +124,61 @@ def _run_validation_sync(task_id: str, check_files: bool):
 
 
 def _run_migration_sync(task_id: str):
-    """Synchronous migration wrapper."""
+    """Synchronous migration wrapper with progress tracking."""
     try:
-        bg_tasks.set_task_status(task_id, "running", "Migrating files...", 0)
+        bg_tasks.set_task_status(task_id, "running", "Starting migration...", 0)
         
-        # Add progress callback
-        def update_progress(progress, stats):
-            bg_tasks.set_task_status(task_id, "running",
-                f"Validating: {stats['auto_migrate']} auto-migrate ready",
-                progress)
-
         # Get module globals using sys.modules
         app_module = sys.modules['web.app']
         config = app_module.config
         db_service = app_module.db_service
-        organizer = FileOrganizer(config, db_service)
-
-        stats = organizer.migrate_files()
         
-        bg_tasks.set_task_status(task_id, "completed",
-            f"Migration completed: {stats['moved']} files migrated", 100,
-            stats=stats)
+        logger.info(f"Starting migration operation {task_id}")
+        
+        # Create progress callback
+        def update_progress(progress, stats):
+            # Update message based on what's happening
+            if stats['moved'] > 0:
+                message = f"Migrated {stats['moved']} files"
+            elif stats['processed'] > 0:
+                message = f"Processing: {stats['processed']} files..."
+            else:
+                message = "Preparing migration..."
+            
+            bg_tasks.set_task_status(task_id, "running", message, progress)
+        
+        # Create organizer and run migration with web_mode=True
+        organizer = FileOrganizer(config, db_service)
+        stats = organizer.migrate_files(
+            limit=None, 
+            auto_cleanup=False,  # Don't auto-delete in web mode
+            progress_callback=update_progress,
+            web_mode=True  # Skip interactive prompts
+        )
+        
+        # Build completion message
+        message_parts = [f"{stats['moved']} files migrated"]
+        
+        if stats.get('duplicates_found', 0) > 0:
+            message_parts.append(f"{stats['duplicates_found']} duplicates in quarantine/Duplicates")
+        
+        if stats.get('bad_files_found', 0) > 0:
+            message_parts.append(f"{stats['bad_files_found']} bad files in quarantine/Bad")
+        
+        if stats.get('left_for_review', 0) > 0:
+            message_parts.append(f"{stats['left_for_review']} files left for review")
+        
+        completion_message = "Migration completed: " + ", ".join(message_parts)
+        
+        bg_tasks.set_task_status(task_id, "completed", completion_message, 100, results=stats)
+        
+        logger.info(f"Migration operation {task_id} completed: {stats}")
         
     except Exception as e:
-        logger.error(f"Migration failed: {e}")
+        logger.error(f"Migration failed: {e}", exc_info=True)
         bg_tasks.set_task_status(task_id, "failed", f"Migration failed: {str(e)}", 0)
     finally:
         asyncio.run(bg_tasks.clear_operation())
-
 
 # ============================================================================
 # ASYNC OPERATION WRAPPERS
@@ -312,4 +339,84 @@ async def remove_missing_files(
         }
     except Exception as e:
         logger.error(f"Error removing missing files: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/cleanup-duplicates")
+async def cleanup_duplicates(config = Depends(get_config)):
+    """Delete duplicate files from quarantine/Duplicates folder."""
+    if bg_tasks.is_operation_in_progress():
+        raise HTTPException(
+            status_code=409, 
+            detail="Cannot cleanup: operation already in progress"
+        )
+    
+    try:
+        from pathlib import Path
+        import shutil
+        
+        duplicates_folder = Path(config.paths.quarantine_dir) / "Duplicates"
+        
+        if not duplicates_folder.exists():
+            return {
+                "message": "Duplicates folder does not exist",
+                "deleted": 0
+            }
+        
+        # Count files before deletion
+        file_count = 0
+        for ext in ['.fits', '.fit', '.fts']:
+            file_count += len(list(duplicates_folder.glob(f"*{ext}")))
+        
+        # Delete the folder and all contents
+        shutil.rmtree(duplicates_folder)
+        logger.info(f"Deleted duplicates folder with {file_count} files")
+        
+        return {
+            "message": f"Deleted {file_count} duplicate files",
+            "deleted": file_count
+        }
+        
+    except Exception as e:
+        logger.error(f"Error cleaning up duplicates: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/cleanup-bad-files")
+async def cleanup_bad_files(config = Depends(get_config)):
+    """Delete bad files from quarantine/Bad folder."""
+    if bg_tasks.is_operation_in_progress():
+        raise HTTPException(
+            status_code=409, 
+            detail="Cannot cleanup: operation already in progress"
+        )
+    
+    try:
+        from pathlib import Path
+        import shutil
+        
+        bad_files_folder = Path(config.paths.quarantine_dir) / "Bad"
+        
+        if not bad_files_folder.exists():
+            return {
+                "message": "Bad files folder does not exist",
+                "deleted": 0
+            }
+        
+        # Count files before deletion
+        file_count = 0
+        for ext in ['.fits', '.fit', '.fts']:
+            file_count += len(list(bad_files_folder.glob(f"*{ext}")))
+        
+        # Delete the folder and all contents
+        shutil.rmtree(bad_files_folder)
+        logger.info(f"Deleted bad files folder with {file_count} files")
+        
+        return {
+            "message": f"Deleted {file_count} bad files",
+            "deleted": file_count
+        }
+        
+    except Exception as e:
+        logger.error(f"Error cleaning up bad files: {e}")
         raise HTTPException(status_code=500, detail=str(e))
