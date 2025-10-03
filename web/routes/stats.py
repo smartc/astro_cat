@@ -95,14 +95,14 @@ async def get_stats(session: Session = Depends(get_db_session), config = Depends
         duplicates_count = 0
         if duplicates_folder.exists():
             for ext in ['.fits', '.fit', '.fts']:
-                duplicates_count += len(list(duplicates_folder.glob(f"*{ext}")))
+                duplicates_count += sum(1 for p in duplicates_folder.rglob(f"*{ext}") if p.is_file())
         
         # Count bad files
         bad_files_count = 0
         if bad_files_folder.exists():
             for ext in ['.fits', '.fit', '.fts']:
-                bad_files_count += len(list(bad_files_folder.glob(f"*{ext}")))
-
+                bad_files_count += sum(1 for p in bad_files_folder.rglob(f"*{ext}") if p.is_file())
+        
         stats = {
             "total_files": total_files,
             "quarantine_files": quarantine_files,

@@ -75,15 +75,22 @@ def _run_scan_sync(task_id: str):
                 db_service.add_session(session_data)
             
             logger.info(f"Saved {len(sessions)} sessions")
+
+            results = {
+                'added': new_files,
+                'duplicates': duplicates,
+                'sessions': len(sessions)
+            }
             
             bg_tasks.set_task_status(task_id, "completed", 
                 f"Scan completed: {new_files} new files, {duplicates} duplicates", 100,
-                new_files=new_files, duplicates=duplicates)
+                new_files=new_files, duplicates=duplicates, results=results)
         else:
             logger.info("No new files found")
+            results = {'added': 0, 'duplicates': 0, 'sessions': 0}
             bg_tasks.set_task_status(task_id, "completed", "No new files found", 100,
-                new_files=0, duplicates=0)
-        
+                results=results)
+                        
     except Exception as e:
         logger.error(f"Scan failed: {e}", exc_info=True)
         bg_tasks.set_task_status(task_id, "failed", f"Scan failed: {str(e)}", 0)
