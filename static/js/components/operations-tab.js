@@ -1,5 +1,5 @@
 /**
- * Operations Tab Component - Enhanced with Cleanup Operations
+ * Operations Tab Component - Enhanced with Event-Based Operation Tracking
  */
 
 const OperationsTab = {
@@ -121,7 +121,7 @@ const OperationsTab = {
                         </div>
                         <div class="w-full bg-gray-200 rounded-full h-4">
                             <div class="bg-blue-600 h-4 rounded-full transition-all duration-300" 
-                                 :style="\`width: \${operationStatus.progress || 0}%\`"></div>
+                                 :style="'width: ' + (operationStatus.progress || 0) + '%'"></div>
                         </div>
                         <p class="text-xs text-gray-500 mt-1">{{ operationStatus.progress || 0 }}%</p>
                     </div>
@@ -165,8 +165,66 @@ const OperationsTab = {
                     </div>
                 </div>
             </div>
+
+            <!-- Recent Operations Log -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-bold">Recent Operations</h2>
+                    <button 
+                        v-if="recentOperations.length > 0"
+                        @click="clearRecentOperations" 
+                        class="text-sm px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded transition">
+                        Clear All
+                    </button>
+                </div>
+                
+                <!-- Empty state -->
+                <div v-if="recentOperations.length === 0" class="text-center py-8 text-gray-500">
+                    <p class="mb-2">No recent operations</p>
+                    <p class="text-sm">Run an operation above to see results here</p>
+                </div>
+                
+                <!-- Operations list -->
+                <div v-else class="space-y-3">
+                    <div v-for="op in recentOperations" :key="op.id" 
+                         class="border rounded-lg p-4 hover:bg-gray-50 transition">
+                        <div class="flex items-start justify-between mb-2">
+                            <div class="flex-1">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-semibold capitalize">{{ op.type }}</span>
+                                    <span :class="getStatusBadgeClass(op.status)" 
+                                          class="px-2 py-1 rounded text-xs font-medium">
+                                        {{ op.status }}
+                                    </span>
+                                </div>
+                                <p class="text-sm text-gray-600 mt-1">{{ op.message }}</p>
+                            </div>
+                            <span class="text-xs text-gray-500 whitespace-nowrap ml-4">
+                                {{ formatTime(op.timestamp) }}
+                            </span>
+                        </div>
+                        
+                        <!-- Results Grid -->
+                        <div v-if="op.results && Object.keys(op.results).length > 0" 
+                             class="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3 text-sm">
+                            <div v-for="(value, key) in op.results" :key="key" 
+                                 :class="getResultClass(key)"
+                                 class="p-2 rounded">
+                                <div class="font-semibold">{{ value }}</div>
+                                <div class="text-xs capitalize">{{ formatKey(key) }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     `,
+    
+    data() {
+        return {
+            recentOperations: []
+        };
+    },
     
     computed: {
         stats() {
@@ -189,6 +247,76 @@ const OperationsTab = {
             this.$root.clearOperation();
         },
         
+        // Called by parent app when an operation completes
+        onOperationCompleted(operationType, operationStatus) {
+            console.log('Operation completed callback:', operationType, operationStatus);
+            this.addRecentOperation({
+                type: operationType,
+                status: operationStatus.status === 'error' ? 'error' : 'completed',
+                message: operationStatus.message,
+                results: operationStatus.results || {},
+                timestamp: Date.now()
+            });
+        },
+        
+        addRecentOperation(operation) {
+            console.log('Adding recent operation:', operation);
+            
+            // Add unique ID
+            operation.id = Date.now() + Math.random();
+            
+            // Add to beginning of array
+            this.recentOperations.unshift(operation);
+            
+            // Keep only last 10 operations
+            if (this.recentOperations.length > 10) {
+                this.recentOperations = this.recentOperations.slice(0, 10);
+            }
+            
+            console.log('Recent operations count:', this.recentOperations.length);
+            
+            // Save to localStorage
+            this.saveRecentOperations();
+        },
+        
+        clearRecentOperations() {
+            if (confirm('Clear all recent operation history?')) {
+                this.recentOperations = [];
+                this.saveRecentOperations();
+            }
+        },
+        
+        saveRecentOperations() {
+            try {
+                const toSave = this.recentOperations.map(op => ({
+                    id: op.id,
+                    type: op.type,
+                    status: op.status,
+                    message: op.message,
+                    results: op.results,
+                    timestamp: op.timestamp
+                }));
+                localStorage.setItem('fitscat_recent_operations', JSON.stringify(toSave));
+            } catch (error) {
+                console.error('Error saving recent operations:', error);
+            }
+        },
+        
+        loadRecentOperations() {
+            try {
+                const saved = localStorage.getItem('fitscat_recent_operations');
+                if (saved) {
+                    this.recentOperations = JSON.parse(saved);
+                    console.log('Loaded recent operations from localStorage:', this.recentOperations.length);
+                } else {
+                    console.log('No saved operations found');
+                }
+            } catch (error) {
+                console.error('Error loading recent operations:', error);
+                this.recentOperations = [];
+            }
+        },
+        
         async cleanupDuplicates() {
             const count = this.stats.cleanup && this.stats.cleanup.duplicates;
             if (!count) return;
@@ -204,15 +332,37 @@ const OperationsTab = {
                 
                 if (response.ok) {
                     const result = await response.json();
-                    alert(result.message);
+                    
+                    this.addRecentOperation({
+                        type: 'cleanup-duplicates',
+                        status: 'completed',
+                        message: result.message,
+                        results: { deleted: result.deleted || count },
+                        timestamp: Date.now()
+                    });
+                    
                     await this.$root.loadStats();
                 } else {
                     const error = await response.json();
-                    alert(`Error: ${error.detail}`);
+                    
+                    this.addRecentOperation({
+                        type: 'cleanup-duplicates',
+                        status: 'error',
+                        message: `Error: ${error.detail}`,
+                        results: {},
+                        timestamp: Date.now()
+                    });
                 }
             } catch (error) {
                 console.error('Error cleaning up duplicates:', error);
-                alert('Failed to cleanup duplicates');
+                
+                this.addRecentOperation({
+                    type: 'cleanup-duplicates',
+                    status: 'error',
+                    message: 'Failed to cleanup duplicates',
+                    results: {},
+                    timestamp: Date.now()
+                });
             }
         },
         
@@ -231,15 +381,37 @@ const OperationsTab = {
                 
                 if (response.ok) {
                     const result = await response.json();
-                    alert(result.message);
+                    
+                    this.addRecentOperation({
+                        type: 'cleanup-bad-files',
+                        status: 'completed',
+                        message: result.message,
+                        results: { deleted: result.deleted || count },
+                        timestamp: Date.now()
+                    });
+                    
                     await this.$root.loadStats();
                 } else {
                     const error = await response.json();
-                    alert(`Error: ${error.detail}`);
+                    
+                    this.addRecentOperation({
+                        type: 'cleanup-bad-files',
+                        status: 'error',
+                        message: `Error: ${error.detail}`,
+                        results: {},
+                        timestamp: Date.now()
+                    });
                 }
             } catch (error) {
                 console.error('Error cleaning up bad files:', error);
-                alert('Failed to cleanup bad files');
+                
+                this.addRecentOperation({
+                    type: 'cleanup-bad-files',
+                    status: 'error',
+                    message: 'Failed to cleanup bad files',
+                    results: {},
+                    timestamp: Date.now()
+                });
             }
         },
         
@@ -258,16 +430,106 @@ const OperationsTab = {
                 
                 if (response.ok) {
                     const result = await response.json();
-                    alert(`Removed ${result.stats.removed} missing file records`);
+                    
+                    this.addRecentOperation({
+                        type: 'remove-missing',
+                        status: 'completed',
+                        message: `Removed ${result.stats.removed} missing file records`,
+                        results: { removed: result.stats.removed },
+                        timestamp: Date.now()
+                    });
+                    
                     await this.$root.loadStats();
                 } else {
                     const error = await response.json();
-                    alert(`Error: ${error.detail}`);
+                    
+                    this.addRecentOperation({
+                        type: 'remove-missing',
+                        status: 'error',
+                        message: `Error: ${error.detail}`,
+                        results: {},
+                        timestamp: Date.now()
+                    });
                 }
             } catch (error) {
                 console.error('Error removing missing files:', error);
-                alert('Failed to remove missing files');
+                
+                this.addRecentOperation({
+                    type: 'remove-missing',
+                    status: 'error',
+                    message: 'Failed to remove missing files',
+                    results: {},
+                    timestamp: Date.now()
+                });
             }
+        },
+        
+        getStatusBadgeClass(status) {
+            const classes = {
+                'completed': 'bg-green-100 text-green-800',
+                'error': 'bg-red-100 text-red-800',
+                'running': 'bg-blue-100 text-blue-800'
+            };
+            return classes[status] || 'bg-gray-100 text-gray-800';
+        },
+        
+        getResultClass(key) {
+            const classes = {
+                'added': 'bg-green-50 text-green-700',
+                'moved': 'bg-blue-50 text-blue-700',
+                'deleted': 'bg-orange-50 text-orange-700',
+                'removed': 'bg-orange-50 text-orange-700',
+                'duplicates': 'bg-yellow-50 text-yellow-700',
+                'errors': 'bg-red-50 text-red-700',
+                'sessions': 'bg-blue-50 text-blue-700',
+                'auto_migrate': 'bg-green-50 text-green-700',
+                'needs_review': 'bg-yellow-50 text-yellow-700',
+                'manual_only': 'bg-red-50 text-red-700'
+            };
+            return classes[key] || 'bg-gray-50 text-gray-700';
+        },
+        
+        formatKey(key) {
+            return key.replace(/_/g, ' ');
+        },
+        
+        formatTime(timestamp) {
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            
+            if (diffMins < 1) return 'Just now';
+            if (diffMins < 60) return `${diffMins}m ago`;
+            
+            const diffHours = Math.floor(diffMins / 60);
+            if (diffHours < 24) return `${diffHours}h ago`;
+            
+            const diffDays = Math.floor(diffHours / 24);
+            if (diffDays < 7) return `${diffDays}d ago`;
+            
+            return date.toLocaleDateString();
+        }
+    },
+    
+    mounted() {
+        console.log('OperationsTab mounted');
+        this.loadRecentOperations();
+        
+        // Register this component with the root app so it can notify us of completed operations
+        if (this.$root && this.$root.$refs && this.$root.$refs.operationsTab) {
+            this.$root.$refs.operationsTab = this;
+        }
+        // Alternative: register globally
+        window.operationsTabInstance = this;
+        
+        console.log('OperationsTab registered for operation callbacks');
+    },
+    
+    beforeUnmount() {
+        // Clean up global reference
+        if (window.operationsTabInstance === this) {
+            window.operationsTabInstance = null;
         }
     }
 };

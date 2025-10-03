@@ -181,6 +181,16 @@ createApp({
                 
                 if (this.operationStatus.status === 'completed' || 
                     this.operationStatus.status === 'error') {
+
+                    // NOTIFY OPERATIONS TAB BEFORE CLEARING
+                    if (window.operationsTabInstance) {
+                        console.log('Notifying operations tab of completion');
+                        window.operationsTabInstance.onOperationCompleted(
+                            this.activeOperation,
+                            this.operationStatus
+                        );
+                    }
+
                     clearInterval(this.operationPolling);
                     this.operationPolling = null;
                     this.activeOperation = null;
