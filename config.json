@@ -17,8 +17,8 @@
     }
   },
    "file_monitoring": {
-       "scan_interval_minutes": 5,
-       "ignore_newer_than_minutes": 2
+       "scan_interval_minutes": 30,
+       "ignore_newer_than_minutes": 30
    },
   "equipment": {
     "cameras_file": "cameras.json",

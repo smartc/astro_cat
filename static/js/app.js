@@ -88,6 +88,12 @@ createApp({
             }
         },
         
+        openDatabaseBrowser() {
+            const dbUrl = `http://${window.location.hostname}:8081`;
+            window.open(dbUrl, '_blank', 'width=1400,height=900');
+            this.menuOpen = false;
+        },
+        
         // ===================
         // Core Methods
         // ===================

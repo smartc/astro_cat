@@ -3,6 +3,8 @@ FastAPI application initialization for FITS Cataloger.
 """
 
 import logging
+import subprocess
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -25,6 +27,7 @@ cameras = []
 telescopes = []
 filter_mappings = {}
 processing_manager = None
+sqlite_web_process = None
 
 # Initialize FastAPI
 app = FastAPI(
@@ -59,41 +62,63 @@ def get_globals():
     }
 
 
+def start_sqlite_web(db_path: str, port: int = 8081):
+    """Start sqlite_web in a separate process."""
+    global sqlite_web_process
+    try:
+        logger.info(f"Starting sqlite_web on port {port}...")
+        sqlite_web_process = subprocess.Popen(
+            [sys.executable, "-m", "sqlite_web", db_path, 
+             "--host", "0.0.0.0",  # Add this line
+             "--port", str(port), 
+             "--no-browser"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        logger.info(f"✓ sqlite_web started - Database browser at http://0.0.0.0:{port}")
+    except Exception as e:
+        logger.warning(f"Could not start sqlite_web: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize application on startup with enhanced error checking."""
     global config, db_manager, db_service, cameras, telescopes, filter_mappings, processing_manager
     
+    logger.info("=" * 60)
+    logger.info("FITS Cataloger Web Interface Starting Up")
+    logger.info("=" * 60)
+    
     try:
-        logger.info("=" * 60)
-        logger.info("FITS Cataloger Web Interface Starting")
-        logger.info("=" * 60)
-        
         # Load configuration
         logger.info("Loading configuration...")
-        config, cameras, telescopes, filter_mappings = load_config()
-        logger.info(f"✓ Configuration loaded")
-        logger.info(f"  - Cameras: {len(cameras)}")
-        logger.info(f"  - Telescopes: {len(telescopes)}")
-        logger.info(f"  - Filter mappings: {len(filter_mappings)}")
+        config = load_config()
+        logger.info("✓ Configuration loaded")
         
         # Initialize database
-        logger.info("Initializing database connection...")
-        db_manager = DatabaseManager(config.database.connection_string)
-        db_manager.create_tables()
-        logger.info(f"✓ Database connected: {config.database.connection_string}")
-        
-        # Create database service
+        logger.info("Initializing database...")
+        db_manager = DatabaseManager(config['database']['connection_string'])
         db_service = DatabaseService(db_manager)
-        logger.info("✓ Database service initialized")
+        logger.info("✓ Database initialized")
+        
+        # Load equipment from database
+        logger.info("Loading equipment from database...")
+        cameras = db_service.get_all_cameras()
+        telescopes = db_service.get_all_telescopes()
+        filter_mappings = {fm.raw_name: fm.proper_name for fm in db_service.get_all_filter_mappings()}
+        logger.info(f"✓ Equipment loaded: {len(cameras)} cameras, {len(telescopes)} telescopes, {len(filter_mappings)} filter mappings")
         
         # Initialize processing session manager
         logger.info("Initializing processing session manager...")
-        processing_manager = ProcessingSessionManager(config, db_service)
-        logger.info("✓ Processing session manager initialized")
+        processing_manager = ProcessingSessionManager(db_service)
+        logger.info("✓ Processing manager initialized")
+        
+        # Start sqlite_web for database management
+        db_path = Path(config['paths']['database_path'])
+        if db_path.exists():
+            start_sqlite_web(str(db_path), port=8081)
         
         logger.info("=" * 60)
-        logger.info("Web interface ready!")
         logger.info("Open your browser to: http://localhost:8000")
         logger.info("=" * 60)
 
@@ -109,13 +134,22 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown."""
-    global db_manager
+    global db_manager, sqlite_web_process
     
     logger.info("Shutting down web interface...")
     
+    # Stop sqlite_web
+    if sqlite_web_process:
+        try:
+            sqlite_web_process.terminate()
+            sqlite_web_process.wait(timeout=5)
+            logger.info("✓ Database browser stopped")
+        except Exception as e:
+            logger.warning(f"Error stopping sqlite_web: {e}")
+    
     if db_manager:
         db_manager.close()
-        logger.info("Database connection closed")
+        logger.info("✓ Database connection closed")
     
     logger.info("Shutdown complete")
 
