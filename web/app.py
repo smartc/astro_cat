@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
+from version import __version__
 from config import load_config
 from models import DatabaseManager, DatabaseService
 from processing_session_manager import ProcessingSessionManager
@@ -29,11 +30,10 @@ filter_mappings = {}
 processing_manager = None
 sqlite_web_process = None
 
-# Initialize FastAPI
 app = FastAPI(
     title="FITS Cataloger",
     description="Astrophotography Image Management System",
-    version="1.0.0"
+    version=__version__
 )
 
 # CORS middleware
@@ -154,6 +154,10 @@ async def shutdown_event():
         logger.info("✓ Database connection closed")
     
     logger.info("Shutdown complete")
+
+@app.get("/api/version")
+async def get_version():
+    return {"version": __version__}
 
 
 # ============================================================================

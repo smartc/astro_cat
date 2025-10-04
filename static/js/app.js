@@ -17,7 +17,6 @@ createApp({
         'processing-sessions-tab': ProcessingSessionsTab,
         'operations-tab': OperationsTab,
         'equipment-tab': EquipmentTab,
-        'database-tab': DatabaseTab,
         'configuration-tab': ConfigurationTab,
         'imaging-session-detail-modal': ImagingSessionDetailModal,
         'calibration-modal': CalibrationModalComponent,
@@ -32,9 +31,10 @@ createApp({
             menuOpen: false,
             loading: false,
             errorMessage: '',
+            appVersion: 'loading...',
             
             // Tab navigation
-            tabs: ['dashboard', 'files', 'imaging-sessions', 'processing-sessions', 'operations', 'equipment', 'database', 'configuration'],
+            tabs: ['dashboard', 'files', 'imaging-sessions', 'processing-sessions', 'operations', 'equipment', 'configuration'],
             keyboardHandler: null,
             popstateHandler: null,
             
@@ -386,6 +386,15 @@ createApp({
         this.statsRefreshInterval = setInterval(() => {
             this.loadStats();
         }, 30000);
+
+        // Load version
+        try {
+            const response = await axios.get('/api/version');
+            this.appVersion = response.data.version;
+        } catch (error) {
+            console.error('Error loading version:', error);
+            this.appVersion = 'unknown';
+        }
     },
     
     beforeUnmount() {

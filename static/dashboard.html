@@ -136,12 +136,14 @@
             <!-- Equipment Tab (NEW) -->
             <equipment-tab v-show="activeTab === 'equipment'"></equipment-tab>
 
-            <!-- Database Tab (NEW) -->
-            <database-tab v-show="activeTab === 'database'"></database-tab>
-
             <!-- Configuration Tab (NEW) -->
             <configuration-tab v-show="activeTab === 'configuration'"></configuration-tab>
         </main>
+
+        <!-- Footer -->
+        <footer class="text-center py-3 text-xs text-gray-500 border-t bg-gray-50">
+            FITS Cataloger {{ appVersion }}
+        </footer>
 
         <!-- Component Modals -->
         <imaging-session-detail-modal ref="sessionDetailModal"></imaging-session-detail-modal>   
@@ -167,7 +169,6 @@
     
     <!-- New Component Scripts -->
     <script src="/static/js/components/equipment-tab.js"></script>
-    <script src="/static/js/components/database-tab.js"></script>
     <script src="/static/js/components/configuration-tab.js"></script>
     
     <script src="/static/js/app.js"></script>
