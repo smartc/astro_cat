@@ -1,5 +1,5 @@
 """
-Monitoring routes for automatic quarantine scanning.
+Monitoring routes with database persistence.
 """
 
 import asyncio
@@ -8,11 +8,9 @@ import sys
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Depends, Body
+from fastapi import APIRouter, HTTPException, Body
 from pydantic import BaseModel
 
-from file_monitor import FileMonitor
-from web.dependencies import get_config, get_db_service
 import web.routes.operations as operations
 
 logger = logging.getLogger(__name__)
@@ -21,10 +19,12 @@ router = APIRouter(prefix="/api/monitoring")
 
 # Global monitoring state
 monitoring_task: Optional[asyncio.Task] = None
-file_monitor: Optional[FileMonitor] = None
+monitoring_enabled = False
+last_scan = None
+files_detected = 0
 
 
-class MonitoringConfig(BaseModel):
+class MonitoringConfigModel(BaseModel):
     """Monitoring configuration model."""
     enabled: bool
     interval_minutes: int
@@ -32,158 +32,139 @@ class MonitoringConfig(BaseModel):
 
 
 async def monitoring_callback(filepaths: list):
-    """
-    Callback when new files are detected by monitoring.
-    Chains scan → validate → migrate operations.
-    """
+    """Callback when new files are detected."""
+    global files_detected
+    
     try:
+        files_detected = len(filepaths)
         logger.info(f"Monitoring detected {len(filepaths)} new files, starting auto-chain...")
         
-        # 1. Start scan operation
+        # Chain: scan → validate → migrate
         scan_task_id = f"auto_scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        logger.info(f"Starting auto-scan: {scan_task_id}")
-        
         await operations.run_scan_operation(scan_task_id)
         
-        # Check scan results
         scan_status = operations.bg_tasks.get_task_status(scan_task_id)
         new_files = scan_status.get('results', {}).get('added', 0)
         
-        logger.info(f"Auto-scan complete: {new_files} new files added")
-        
         if new_files > 0:
-            # 2. Start validation
             validate_task_id = f"auto_validate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            logger.info(f"Starting auto-validate: {validate_task_id}")
-            
             await operations.run_validation_operation(validate_task_id, check_files=True)
             
-            # 3. Start migration
             migrate_task_id = f"auto_migrate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            logger.info(f"Starting auto-migrate: {migrate_task_id}")
-            
             await operations.run_migration_operation(migrate_task_id)
             
             logger.info("Auto-chain complete: scan → validate → migrate")
-        else:
-            logger.info("No new files added, skipping validate/migrate")
             
     except Exception as e:
         logger.error(f"Error in monitoring callback: {e}", exc_info=True)
 
 
+async def periodic_scan_task(interval_minutes: int):
+    """Periodic scanning task."""
+    global monitoring_enabled, last_scan
+    
+    app_module = sys.modules['web.app']
+    config = app_module.config
+    db_service = app_module.db_service
+    
+    from fits_processor import OptimizedFitsProcessor
+    
+    logger.info(f"Periodic scanning started (interval: {interval_minutes} minutes)")
+    
+    while monitoring_enabled:
+        try:
+            last_scan = datetime.now().isoformat()
+            
+            # Scan quarantine
+            processor = OptimizedFitsProcessor(
+                config, 
+                app_module.cameras, 
+                app_module.telescopes, 
+                app_module.filter_mappings, 
+                db_service
+            )
+            
+            df, sessions = processor.scan_quarantine()
+            
+            if len(df) > 0:
+                await monitoring_callback([])
+                
+        except Exception as e:
+            logger.error(f"Error in periodic scan: {e}", exc_info=True)
+        
+        # Wait for next interval
+        await asyncio.sleep(interval_minutes * 60)
+
+
 @router.get("/status")
-async def get_monitoring_status(db_service=Depends(get_db_service)):
-    """Get current monitoring status."""
-    global file_monitor, monitoring_task
+async def get_monitoring_status():
+    """Get current monitoring status from database."""
+    global monitoring_enabled, last_scan, files_detected
     
-    is_active = monitoring_task is not None and not monitoring_task.done()
+    app_module = sys.modules['web.app']
+    db_service = app_module.db_service
     
-    # Get settings from database
-    enabled = db_service.get_setting('monitoring.enabled', False)
-    interval = db_service.get_setting('monitoring.interval_minutes', 30)
-    ignore_recent = db_service.get_setting('monitoring.ignore_files_newer_than_minutes', 30)
+    # Load settings from database
+    enabled_db = db_service.get_setting('monitoring.enabled', False)
+    interval = db_service.get_setting('monitoring.interval_minutes', 5)
+    ignore_newer = db_service.get_setting('monitoring.ignore_newer_than_minutes', 2)
     
-    status = {
-        'is_active': is_active,
-        'enabled': enabled,
-        'interval_minutes': interval,
-        'ignore_files_newer_than_minutes': ignore_recent,
-        'last_scan_time': None,
-        'last_scan_file_count': 0
-    }
+    # Update global state from database
+    monitoring_enabled = enabled_db
     
-    if file_monitor:
-        stats = file_monitor.get_monitoring_stats()
-        status['last_scan_time'] = stats.get('last_scan_time')
-        status['last_scan_file_count'] = stats.get('last_scan_file_count', 0)
-    
-    return status
-
-
-@router.get("/config")
-async def get_monitoring_config(db_service=Depends(get_db_service)):
-    """Get monitoring configuration."""
     return {
-        'enabled': db_service.get_setting('monitoring.enabled', False),
-        'interval_minutes': db_service.get_setting('monitoring.interval_minutes', 30),
-        'ignore_files_newer_than_minutes': db_service.get_setting(
-            'monitoring.ignore_files_newer_than_minutes', 30
-        )
+        "enabled": enabled_db,
+        "interval_minutes": interval,
+        "ignore_files_newer_than_minutes": ignore_newer,
+        "last_scan": last_scan,
+        "files_detected": files_detected,
+        "next_scan": None  # TODO: Calculate based on last_scan + interval
     }
-
-
-@router.post("/config")
-async def update_monitoring_config(
-    config: MonitoringConfig,
-    db_service=Depends(get_db_service)
-):
-    """Update monitoring configuration."""
-    global monitoring_task, file_monitor
-    
-    # Validate values
-    if config.interval_minutes < 5 or config.interval_minutes > 1440:
-        raise HTTPException(status_code=400, detail="Interval must be between 5 and 1440 minutes")
-    
-    if config.ignore_files_newer_than_minutes < 1 or config.ignore_files_newer_than_minutes > 1440:
-        raise HTTPException(status_code=400, detail="Ignore time must be between 1 and 1440 minutes")
-    
-    # Save to database
-    db_service.set_setting('monitoring.enabled', config.enabled)
-    db_service.set_setting('monitoring.interval_minutes', config.interval_minutes)
-    db_service.set_setting('monitoring.ignore_files_newer_than_minutes', 
-                          config.ignore_files_newer_than_minutes)
-    
-    logger.info(f"Monitoring config updated: {config.dict()}")
-    
-    # Restart monitoring if enabled and settings changed
-    was_active = monitoring_task is not None and not monitoring_task.done()
-    
-    if was_active:
-        # Stop current monitoring
-        if file_monitor:
-            file_monitor.stop_monitoring()
-        if monitoring_task:
-            monitoring_task.cancel()
-            try:
-                await monitoring_task
-            except asyncio.CancelledError:
-                pass
-    
-    if config.enabled:
-        # Start new monitoring with updated settings
-        await start_monitoring_internal()
-        return {"message": "Monitoring restarted with new settings"}
-    else:
-        return {"message": "Monitoring disabled"}
 
 
 @router.post("/start")
-async def start_monitoring():
-    """Start automatic monitoring."""
-    global monitoring_task, file_monitor
+async def start_monitoring(config: MonitoringConfigModel = Body(...)):
+    """Start automatic monitoring with database persistence."""
+    global monitoring_task, monitoring_enabled
     
     if monitoring_task and not monitoring_task.done():
         raise HTTPException(status_code=409, detail="Monitoring already running")
     
-    await start_monitoring_internal()
+    app_module = sys.modules['web.app']
+    db_service = app_module.db_service
     
-    return {"message": "Monitoring started"}
+    # Save settings to database
+    db_service.set_setting('monitoring.enabled', True)
+    db_service.set_setting('monitoring.interval_minutes', config.interval_minutes)
+    db_service.set_setting('monitoring.ignore_newer_than_minutes', config.ignore_files_newer_than_minutes)
+    
+    monitoring_enabled = True
+    
+    # Start monitoring task
+    monitoring_task = asyncio.create_task(periodic_scan_task(config.interval_minutes))
+    
+    logger.info(f"Monitoring started: {config.interval_minutes}min interval")
+    
+    return {"message": "Monitoring started", "config": config.dict()}
 
 
 @router.post("/stop")
 async def stop_monitoring():
     """Stop automatic monitoring."""
-    global monitoring_task, file_monitor
+    global monitoring_task, monitoring_enabled
     
     if not monitoring_task or monitoring_task.done():
         raise HTTPException(status_code=409, detail="Monitoring not running")
     
-    # Stop the file monitor
-    if file_monitor:
-        file_monitor.stop_monitoring()
+    app_module = sys.modules['web.app']
+    db_service = app_module.db_service
     
-    # Cancel the async task
+    # Save to database
+    db_service.set_setting('monitoring.enabled', False)
+    
+    monitoring_enabled = False
+    
+    # Cancel task
     monitoring_task.cancel()
     try:
         await monitoring_task
@@ -195,35 +176,32 @@ async def stop_monitoring():
     return {"message": "Monitoring stopped"}
 
 
-async def start_monitoring_internal():
-    """Internal function to start monitoring."""
-    global monitoring_task, file_monitor
-    
-    # Get config and services from app module
+@router.put("/config")
+async def update_monitoring_config(config: MonitoringConfigModel = Body(...)):
+    """Update monitoring configuration in database."""
     app_module = sys.modules['web.app']
-    config = app_module.config
     db_service = app_module.db_service
     
-    # Create file monitor
-    file_monitor = FileMonitor(config, monitoring_callback, db_service)
+    # Save to database
+    db_service.set_setting('monitoring.interval_minutes', config.interval_minutes)
+    db_service.set_setting('monitoring.ignore_newer_than_minutes', config.ignore_files_newer_than_minutes)
     
-    # Get interval from database
-    interval_minutes = db_service.get_setting('monitoring.interval_minutes', 30)
+    # If monitoring is running and interval changed, restart it
+    global monitoring_task, monitoring_enabled
+    if monitoring_enabled and monitoring_task and not monitoring_task.done():
+        monitoring_task.cancel()
+        try:
+            await monitoring_task
+        except asyncio.CancelledError:
+            pass
+        monitoring_task = asyncio.create_task(periodic_scan_task(config.interval_minutes))
+        logger.info(f"Monitoring restarted with new interval: {config.interval_minutes}min")
     
-    # Start monitoring task
-    monitoring_task = asyncio.create_task(
-        file_monitor.start_periodic_monitoring(interval_minutes)
-    )
-    
-    # Update enabled setting
-    db_service.set_setting('monitoring.enabled', True)
-    
-    logger.info(f"Monitoring started with {interval_minutes} minute interval")
+    return {"message": "Configuration updated", "config": config.dict()}
 
 
-# Startup function to auto-start monitoring if enabled
 async def auto_start_monitoring():
-    """Auto-start monitoring on app startup if enabled in settings."""
+    """Auto-start monitoring on app startup if enabled in database."""
     try:
         app_module = sys.modules['web.app']
         db_service = app_module.db_service
@@ -231,10 +209,19 @@ async def auto_start_monitoring():
         enabled = db_service.get_setting('monitoring.enabled', False)
         
         if enabled:
-            logger.info("Auto-starting monitoring (enabled in settings)")
-            await start_monitoring_internal()
+            interval = db_service.get_setting('monitoring.interval_minutes', 5)
+            ignore_newer = db_service.get_setting('monitoring.ignore_newer_than_minutes', 2)
+            
+            config = MonitoringConfigModel(
+                enabled=True,
+                interval_minutes=interval,
+                ignore_files_newer_than_minutes=ignore_newer
+            )
+            
+            await start_monitoring(config)
+            logger.info("✓ Auto-started monitoring from database settings")
         else:
-            logger.info("Monitoring not auto-started (disabled in settings)")
+            logger.info("Monitoring not auto-started (disabled in database)")
             
     except Exception as e:
         logger.error(f"Error auto-starting monitoring: {e}", exc_info=True)

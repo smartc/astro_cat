@@ -65,52 +65,44 @@ async def startup_event():
     global config, db_manager, db_service, cameras, telescopes, filter_mappings, processing_manager
     
     try:
-        logger.info("🚀 Starting FITS Cataloger Web Interface...")
+        logger.info("=" * 60)
+        logger.info("FITS Cataloger Web Interface Starting")
+        logger.info("=" * 60)
         
         # Load configuration
+        logger.info("Loading configuration...")
         config, cameras, telescopes, filter_mappings = load_config()
-        logger.info(f"✅ Configuration loaded: {len(cameras)} cameras, {len(telescopes)} telescopes")
+        logger.info(f"✓ Configuration loaded")
+        logger.info(f"  - Cameras: {len(cameras)}")
+        logger.info(f"  - Telescopes: {len(telescopes)}")
+        logger.info(f"  - Filter mappings: {len(filter_mappings)}")
         
         # Initialize database
+        logger.info("Initializing database connection...")
         db_manager = DatabaseManager(config.database.connection_string)
-        db_service = DatabaseService(db_manager)
-        logger.info("✅ Database service initialized")
+        db_manager.create_tables()
+        logger.info(f"✓ Database connected: {config.database.connection_string}")
         
-        # Test database connection
-        session = db_manager.get_session()
-        from models import FitsFile
-        from sqlalchemy import func
-        test_count = session.query(func.count(FitsFile.id)).scalar()
-        session.close()
-        logger.info(f"✅ Database connection verified: {test_count} files in database")
+        # Create database service
+        db_service = DatabaseService(db_manager)
+        logger.info("✓ Database service initialized")
         
         # Initialize processing session manager
+        logger.info("Initializing processing session manager...")
         processing_manager = ProcessingSessionManager(config, db_service)
-        logger.info("✅ Processing session manager initialized")
+        logger.info("✓ Processing session manager initialized")
         
-        # Verify critical modules can be imported
-        from validation import FitsValidator
-        from file_organizer import FileOrganizer
-        from fits_processor import OptimizedFitsProcessor
-        logger.info("✅ All critical modules imported successfully")
-        
-        # Test creating instances
-        test_validator = FitsValidator(db_service)
-        test_organizer = FileOrganizer(config, db_service)
-        test_processor = OptimizedFitsProcessor(config, cameras, telescopes, filter_mappings, db_service)
-        logger.info("✅ All service instances created successfully")
-        
-        # Create directories for static files if they don't exist
-        Path("static").mkdir(exist_ok=True)
-        
-        # Start file monitoring:
+        logger.info("=" * 60)
+        logger.info("Web interface ready!")
+        logger.info("Open your browser to: http://localhost:8000")
+        logger.info("=" * 60)
+
+        # Auto-start monitoring if enabled
+        from web.routes import monitoring
         await monitoring.auto_start_monitoring()
-
-        logger.info("🎉 Web interface startup completed successfully!")
-
         
     except Exception as e:
-        logger.error(f"💥 CRITICAL: Web interface startup failed: {e}")
+        logger.error(f"Failed to initialize application: {e}", exc_info=True)
         raise
 
 
@@ -118,18 +110,44 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on shutdown."""
     global db_manager
+    
+    logger.info("Shutting down web interface...")
+    
     if db_manager:
         db_manager.close()
         logger.info("Database connection closed")
+    
+    logger.info("Shutdown complete")
 
 
-# Import and register route modules
-from web.routes import dashboard, files, stats, imaging_sessions, processing_sessions, operations, monitoring
+# ============================================================================
+# IMPORT AND REGISTER ROUTES
+# ============================================================================
 
+# Import all route modules
+from web.routes import (
+    dashboard,
+    files,
+    stats,
+    operations,
+    monitoring,
+    imaging_sessions,
+    processing_sessions,
+    equipment,
+    config as config_routes,
+    database
+)
+
+# Register all routers
 app.include_router(dashboard.router)
 app.include_router(files.router)
 app.include_router(stats.router)
-app.include_router(imaging_sessions.router)
-app.include_router(processing_sessions.router)
 app.include_router(operations.router)
 app.include_router(monitoring.router)
+app.include_router(imaging_sessions.router)
+app.include_router(processing_sessions.router)
+app.include_router(equipment.router)
+app.include_router(config_routes.router)
+app.include_router(database.router)
+
+logger.info("✓ All routes registered")

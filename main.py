@@ -215,26 +215,6 @@ class FitsCataloger:
         # Process files with progress reporting
         self.process_new_files(fits_files) 
 
-    async def start_periodic_monitoring(self, interval_minutes: int = 30):
-        """Start periodic monitoring of quarantine directory."""
-        global shutdown_flag
-        
-        click.echo(f"Starting periodic monitoring (every {interval_minutes} minutes)...")
-        self.logger.info(f"Starting periodic monitoring (every {interval_minutes} minutes)...")
-        
-        try:
-            # Start periodic monitoring
-            await self.file_monitor.start_periodic_monitoring(interval_minutes)
-                
-        except KeyboardInterrupt:
-            click.echo("Keyboard interrupt received")
-            self.logger.info("Keyboard interrupt received")
-        except Exception as e:
-            click.echo(f"Error during monitoring: {e}")
-            self.logger.error(f"Error during monitoring: {e}")
-        finally:
-            self.file_monitor.stop_monitoring()
-    
     def migrate_files(self, limit: int = None, auto_cleanup: bool = False) -> dict:
         """Migrate files from quarantine to organized structure."""
         return self.file_organizer.migrate_files(limit, auto_cleanup)
@@ -338,37 +318,6 @@ def scan(ctx):
         
     except Exception as e:
         click.echo(f"Error during scan: {e}")
-        sys.exit(1)
-
-
-@cli.command()
-@click.option('--interval', '-i', default=30, help='Monitoring interval in minutes')
-@click.pass_context
-def monitor(ctx, interval):
-    """Start periodic monitoring of quarantine directory."""
-    config_path = ctx.obj['config_path']
-    verbose = ctx.obj['verbose']
-    
-    try:
-        config, cameras, telescopes, filter_mappings = load_config(config_path)
-        setup_logging(config, verbose)
-        
-        # Set up signal handlers for graceful shutdown
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
-        
-        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
-        
-        click.echo(f"Starting periodic monitoring every {interval} minutes. Press Ctrl+C to stop.")
-        
-        # Run the async monitoring
-        asyncio.run(cataloger.start_periodic_monitoring(interval))
-        cataloger.cleanup()
-        
-        click.echo("Monitoring stopped successfully!")
-        
-    except Exception as e:
-        click.echo(f"Error during monitoring: {e}")
         sys.exit(1)
 
 

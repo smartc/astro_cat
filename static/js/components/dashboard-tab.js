@@ -1,12 +1,8 @@
 /**
- * Dashboard Tab Component - Enhanced with Cleanup Information
+ * Dashboard Tab Component
  */
 
 const DashboardTab = {
-    components: {
-        'monitoring-panel': MonitoringPanel
-    },
-
     template: `
         <div class="space-y-6">
             <!-- Main Stats Grid -->
@@ -37,66 +33,86 @@ const DashboardTab = {
                 </div>
             </div>
 
-            <!-- Cleanup Required Section - PROMINENT & CLICKABLE -->
-            <div v-if="cleanupTotal > 0" 
-                 @click="goToOperations"
-                 class="bg-red-50 border-2 border-red-200 rounded-lg shadow-md p-6 cursor-pointer hover:bg-red-100 transition">
-                <div class="flex items-center mb-4">
-                    <svg class="w-6 h-6 text-red-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-                    </svg>
-                    <h2 class="text-xl font-bold text-red-800">Cleanup Required</h2>
-                    <span class="ml-auto text-sm text-red-600">Click to manage →</span>
+            <!-- Session Statistics - Three Column Layout -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Imaging Sessions Card - Clickable -->
+                <div class="bg-white rounded-lg shadow-md p-6 cursor-pointer hover:shadow-lg transition" @click="goToImagingSessions">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-bold text-gray-800">Imaging Sessions</h2>
+                        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </div>
+                    <div class="space-y-3">
+                        <div class="border-l-4 border-blue-500 pl-4 h-20">
+                            <h3 class="text-sm font-semibold text-gray-600 mb-1">Total Sessions</h3>
+                            <p class="text-2xl font-bold text-blue-600">{{ (stats.imaging_sessions && stats.imaging_sessions.total) || 0 }}</p>
+                            <p class="text-xs text-gray-500 mt-1">Observation nights</p>
+                        </div>
+                        <div class="border-l-4 border-purple-500 pl-4 h-20">
+                            <h3 class="text-sm font-semibold text-gray-600 mb-1">Unique Cameras</h3>
+                            <p class="text-2xl font-bold text-purple-600">{{ (stats.imaging_sessions && stats.imaging_sessions.unique_cameras) || 0 }}</p>
+                            <p class="text-xs text-gray-500 mt-1">Used in sessions</p>
+                        </div>
+                        <div class="border-l-4 border-indigo-500 pl-4 h-20">
+                            <h3 class="text-sm font-semibold text-gray-600 mb-1">Unique Telescopes</h3>
+                            <p class="text-2xl font-bold text-indigo-600">{{ (stats.imaging_sessions && stats.imaging_sessions.unique_telescopes) || 0 }}</p>
+                            <p class="text-xs text-gray-500 mt-1">Used in sessions</p>
+                        </div>
+                    </div>
                 </div>
-                <p class="text-sm text-red-700 mb-4">{{ cleanupTotal }} file(s) need attention</p>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div class="bg-white rounded-lg p-4 border-l-4 border-orange-500">
-                        <h3 class="text-sm font-semibold text-gray-600 mb-1">Duplicate Files</h3>
-                        <p class="text-2xl font-bold text-orange-600">{{ (stats.cleanup && stats.cleanup.duplicates) || 0 }}</p>
-                        <p class="text-xs text-gray-500 mt-1">In quarantine/Duplicates</p>
-                    </div>
-                    <div class="bg-white rounded-lg p-4 border-l-4 border-red-500">
-                        <h3 class="text-sm font-semibold text-gray-600 mb-1">Bad Files</h3>
-                        <p class="text-2xl font-bold text-red-600">{{ (stats.cleanup && stats.cleanup.bad_files) || 0 }}</p>
-                        <p class="text-xs text-gray-500 mt-1">In quarantine/Bad</p>
-                    </div>
-                    <div class="bg-white rounded-lg p-4 border-l-4 border-gray-500">
-                        <h3 class="text-sm font-semibold text-gray-600 mb-1">Missing Files</h3>
-                        <p class="text-2xl font-bold text-gray-600">{{ (stats.cleanup && stats.cleanup.missing_files) || 0 }}</p>
-                        <p class="text-xs text-gray-500 mt-1">DB records, files not found</p>
-                    </div>
-                </div>
-            </div>
 
-            <!-- File Location Stats -->
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <h2 class="text-xl font-bold text-gray-800 mb-4">File Locations</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="border-l-4 border-orange-500 pl-4">
-                        <h3 class="text-sm font-semibold text-gray-600 mb-1">Quarantine</h3>
-                        <p class="text-2xl font-bold text-orange-600">{{ stats.quarantine_files || 0 }}</p>
-                        <p class="text-xs text-gray-500 mt-1">Files awaiting review</p>
+                <!-- Processing Sessions Card - Clickable -->
+                <div class="bg-white rounded-lg shadow-md p-6 cursor-pointer hover:shadow-lg transition" @click="goToProcessingSessions">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-bold text-gray-800">Processing Sessions</h2>
+                        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
                     </div>
-                    <div class="border-l-4 border-purple-500 pl-4">
-                        <h3 class="text-sm font-semibold text-gray-600 mb-1">Staged</h3>
-                        <p class="text-2xl font-bold text-purple-600">{{ stats.staged_files || 0 }}</p>
-                        <p class="text-xs text-gray-500 mt-1">In processing sessions</p>
+                    <div class="space-y-3">
+                        <div class="border-l-4 border-blue-500 pl-4 h-20">
+                            <h3 class="text-sm font-semibold text-gray-600 mb-1">Total Sessions</h3>
+                            <p class="text-2xl font-bold text-blue-600">{{ (stats.processing_sessions && stats.processing_sessions.total) || 0 }}</p>
+                            <p class="text-xs text-gray-500 mt-1">&nbsp;</p>
+                        </div>
+                        <div class="border-l-4 border-yellow-500 pl-4 h-20">
+                            <h3 class="text-sm font-semibold text-gray-600 mb-1">In Progress</h3>
+                            <p class="text-2xl font-bold text-yellow-600">{{ (stats.processing_sessions && stats.processing_sessions.in_progress) || 0 }}</p>
+                            <p class="text-xs text-gray-500 mt-1">&nbsp;</p>
+                        </div>
+                        <div class="border-l-4 border-green-500 pl-4 h-20">
+                            <h3 class="text-sm font-semibold text-gray-600 mb-1">Active Sessions</h3>
+                            <p class="text-2xl font-bold text-green-600">{{ (stats.processing_sessions && stats.processing_sessions.active) || 0 }}</p>
+                            <p class="text-xs text-gray-500 mt-1">Not started or in progress</p>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Processing Sessions -->
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <h2 class="text-xl font-bold text-gray-800 mb-4">Processing Sessions</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="border-l-4 border-indigo-500 pl-4">
-                        <h3 class="text-sm font-semibold text-gray-600 mb-1">Total Sessions</h3>
-                        <p class="text-2xl font-bold text-indigo-600">{{ (stats.processing_sessions && stats.processing_sessions.total) || 0 }}</p>
+                <!-- File Management Card - Clickable -->
+                <div class="bg-white rounded-lg shadow-md p-6 cursor-pointer hover:shadow-lg transition" @click="goToOperations">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-bold text-gray-800">File Management</h2>
+                        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
                     </div>
-                    <div class="border-l-4 border-green-500 pl-4">
-                        <h3 class="text-sm font-semibold text-gray-600 mb-1">Active Sessions</h3>
-                        <p class="text-2xl font-bold text-green-600">{{ (stats.processing_sessions && stats.processing_sessions.active) || 0 }}</p>
-                        <p class="text-xs text-gray-500 mt-1">Not started or in progress</p>
+                    <div class="space-y-3">
+                        <div class="border-l-4 border-orange-500 pl-4 h-20">
+                            <h3 class="text-sm font-semibold text-gray-600 mb-1">Quarantine</h3>
+                            <p class="text-2xl font-bold text-orange-600">{{ stats.quarantine_files || 0 }}</p>
+                            <p class="text-xs text-gray-500 mt-1">Awaiting processing</p>
+                        </div>
+                        <div class="border-l-4 border-purple-500 pl-4 h-20">
+                            <h3 class="text-sm font-semibold text-gray-600 mb-1">Staged</h3>
+                            <p class="text-2xl font-bold text-purple-600">{{ stats.staged_files || 0 }}</p>
+                            <p class="text-xs text-gray-500 mt-1">In processing sessions</p>
+                        </div>
+                        <div class="border-l-4 border-red-500 pl-4 h-20">
+                            <h3 class="text-sm font-semibold text-gray-600 mb-1">Needs Attention</h3>
+                            <p class="text-2xl font-bold text-red-600">{{ cleanupTotal }}</p>
+                            <p class="text-xs text-gray-500 mt-1">Duplicates, bad, missing</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -124,13 +140,39 @@ const DashboardTab = {
                 </div>
             </div>
 
+            <!-- Cleanup Information -->
+            <div v-if="cleanupTotal > 0" class="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+                <h2 class="text-xl font-bold text-yellow-800 mb-4">⚠️ Items Needing Attention</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div v-if="(stats.cleanup && stats.cleanup.duplicates) > 0" class="text-center">
+                        <p class="text-3xl font-bold text-yellow-600">{{ stats.cleanup.duplicates }}</p>
+                        <p class="text-sm text-gray-600">Duplicate Files</p>
+                    </div>
+                    <div v-if="(stats.cleanup && stats.cleanup.bad_files) > 0" class="text-center">
+                        <p class="text-3xl font-bold text-red-600">{{ stats.cleanup.bad_files }}</p>
+                        <p class="text-sm text-gray-600">Bad Files</p>
+                    </div>
+                    <div v-if="(stats.cleanup && stats.cleanup.missing_files) > 0" class="text-center">
+                        <p class="text-3xl font-bold text-orange-600">{{ stats.cleanup.missing_files }}</p>
+                        <p class="text-sm text-gray-600">Missing Files</p>
+                    </div>
+                </div>
+            </div>
 
-            <!-- File Monitoring Status -->
-            <monitoring-panel></monitoring-panel>        
-
-            <!-- Last Updated -->
-            <div class="text-right text-sm text-gray-500">
-                Last updated: {{ lastUpdated }}
+            <!-- Footer with Monitoring Status -->
+            <div class="flex justify-between items-center text-sm text-gray-500 pt-4 border-t">
+                <div class="flex items-center space-x-3">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-2 h-2 rounded-full" :class="monitoringEnabled ? 'bg-green-500' : 'bg-red-500'"></div>
+                        <span>{{ monitoringEnabled ? 'Monitoring Active' : 'Monitoring Inactive' }}</span>
+                    </div>
+                    <span v-if="monitoringEnabled && lastScan" class="text-gray-400">
+                        Last scan: {{ formatLastScan(lastScan) }}
+                    </span>
+                </div>
+                <div>
+                    Last updated: {{ lastUpdated }}
+                </div>
             </div>
         </div>
     `,
@@ -138,7 +180,10 @@ const DashboardTab = {
     data() {
         return {
             operationInProgress: false,
-            operationType: ''
+            operationType: '',
+            monitoringEnabled: false,
+            lastScan: null,
+            monitoringPollInterval: null
         };
     },
     
@@ -171,23 +216,64 @@ const DashboardTab = {
             }
         },
         
+        async checkMonitoringStatus() {
+            try {
+                const response = await fetch('/api/monitoring/status');
+                const data = await response.json();
+                this.monitoringEnabled = data.enabled || false;
+                this.lastScan = data.last_scan || null;
+            } catch (error) {
+                console.error('Error checking monitoring status:', error);
+            }
+        },
+        
+        formatLastScan(timestamp) {
+            if (!timestamp) return 'Never';
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diff = now - date;
+            const minutes = Math.floor(diff / 60000);
+            
+            if (minutes < 1) return 'Just now';
+            if (minutes < 60) return `${minutes}m ago`;
+            const hours = Math.floor(minutes / 60);
+            if (hours < 24) return `${hours}h ago`;
+            const days = Math.floor(hours / 24);
+            return `${days}d ago`;
+        },
+        
         goToOperations() {
-            // Switch to operations tab
-            this.$root.activeTab = 'operations';
+            this.$root.changeTab('operations');
+        },
+        
+        goToImagingSessions() {
+            this.$root.changeTab('imaging-sessions');
+        },
+        
+        goToProcessingSessions() {
+            this.$root.changeTab('processing-sessions');
         }
     },
     
     mounted() {
         this.checkOperationStatus();
+        this.checkMonitoringStatus();
         
         this.statusInterval = setInterval(() => {
             this.checkOperationStatus();
         }, 5000);
+        
+        this.monitoringPollInterval = setInterval(() => {
+            this.checkMonitoringStatus();
+        }, 10000);
     },
     
     beforeUnmount() {
         if (this.statusInterval) {
             clearInterval(this.statusInterval);
+        }
+        if (this.monitoringPollInterval) {
+            clearInterval(this.monitoringPollInterval);
         }
     }
 };

@@ -1,0 +1,31 @@
+/* Dropdown Menu Styles */
+
+.menu-item {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    color: #374151;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.menu-item:hover {
+    background-color: #f3f4f6;
+}
+
+.menu-item svg {
+    margin-right: 0.75rem;
+    flex-shrink: 0;
+}
+
+.menu-item.active {
+    background-color: #eff6ff;
+    color: #2563eb;
+}
+
+/* Click-away directive simulation */
+[v-show] {
+    transition: opacity 0.2s ease;
+}

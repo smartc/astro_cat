@@ -16,11 +16,10 @@
       "telescopes": "telescopes"
     }
   },
-  "file_monitoring": {
-    "extensions": [".fits", ".fit", ".fts"],
-    "scan_interval_seconds": 30,
-    "auto_process": false
-  },
+   "file_monitoring": {
+       "scan_interval_minutes": 5,
+       "ignore_newer_than_minutes": 2
+   },
   "equipment": {
     "cameras_file": "cameras.json",
     "telescopes_file": "telescopes.json", 
