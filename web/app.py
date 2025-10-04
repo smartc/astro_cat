@@ -69,7 +69,7 @@ def start_sqlite_web(db_path: str, port: int = 8081):
         logger.info(f"Starting sqlite_web on port {port}...")
         sqlite_web_process = subprocess.Popen(
             [sys.executable, "-m", "sqlite_web", db_path, 
-             "--host", "0.0.0.0",  # Add this line
+             "--host", "0.0.0.0",
              "--port", str(port), 
              "--no-browser"],
             stdout=subprocess.PIPE,
@@ -78,6 +78,7 @@ def start_sqlite_web(db_path: str, port: int = 8081):
         logger.info(f"✓ sqlite_web started - Database browser at http://0.0.0.0:{port}")
     except Exception as e:
         logger.warning(f"Could not start sqlite_web: {e}")
+        logger.warning("Install with: pip install sqlite-web")
 
 
 @app.on_event("startup")
@@ -85,40 +86,41 @@ async def startup_event():
     """Initialize application on startup with enhanced error checking."""
     global config, db_manager, db_service, cameras, telescopes, filter_mappings, processing_manager
     
-    logger.info("=" * 60)
-    logger.info("FITS Cataloger Web Interface Starting Up")
-    logger.info("=" * 60)
-    
     try:
+        logger.info("=" * 60)
+        logger.info("FITS Cataloger Web Interface Starting")
+        logger.info("=" * 60)
+        
         # Load configuration
         logger.info("Loading configuration...")
-        config = load_config()
-        logger.info("✓ Configuration loaded")
+        config, cameras, telescopes, filter_mappings = load_config()
+        logger.info(f"✓ Configuration loaded")
+        logger.info(f"  - Cameras: {len(cameras)}")
+        logger.info(f"  - Telescopes: {len(telescopes)}")
+        logger.info(f"  - Filter mappings: {len(filter_mappings)}")
         
         # Initialize database
-        logger.info("Initializing database...")
-        db_manager = DatabaseManager(config['database']['connection_string'])
+        logger.info("Initializing database connection...")
+        db_manager = DatabaseManager(config.database.connection_string)
+        db_manager.create_tables()
+        logger.info(f"✓ Database connected: {config.database.connection_string}")
+        
+        # Create database service
         db_service = DatabaseService(db_manager)
-        logger.info("✓ Database initialized")
+        logger.info("✓ Database service initialized")
         
-        # Load equipment from database
-        logger.info("Loading equipment from database...")
-        cameras = db_service.get_all_cameras()
-        telescopes = db_service.get_all_telescopes()
-        filter_mappings = {fm.raw_name: fm.proper_name for fm in db_service.get_all_filter_mappings()}
-        logger.info(f"✓ Equipment loaded: {len(cameras)} cameras, {len(telescopes)} telescopes, {len(filter_mappings)} filter mappings")
-        
-        # Initialize processing session manager
+        # Initialize processing session manager (needs config AND db_service)
         logger.info("Initializing processing session manager...")
-        processing_manager = ProcessingSessionManager(db_service)
-        logger.info("✓ Processing manager initialized")
+        processing_manager = ProcessingSessionManager(config, db_service)
+        logger.info("✓ Processing session manager initialized")
         
         # Start sqlite_web for database management
-        db_path = Path(config['paths']['database_path'])
+        db_path = Path(config.paths.database_path)
         if db_path.exists():
             start_sqlite_web(str(db_path), port=8081)
         
         logger.info("=" * 60)
+        logger.info("Web interface ready!")
         logger.info("Open your browser to: http://localhost:8000")
         logger.info("=" * 60)
 

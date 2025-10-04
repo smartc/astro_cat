@@ -506,3 +506,108 @@ class DatabaseService:
             return {s.key: s.value for s in settings}
         finally:
             session.close()
+
+    def get_orphaned_records(self) -> Dict[str, int]:
+        """Get counts of orphaned records across all tables."""
+        session = self.db_manager.get_session()
+        
+        try:
+            # Imaging sessions with no files
+            orphaned_imaging_sessions = session.query(Session).filter(
+                ~Session.session_id.in_(
+                    session.query(FitsFile.session_id).distinct()
+                )
+            ).count()
+            
+            # Processing sessions with no files
+            orphaned_processing_sessions = session.query(ProcessingSession).filter(
+                ~ProcessingSession.id.in_(
+                    session.query(ProcessingSessionFile.processing_session_id).distinct()
+                )
+            ).count()
+            
+            # Processing session files referencing deleted fits_files
+            orphaned_ps_files = session.query(ProcessingSessionFile).filter(
+                ~ProcessingSessionFile.fits_file_id.in_(
+                    session.query(FitsFile.id).distinct()
+                )
+            ).count()
+            
+            return {
+                'imaging_sessions': orphaned_imaging_sessions,
+                'processing_sessions': orphaned_processing_sessions,
+                'processing_session_files': orphaned_ps_files,
+                'total': (orphaned_imaging_sessions + orphaned_processing_sessions + 
+                         orphaned_ps_files)
+            }
+            
+        finally:
+            session.close()
+    
+    def cleanup_orphaned_imaging_sessions(self) -> int:
+        """Remove imaging sessions with no associated files."""
+        session = self.db_manager.get_session()
+        
+        try:
+            deleted = session.query(Session).filter(
+                ~Session.session_id.in_(
+                    session.query(FitsFile.session_id).distinct()
+                )
+            ).delete(synchronize_session=False)
+            
+            session.commit()
+            return deleted
+            
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+    
+    def cleanup_orphaned_processing_sessions(self) -> int:
+        """Remove processing sessions with no staged files."""
+        session = self.db_manager.get_session()
+        
+        try:
+            deleted = session.query(ProcessingSession).filter(
+                ~ProcessingSession.id.in_(
+                    session.query(ProcessingSessionFile.processing_session_id).distinct()
+                )
+            ).delete(synchronize_session=False)
+            
+            session.commit()
+            return deleted
+            
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+    
+    def cleanup_orphaned_ps_files(self) -> int:
+        """Remove processing_session_files referencing deleted fits_files."""
+        session = self.db_manager.get_session()
+        
+        try:
+            deleted = session.query(ProcessingSessionFile).filter(
+                ~ProcessingSessionFile.fits_file_id.in_(
+                    session.query(FitsFile.id).distinct()
+                )
+            ).delete(synchronize_session=False)
+            
+            session.commit()
+            return deleted
+            
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+    
+    def cleanup_all_orphans(self) -> Dict[str, int]:
+        """Clean up all orphaned records. Returns counts of deleted records."""
+        return {
+            'imaging_sessions': self.cleanup_orphaned_imaging_sessions(),
+            'processing_sessions': self.cleanup_orphaned_processing_sessions(),
+            'processing_session_files': self.cleanup_orphaned_ps_files()
+        }

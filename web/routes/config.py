@@ -4,6 +4,7 @@ Configuration management API routes.
 
 import json
 import logging
+import sys
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -146,3 +147,27 @@ async def get_logging_config(config=Depends(get_config)):
         "max_bytes": config.logging.max_bytes,
         "backup_count": config.logging.backup_count
     }
+
+
+@router.post("/restart")
+async def restart_server():
+    """Restart the server application."""
+    try:
+        logger.info("Server restart requested")
+        
+        # Get the Python executable and script
+        python = sys.executable
+        script = sys.argv[0]
+        
+        # Schedule restart after response is sent
+        import asyncio
+        async def delayed_restart():
+            await asyncio.sleep(1)
+            os.execv(python, [python] + sys.argv)
+        
+        asyncio.create_task(delayed_restart())
+        
+        return {"message": "Server restarting..."}
+    except Exception as e:
+        logger.error(f"Error restarting server: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to restart: {str(e)}")

@@ -97,6 +97,43 @@ const OperationsTab = {
                 </div>
             </div>
 
+            <!-- Cleanup Orphans Section -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h3 class="text-lg font-semibold mb-4">Clean Up Orphaned Records</h3>
+                
+                <div v-if="stats.orphaned" class="mb-4 p-4 bg-yellow-50 rounded-lg">
+                    <div class="text-sm font-medium text-yellow-800 mb-2">Orphaned Records Found:</div>
+                    <ul class="text-sm text-yellow-700 space-y-1">
+                        <li v-if="stats.orphaned.imaging_sessions > 0">
+                            {{ stats.orphaned.imaging_sessions }} imaging session(s) with no files
+                        </li>
+                        <li v-if="stats.orphaned.processing_sessions > 0">
+                            {{ stats.orphaned.processing_sessions }} processing session(s) with no files
+                        </li>
+                        <li v-if="stats.orphaned.processing_session_files > 0">
+                            {{ stats.orphaned.processing_session_files }} processing file reference(s) to deleted files
+                        </li>
+                    </ul>
+                    <div class="mt-2 text-xs text-yellow-600">
+                        Total: {{ stats.orphaned.total }} orphaned record(s)
+                    </div>
+                </div>
+                
+                <p class="text-gray-600 mb-4">
+                    Remove database records that no longer have associated files or are unused.
+                </p>
+                
+                <button 
+                    @click="startCleanup" 
+                    :disabled="operationInProgress || (stats.orphaned && stats.orphaned.total === 0)"
+                    class="btn btn-yellow">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                    </svg>
+                    Clean Up Orphans
+                </button>
+            </div>
+
             <!-- Operation Status -->
             <div v-if="activeOperation && operationStatus" class="bg-white rounded-lg shadow p-6">
                 <h2 class="text-xl font-bold mb-4">Operation Status</h2>
@@ -235,6 +272,9 @@ const OperationsTab = {
         },
         operationStatus() {
             return this.$root.operationStatus;
+        },
+        operationInProgress() {
+            return this.$root.operationInProgress;
         }
     },
     
@@ -509,9 +549,25 @@ const OperationsTab = {
             if (diffDays < 7) return `${diffDays}d ago`;
             
             return date.toLocaleDateString();
-        }
+        },
+
+        async startCleanup() {
+            if (!confirm('Clean up orphaned records? This will remove:\n- Imaging sessions with no files\n- Processing sessions with no files\n- Unused equipment references')) {
+                return;
+            }
+            
+            try {
+                const response = await axios.post('/api/operations/cleanup-orphans');
+                this.currentTask = response.data.task_id;
+                this.pollTaskStatus();
+            } catch (error) {
+                console.error('Error starting cleanup:', error);
+                this.$root.errorMessage = error.response?.data?.detail || 'Failed to start cleanup';
+            }
+        },
     },
-    
+
+
     mounted() {
         console.log('OperationsTab mounted');
         this.loadRecentOperations();

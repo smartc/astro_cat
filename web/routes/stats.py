@@ -21,8 +21,11 @@ router = APIRouter(prefix="/api")
 @router.get("/stats")
 async def get_stats(session: Session = Depends(get_db_session), config = Depends(get_config)):
     """Get dashboard statistics."""
-    try:
-        # Total files
+    import sys
+    app_module = sys.modules['web.app']
+    db_service = app_module.db_service
+    
+    try:        # Total files
         total_files = session.query(FitsFile).count()
         
         # Validation scores
@@ -113,6 +116,9 @@ async def get_stats(session: Session = Depends(get_db_session), config = Depends
         bad_files = session.query(FitsFile).filter(FitsFile.bad == True).count()
         missing_files = session.query(FitsFile).filter(FitsFile.file_not_found == True).count()
         
+        # Orphaned records
+        orphaned = db_service.get_orphaned_records()
+        
         return {
             "total_files": total_files,
             "registered_files": registered_files,
@@ -142,6 +148,7 @@ async def get_stats(session: Session = Depends(get_db_session), config = Depends
                 "bad_files": bad_files,
                 "missing_files": missing_files
             },
+            "orphaned": orphaned,  # ADD THIS LINE
             "quarantine_files": quarantine_files,
             "staged_files": staged_files,
             "last_updated": datetime.now().isoformat()

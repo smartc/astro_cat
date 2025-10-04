@@ -6,17 +6,23 @@
 const EquipmentTab = {
     data() {
         return {
-            activeEquipmentType: 'cameras',
             cameras: [],
             telescopes: [],
             filters: [],
-            loading: false,
-            editingItem: null,
             showEditModal: false,
+            editingItem: null,
+            editType: '',
             newItem: {},
+            activeEquipmentType: 'cameras',  // ADD THIS LINE
+            cameraSortBy: 'camera',
+            cameraSortOrder: 'asc',
+            telescopeSortBy: 'scope',
+            telescopeSortOrder: 'asc',
+            filterSortBy: 'raw_name',
+            filterSortOrder: 'asc'
         };
     },
-    
+
     template: `
         <div class="space-y-6">
             <!-- Equipment Type Selector -->
@@ -53,32 +59,37 @@ const EquipmentTab = {
                     
                     <div class="table-container">
                         <table class="w-full">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="header-cell">Name</th>
-                                    <th class="header-cell">Brand</th>
-                                    <th class="header-cell">X Pixels</th>
-                                    <th class="header-cell">Y Pixels</th>
-                                    <th class="header-cell">Pixel Size</th>
-                                    <th class="header-cell">Type</th>
-                                    <th class="header-cell">Actions</th>
+                             <thead>
+                                <tr class="bg-gray-50">
+                                    <th @click="sortCameras('camera')" class="px-4 py-2 text-left text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-100">
+                                        Camera {{ getSortIcon('camera', 'camera') }}
+                                    </th>
+                                    <th @click="sortCameras('type')" class="px-4 py-2 text-left text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-100">
+                                        Type {{ getSortIcon('camera', 'type') }}
+                                    </th>
+                                    <th @click="sortCameras('x')" class="px-4 py-2 text-right text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-100">
+                                        X Pixels {{ getSortIcon('camera', 'x') }}
+                                    </th>
+                                    <th @click="sortCameras('y')" class="px-4 py-2 text-right text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-100">
+                                        Y Pixels {{ getSortIcon('camera', 'y') }}
+                                    </th>
+                                    <th @click="sortCameras('pixel')" class="px-4 py-2 text-right text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-100">
+                                        Pixel (µm) {{ getSortIcon('camera', 'pixel') }}
+                                    </th>
+                                    <th class="px-4 py-2 text-center text-sm font-semibold text-gray-700">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="camera in cameras" :key="camera.camera" class="border-b hover:bg-gray-50">
-                                    <td class="data-cell">{{ camera.camera }}</td>
-                                    <td class="data-cell">{{ camera.brand || '-' }}</td>
-                                    <td class="data-cell">{{ camera.x }}</td>
-                                    <td class="data-cell">{{ camera.y }}</td>
-                                    <td class="data-cell">{{ camera.pixel }}µm</td>
-                                    <td class="data-cell">{{ camera.type }}</td>
-                                    <td class="data-cell">
+                                <tr v-for="camera in sortedCameras" :key="camera.camera" class="border-t hover:bg-gray-50">
+                                    <td class="px-4 py-2 text-left">{{ camera.camera }}</td>
+                                    <td class="px-4 py-2 text-left">{{ camera.type }}</td>
+                                    <td class="px-4 py-2 text-right">{{ camera.x }}</td>
+                                    <td class="px-4 py-2 text-right">{{ camera.y }}</td>
+                                    <td class="px-4 py-2 text-right">{{ camera.pixel }}</td>
+                                    <td class="px-4 py-2 text-center">
                                         <button @click="editCamera(camera)" class="text-blue-600 hover:text-blue-800 mr-2">Edit</button>
                                         <button @click="deleteCamera(camera)" class="text-red-600 hover:text-red-800">Delete</button>
                                     </td>
-                                </tr>
-                                <tr v-if="cameras.length === 0">
-                                    <td colspan="7" class="data-cell text-center text-gray-500">No cameras configured</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -96,30 +107,29 @@ const EquipmentTab = {
                     
                     <div class="table-container">
                         <table class="w-full">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="header-cell">Name</th>
-                                    <th class="header-cell">Make</th>
-                                    <th class="header-cell">Type</th>
-                                    <th class="header-cell">Focal Length</th>
-                                    <th class="header-cell">Aperture</th>
-                                    <th class="header-cell">Actions</th>
+                            <thead>
+                                <tr class="bg-gray-50">
+                                    <th @click="sortTelescopes('scope')" class="px-4 py-2 text-left text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-100">
+                                        Telescope {{ getSortIcon('telescope', 'scope') }}
+                                    </th>
+                                    <th @click="sortTelescopes('focal')" class="px-4 py-2 text-right text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-100">
+                                        Focal (mm) {{ getSortIcon('telescope', 'focal') }}
+                                    </th>
+                                    <th @click="sortTelescopes('aperture')" class="px-4 py-2 text-right text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-100">
+                                        Aperture (mm) {{ getSortIcon('telescope', 'aperture') }}
+                                    </th>
+                                    <th class="px-4 py-2 text-center text-sm font-semibold text-gray-700">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="telescope in telescopes" :key="telescope.scope" class="border-b hover:bg-gray-50">
-                                    <td class="data-cell">{{ telescope.scope }}</td>
-                                    <td class="data-cell">{{ telescope.make || '-' }}</td>
-                                    <td class="data-cell">{{ telescope.type || '-' }}</td>
-                                    <td class="data-cell">{{ telescope.focal }}mm</td>
-                                    <td class="data-cell">{{ telescope.aperture }}mm</td>
-                                    <td class="data-cell">
+                                <tr v-for="telescope in sortedTelescopes" :key="telescope.scope" class="border-t hover:bg-gray-50">
+                                    <td class="px-4 py-2 text-left">{{ telescope.scope }}</td>
+                                    <td class="px-4 py-2 text-right">{{ telescope.focal }}</td>
+                                    <td class="px-4 py-2 text-right">{{ telescope.aperture }}</td>
+                                    <td class="px-4 py-2 text-center">
                                         <button @click="editTelescope(telescope)" class="text-blue-600 hover:text-blue-800 mr-2">Edit</button>
                                         <button @click="deleteTelescope(telescope)" class="text-red-600 hover:text-red-800">Delete</button>
                                     </td>
-                                </tr>
-                                <tr v-if="telescopes.length === 0">
-                                    <td colspan="6" class="data-cell text-center text-gray-500">No telescopes configured</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -144,24 +154,25 @@ const EquipmentTab = {
                     
                     <div class="table-container">
                         <table class="w-full">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="header-cell">Raw Name (in FITS)</th>
-                                    <th class="header-cell">Proper Name (standardized)</th>
-                                    <th class="header-cell">Actions</th>
+                            <thead>
+                                <tr class="bg-gray-50">
+                                    <th @click="sortFilters('raw_name')" class="px-4 py-2 text-left text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-100">
+                                        Raw Name {{ getSortIcon('filter', 'raw_name') }}
+                                    </th>
+                                    <th @click="sortFilters('proper_name')" class="px-4 py-2 text-left text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-100">
+                                        Proper Name {{ getSortIcon('filter', 'proper_name') }}
+                                    </th>
+                                    <th class="px-4 py-2 text-center text-sm font-semibold text-gray-700">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="(filter, index) in filters" :key="index" class="border-b hover:bg-gray-50">
-                                    <td class="data-cell">{{ filter.raw_name }}</td>
-                                    <td class="data-cell">{{ filter.proper_name }}</td>
-                                    <td class="data-cell">
-                                        <button @click="editFilter(filter, index)" class="text-blue-600 hover:text-blue-800 mr-2">Edit</button>
+                                <tr v-for="(filter, index) in sortedFilters" :key="index" class="border-t hover:bg-gray-50">
+                                    <td class="px-4 py-2 text-left">{{ filter.raw_name }}</td>
+                                    <td class="px-4 py-2 text-left">{{ filter.proper_name }}</td>
+                                    <td class="px-4 py-2 text-center">
+                                        <button @click="editFilter(index)" class="text-blue-600 hover:text-blue-800 mr-2">Edit</button>
                                         <button @click="deleteFilter(index)" class="text-red-600 hover:text-red-800">Delete</button>
                                     </td>
-                                </tr>
-                                <tr v-if="filters.length === 0">
-                                    <td colspan="3" class="data-cell text-center text-gray-500">No filter mappings configured</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -378,6 +389,95 @@ const EquipmentTab = {
             this.showEditModal = false;
             this.editingItem = null;
             this.newItem = {};
+        },
+
+        sortCameras(column) {
+            if (this.cameraSortBy === column) {
+                this.cameraSortOrder = this.cameraSortOrder === 'asc' ? 'desc' : 'asc';
+            } else {
+                this.cameraSortBy = column;
+                this.cameraSortOrder = 'asc';
+            }
+        },
+        
+        sortTelescopes(column) {
+            if (this.telescopeSortBy === column) {
+                this.telescopeSortOrder = this.telescopeSortOrder === 'asc' ? 'desc' : 'asc';
+            } else {
+                this.telescopeSortBy = column;
+                this.telescopeSortOrder = 'asc';
+            }
+        },
+        
+        sortFilters(column) {
+            if (this.filterSortBy === column) {
+                this.filterSortOrder = this.filterSortOrder === 'asc' ? 'desc' : 'asc';
+            } else {
+                this.filterSortBy = column;
+                this.filterSortOrder = 'asc';
+            }
+        },
+        
+        getSortIcon(type, column) {
+            let sortBy, sortOrder;
+            if (type === 'camera') {
+                sortBy = this.cameraSortBy;
+                sortOrder = this.cameraSortOrder;
+            } else if (type === 'telescope') {
+                sortBy = this.telescopeSortBy;
+                sortOrder = this.telescopeSortOrder;
+            } else {
+                sortBy = this.filterSortBy;
+                sortOrder = this.filterSortOrder;
+            }
+            
+            if (sortBy !== column) return '↕';
+            return sortOrder === 'asc' ? '↑' : '↓';
+        },
+    },
+
+    computed: {
+        sortedCameras() {
+            return [...this.cameras].sort((a, b) => {
+                let aVal = a[this.cameraSortBy];
+                let bVal = b[this.cameraSortBy];
+                
+                // Handle numeric fields
+                if (['x', 'y', 'pixel'].includes(this.cameraSortBy)) {
+                    aVal = Number(aVal) || 0;
+                    bVal = Number(bVal) || 0;
+                }
+                
+                if (aVal < bVal) return this.cameraSortOrder === 'asc' ? -1 : 1;
+                if (aVal > bVal) return this.cameraSortOrder === 'asc' ? 1 : -1;
+                return 0;
+            });
+        },
+        sortedTelescopes() {
+            return [...this.telescopes].sort((a, b) => {
+                let aVal = a[this.telescopeSortBy];
+                let bVal = b[this.telescopeSortBy];
+                
+                // Handle numeric fields
+                if (['focal', 'aperture'].includes(this.telescopeSortBy)) {
+                    aVal = Number(aVal) || 0;
+                    bVal = Number(bVal) || 0;
+                }
+                
+                if (aVal < bVal) return this.telescopeSortOrder === 'asc' ? -1 : 1;
+                if (aVal > bVal) return this.telescopeSortOrder === 'asc' ? 1 : -1;
+                return 0;
+            });
+        },
+        sortedFilters() {
+            return [...this.filters].sort((a, b) => {
+                let aVal = a[this.filterSortBy];
+                let bVal = b[this.filterSortBy];
+                
+                if (aVal < bVal) return this.filterSortOrder === 'asc' ? -1 : 1;
+                if (aVal > bVal) return this.filterSortOrder === 'asc' ? 1 : -1;
+                return 0;
+            });
         }
     },
     

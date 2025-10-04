@@ -43,6 +43,12 @@ const ConfigurationTab = {
                             :class="{ 'opacity-50': !hasChanges || saving }">
                             {{ saving ? 'Saving...' : 'Save Configuration' }}
                         </button>
+                        <button @click="restartServer" class="btn btn-orange ml-2">
+                            <svg class="w-5 h-5 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                            Restart Server
+                        </button>
                     </div>
                 </div>
 
@@ -166,7 +172,7 @@ const ConfigurationTab = {
                                 </div>
                                 <div>
                                     <span class="font-semibold">Next Scan:</span>
-                                    {{ monitoringStatus.next_scan ? formatTime(monitoringStatus.next_scan) : 'N/A' }}
+                                    {{ nextScanTime }}
                                 </div>
                             </div>
                         </div>
@@ -318,8 +324,18 @@ const ConfigurationTab = {
     computed: {
         extensionsString() {
             return (this.config.file_monitoring.extensions || []).join(', ');
+        },
+        
+        nextScanTime() {
+            if (!this.monitoringStatus?.last_scan || !this.monitoringStatus?.interval_minutes) {
+                return 'N/A';
+            }
+            const lastScan = new Date(this.monitoringStatus.last_scan);
+            const nextScan = new Date(lastScan.getTime() + (this.monitoringStatus.interval_minutes * 60 * 1000));
+            return this.formatDateTime(nextScan.toISOString());
         }
     },
+
     
     methods: {
         async loadConfiguration() {
@@ -425,6 +441,26 @@ const ConfigurationTab = {
         
         formatDateTime(isoString) {
             return new Date(isoString).toLocaleString();
+        },
+
+        async restartServer() {
+            if (!confirm('Restart the server? The page will reload after restart.')) {
+                return;
+            }
+            
+            try {
+                await axios.post('/api/restart');
+                
+                // Wait and reload page
+                setTimeout(() => {
+                    window.location.reload();
+                }, 3000);
+                
+                this.$root.errorMessage = 'Server restarting... Page will reload shortly.';
+            } catch (error) {
+                console.error('Error restarting server:', error);
+                this.$root.errorMessage = 'Failed to restart server';
+            }
         }
     },
     
