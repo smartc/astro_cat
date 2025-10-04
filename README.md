@@ -1,6 +1,6 @@
 # FITS Cataloger
 
-**Version:** 0.7.3 
+**Version:** 1.0.0
 **Last Updated:** October 4, 2025
 
 A cross-platform astrophotography image management system for cataloging and organizing FITS files with automated metadata extraction, session grouping, and web-based review interface.
@@ -179,5 +179,6 @@ See [LICENSE](LICENSE) file for full details.
 Contributions welcome! Please open issues or pull requests for bugs, features, or improvements.
 
 ## Support
+
 
 For issues or questions, please open a GitHub issue.
