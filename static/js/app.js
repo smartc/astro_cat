@@ -233,7 +233,6 @@ createApp({
                     this.operationStatus.status === 'error') {
 
                     if (window.operationsTabInstance) {
-                        console.log('Notifying operations tab of completion');
                         window.operationsTabInstance.onOperationCompleted(
                             this.activeOperation,
                             this.operationStatus
@@ -291,9 +290,7 @@ createApp({
         ...ProcessingSessionsComponent.methods,
     },
     
-    async mounted() {
-        console.log('App mounted, activeTab:', this.activeTab);
-        
+    async mounted() {        
         // Initialize from URL if present
         const urlParams = new URLSearchParams(window.location.search);
         const urlTab = urlParams.get('tab');
@@ -301,35 +298,24 @@ createApp({
             this.activeTab = urlTab;
         }
         
-        // Test keyboard directly
-        document.addEventListener('keydown', (e) => {
-            console.log('ANY key pressed:', e.key, 'Alt:', e.altKey, 'Target:', e.target.tagName);
-        });
-        
+
         // Store bound handlers
         this.keyboardHandler = (e) => {
-            console.log('Keyboard handler fired');
             if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
-                console.log('Ignoring - in input field');
                 return;
             }
-            
-            console.log('Key pressed:', e.key, 'Alt:', e.altKey);
-            
+                        
             if (e.altKey && e.key >= '1' && e.key <= '8') {
-                console.log('Alt+Number detected');
                 e.preventDefault();
                 e.stopPropagation();
                 const tabIndex = parseInt(e.key) - 1;
                 if (this.tabs[tabIndex]) {
-                    console.log('Switching to tab:', this.tabs[tabIndex]);
                     this.changeTab(this.tabs[tabIndex]);
                 }
                 return;
             }
             
             if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-                console.log('Alt+Arrow detected');
                 e.preventDefault();
                 e.stopPropagation();
                 const currentIndex = this.tabs.indexOf(this.activeTab);
@@ -345,23 +331,19 @@ createApp({
         };
         
         this.popstateHandler = (e) => {
-            console.log('Popstate event:', e.state);
             if (e.state && e.state.tab) {
                 this.activeTab = e.state.tab;
-                console.log('Tab changed to:', this.activeTab);
             } else {
                 const urlParams = new URLSearchParams(window.location.search);
                 const urlTab = urlParams.get('tab');
                 if (urlTab && this.tabs.includes(urlTab)) {
                     this.activeTab = urlTab;
-                    console.log('Tab changed from URL:', this.activeTab);
                 }
             }
         };
         
         window.addEventListener('keydown', this.keyboardHandler);
         window.addEventListener('popstate', this.popstateHandler);
-        console.log('Event listeners attached');
         
         document.addEventListener('click', (e) => {
             if (this.menuOpen && !e.target.closest('header')) {

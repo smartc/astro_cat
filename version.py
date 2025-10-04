@@ -45,6 +45,6 @@ def get_version():
             
     except (subprocess.CalledProcessError, FileNotFoundError):
         logger.warning("Could not determine version from git, using fallback")
-        return "v0.0.0"  # Fallback version
+        return "v1.0.0"  # Fallback version
 
 __version__ = get_version()

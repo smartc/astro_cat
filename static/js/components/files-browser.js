@@ -97,8 +97,6 @@ const FilesBrowserComponent = {
         async loadFilterOptions() {
             try {
                 const response = await ApiService.files.getFilterOptions();
-                console.log('Filter options loaded:', response.data);
-                console.log('Objects array:', response.data.objects);
                 this.filterOptions = response.data;
             } catch (error) {
                 console.error('Error loading filter options:', error);

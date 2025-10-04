@@ -289,7 +289,6 @@ const OperationsTab = {
         
         // Called by parent app when an operation completes
         onOperationCompleted(operationType, operationStatus) {
-            console.log('Operation completed callback:', operationType, operationStatus);
             this.addRecentOperation({
                 type: operationType,
                 status: operationStatus.status === 'error' ? 'error' : 'completed',
@@ -299,9 +298,7 @@ const OperationsTab = {
             });
         },
         
-        addRecentOperation(operation) {
-            console.log('Adding recent operation:', operation);
-            
+        addRecentOperation(operation) {            
             // Add unique ID
             operation.id = Date.now() + Math.random();
             
@@ -312,9 +309,7 @@ const OperationsTab = {
             if (this.recentOperations.length > 10) {
                 this.recentOperations = this.recentOperations.slice(0, 10);
             }
-            
-            console.log('Recent operations count:', this.recentOperations.length);
-            
+                        
             // Save to localStorage
             this.saveRecentOperations();
         },
@@ -347,9 +342,6 @@ const OperationsTab = {
                 const saved = localStorage.getItem('fitscat_recent_operations');
                 if (saved) {
                     this.recentOperations = JSON.parse(saved);
-                    console.log('Loaded recent operations from localStorage:', this.recentOperations.length);
-                } else {
-                    console.log('No saved operations found');
                 }
             } catch (error) {
                 console.error('Error loading recent operations:', error);
@@ -569,7 +561,6 @@ const OperationsTab = {
 
 
     mounted() {
-        console.log('OperationsTab mounted');
         this.loadRecentOperations();
         
         // Register this component with the root app so it can notify us of completed operations
@@ -578,8 +569,6 @@ const OperationsTab = {
         }
         // Alternative: register globally
         window.operationsTabInstance = this;
-        
-        console.log('OperationsTab registered for operation callbacks');
     },
     
     beforeUnmount() {

@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FITS Cataloger</title>
     
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔭</text></svg>">
+    <link rel="icon" type="image/png" href="/static/favicon.png">
     
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="/static/js/lib/vue.global.prod.js"></script>
+    <script src="/static/js/lib/axios.min.js"></script>
     
     <!-- Styles -->
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/lib/tailwind.min.css">
     <link rel="stylesheet" href="/static/css/base.css">
     <link rel="stylesheet" href="/static/css/buttons.css">
     <link rel="stylesheet" href="/static/css/tables.css">
@@ -25,18 +25,21 @@
 <body class="bg-gray-100">
     <div id="app">
         <!-- Header with Dropdown Menu -->
-        <header class="bg-blue-600 text-white p-4 shadow-lg">
-            <div class="container mx-auto flex justify-between items-center">
-                <h1 class="text-2xl font-bold cursor-pointer" @click="activeTab = 'dashboard'">FITS Cataloger</h1>
-                
-                <!-- Hamburger Menu Button -->
-                <div class="relative">
-                    <button @click="menuOpen = !menuOpen" 
-                            class="p-2 rounded hover:bg-blue-700 transition focus:outline-none focus:ring-2 focus:ring-blue-300">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
-                        </svg>
-                    </button>
+            <header style="background-color: #0A1628;" class="text-white p-4 shadow-lg">
+                <div class="flex justify-between items-center px-4">
+                    <div class="flex items-center space-x-3 cursor-pointer" @click="activeTab = 'dashboard'">
+                        <img src="/static/logo.png" alt="AstroCat" style="width: 96px; height: 96px;">
+                        <h1 class="text-2xl font-bold">AstroCat</h1>
+                    </div>
+                    
+                    <!-- Hamburger Menu Button -->
+                    <div class="relative">
+                        <button @click="menuOpen = !menuOpen" 
+                                class="p-2 rounded hover:bg-gray-700 transition focus:outline-none focus:ring-2 focus:ring-gray-500">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                            </svg>
+                        </button>
                     
                     <!-- Dropdown Menu -->
                     <div v-show="menuOpen" 
