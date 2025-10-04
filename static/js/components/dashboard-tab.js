@@ -3,16 +3,25 @@
  */
 
 const DashboardTab = {
+    components: {
+        'monitoring-panel': MonitoringPanel
+    },
+
     template: `
         <div class="space-y-6">
             <!-- Main Stats Grid -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
                 <div class="stats-card">
                     <h3 class="text-lg font-semibold text-gray-700 mb-2">Total Files</h3>
                     <p class="text-3xl font-bold text-blue-600">{{ stats.total_files || 0 }}</p>
                 </div>
                 <div class="stats-card">
-                    <h3 class="text-lg font-semibold text-gray-700 mb-2">Auto-Migrate Ready</h3>
+                    <h3 class="text-lg font-semibold text-gray-700 mb-2">Registered</h3>
+                    <p class="text-3xl font-bold text-green-600">{{ (stats.validation && stats.validation.registered) || 0 }}</p>
+                    <p class="text-sm text-gray-500">≥95 points</p>
+                </div>
+                <div class="stats-card">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-2">Ready</h3>
                     <p class="text-3xl font-bold text-green-600">{{ (stats.validation && stats.validation.auto_migrate) || 0 }}</p>
                     <p class="text-sm text-gray-500">≥95 points</p>
                 </div>
@@ -114,6 +123,10 @@ const DashboardTab = {
                     </div>
                 </div>
             </div>
+
+
+            <!-- File Monitoring Status -->
+            <monitoring-panel></monitoring-panel>        
 
             <!-- Last Updated -->
             <div class="text-right text-sm text-gray-500">

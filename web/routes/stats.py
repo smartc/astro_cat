@@ -27,20 +27,29 @@ async def get_stats(session: Session = Depends(get_db_session), config = Depends
         
         # Validation scores
         auto_migrate = session.query(FitsFile).filter(
-            FitsFile.validation_score >= 95
+            FitsFile.validation_score >= 95,
+            FitsFile.folder.like(f"%{config.paths.quarantine_dir}%")
         ).count()
-        
+
         needs_review = session.query(FitsFile).filter(
             FitsFile.validation_score >= 80,
-            FitsFile.validation_score < 95
+            FitsFile.validation_score < 95,
+            FitsFile.folder.like(f"%{config.paths.quarantine_dir}%")
         ).count()
-        
+
         manual_only = session.query(FitsFile).filter(
-            FitsFile.validation_score < 80
+            FitsFile.validation_score < 80,
+            FitsFile.folder.like(f"%{config.paths.quarantine_dir}%")
         ).count()
-        
+
         no_score = session.query(FitsFile).filter(
-            FitsFile.validation_score.is_(None)
+            FitsFile.validation_score.is_(None),
+            FitsFile.folder.like(f"%{config.paths.quarantine_dir}%")
+        ).count()
+
+        # Registered files (migrated to library)
+        registered_files = session.query(FitsFile).filter(
+            ~FitsFile.folder.like(f"%{config.paths.quarantine_dir}%")
         ).count()
         
         # Recent files (last 7 days)
@@ -91,13 +100,13 @@ async def get_stats(session: Session = Depends(get_db_session), config = Depends
         duplicates_folder = quarantine_path / "Duplicates"
         bad_files_folder = quarantine_path / "Bad"
         
-        # Count duplicate files
+        # Count duplicate files (files only, including subdirectories)
         duplicates_count = 0
         if duplicates_folder.exists():
             for ext in ['.fits', '.fit', '.fts']:
                 duplicates_count += sum(1 for p in duplicates_folder.rglob(f"*{ext}") if p.is_file())
-        
-        # Count bad files
+
+        # Count bad files (files only, including subdirectories)
         bad_files_count = 0
         if bad_files_folder.exists():
             for ext in ['.fits', '.fit', '.fts']:
@@ -105,6 +114,7 @@ async def get_stats(session: Session = Depends(get_db_session), config = Depends
         
         stats = {
             "total_files": total_files,
+            "registered_files": registered_files,  # NEW
             "quarantine_files": quarantine_files,
             "staged_files": staged_files,
             "missing_files": missing_files,
@@ -116,6 +126,7 @@ async def get_stats(session: Session = Depends(get_db_session), config = Depends
             },
             "validation": {
                 "total_files": total_files,
+                "registered": registered_files,  # NEW
                 "auto_migrate": auto_migrate,
                 "needs_review": needs_review,
                 "manual_only": manual_only,

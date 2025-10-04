@@ -229,6 +229,18 @@ class ProcessingSessionFile(Base):
     )
 
 
+class SystemSettings(Base):
+    """Runtime system settings that persist across restarts."""
+    __tablename__ = 'system_settings'
+    
+    key = Column(String(50), primary_key=True)
+    value = Column(String(255), nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f"<SystemSettings(key='{self.key}', value='{self.value}')>"
+
+
 class DatabaseManager:
     """Database connection and session management."""
     
@@ -444,5 +456,53 @@ class DatabaseService:
         session = self.db_manager.get_session()
         try:
             return session.query(Session).order_by(Session.session_date.desc()).all()
+        finally:
+            session.close()
+
+    def get_setting(self, key: str, default=None):
+        """Get a system setting value."""
+        session = self.db_manager.get_session()
+        try:
+            setting = session.query(SystemSettings).filter_by(key=key).first()
+            if setting:
+                # Try to convert to appropriate type
+                value = setting.value
+                if value.lower() in ('true', 'false'):
+                    return value.lower() == 'true'
+                try:
+                    return int(value)
+                except ValueError:
+                    try:
+                        return float(value)
+                    except ValueError:
+                        return value
+            return default
+        finally:
+            session.close()
+
+    def set_setting(self, key: str, value):
+        """Set a system setting value."""
+        session = self.db_manager.get_session()
+        try:
+            setting = session.query(SystemSettings).filter_by(key=key).first()
+            if setting:
+                setting.value = str(value)
+                setting.updated_at = datetime.utcnow()
+            else:
+                setting = SystemSettings(key=key, value=str(value))
+                session.add(setting)
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
+    def get_all_settings(self) -> Dict[str, str]:
+        """Get all system settings."""
+        session = self.db_manager.get_session()
+        try:
+            settings = session.query(SystemSettings).all()
+            return {s.key: s.value for s in settings}
         finally:
             session.close()

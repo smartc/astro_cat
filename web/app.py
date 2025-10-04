@@ -103,7 +103,11 @@ async def startup_event():
         # Create directories for static files if they don't exist
         Path("static").mkdir(exist_ok=True)
         
+        # Start file monitoring:
+        await monitoring.auto_start_monitoring()
+
         logger.info("🎉 Web interface startup completed successfully!")
+
         
     except Exception as e:
         logger.error(f"💥 CRITICAL: Web interface startup failed: {e}")
@@ -120,7 +124,7 @@ async def shutdown_event():
 
 
 # Import and register route modules
-from web.routes import dashboard, files, stats, imaging_sessions, processing_sessions, operations
+from web.routes import dashboard, files, stats, imaging_sessions, processing_sessions, operations, monitoring
 
 app.include_router(dashboard.router)
 app.include_router(files.router)
@@ -128,3 +132,4 @@ app.include_router(stats.router)
 app.include_router(imaging_sessions.router)
 app.include_router(processing_sessions.router)
 app.include_router(operations.router)
+app.include_router(monitoring.router)

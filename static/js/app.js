@@ -21,7 +21,8 @@ createApp({
         'imaging-session-detail-modal': ImagingSessionDetailModal,
         'calibration-modal': CalibrationModalComponent,
         'processing-session-details-modal': ProcessingSessionDetailsModal,
-        'processing-session-modals': ProcessingSessionModals
+        'processing-session-modals': ProcessingSessionModals,
+        // 'monitoring-panel': MonitoringPanel
     },
     
     data() {
