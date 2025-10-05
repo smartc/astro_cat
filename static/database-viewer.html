@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Browser - AstroCat</title>
+
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    
+    <script src="/static/js/lib/vue.global.prod.js"></script>
+    <script src="/static/js/components/icons.js"></script>
+    <script src="/static/js/components/app-header.js"></script>
+    <script src="/static/js/components/app-footer.js"></script>
+    <script src="/static/js/lib/axios.min.js"></script>
+
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="/static/css/lib/tailwind.min.css">
+    <link rel="stylesheet" href="/static/css/menu.css">
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        
+        #database-frame {
+            flex: 1;
+            border: none;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="app" style="display: flex; flex-direction: column; height: 100%;">
+        <!-- Shared Header -->
+        <app-header></app-header>
+
+        <!-- Database Browser iFrame -->
+        <iframe id="database-frame" src=""></iframe>
+
+        <!-- Footer -->
+        <app-footer></app-footer>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+        
+        createApp({
+            components: {
+                'app-header': AppHeader,
+                'app-footer': AppFooter
+            },
+            data() {
+                return {
+                    menuOpen: false
+                }
+            },
+            methods: {
+                goToDashboard() {
+                    window.location.href = '/';
+                },
+                navigateTo(path) {
+                    window.location.href = path;
+                    this.menuOpen = false;
+                }
+            },
+            mounted() {
+                const iframe = document.getElementById('database-frame');
+                iframe.src = `http://${window.location.hostname}:8081`;
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
