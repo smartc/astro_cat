@@ -22,6 +22,8 @@ createApp({
         'calibration-modal': CalibrationModalComponent,
         'processing-session-details-modal': ProcessingSessionDetailsModal,
         'processing-session-modals': ProcessingSessionModals,
+        'app-header': AppHeader,
+        'app-footer': AppFooter,
     },
     
     data() {
@@ -89,8 +91,7 @@ createApp({
         },
         
         openDatabaseBrowser() {
-            const dbUrl = `http://${window.location.hostname}:8081`;
-            window.open(dbUrl, '_blank', 'width=1400,height=900');
+            window.location.href = '/database-viewer';
             this.menuOpen = false;
         },
         

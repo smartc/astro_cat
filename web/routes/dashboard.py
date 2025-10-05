@@ -66,3 +66,9 @@ async def markdown_editor():
 async def imaging_session_markdown_editor():
     """Markdown editor for imaging sessions."""
     return FileResponse("static/editor.html")
+
+
+@router.get("/database-viewer", response_class=HTMLResponse)
+async def database_viewer():
+    """Database browser with header."""
+    return FileResponse("static/database-viewer.html")

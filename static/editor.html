@@ -8,6 +8,10 @@
     <link rel="icon" type="image/png" href="/static/favicon.png">
     
     <script src="/static/js/lib/vue.global.prod.js"></script>
+    <script src="/static/js/components/icons.js"></script>
+    <script src="/static/js/components/app-header.js"></script>
+    <script src="/static/js/components/app-footer.js"></script>
+    <script src="/static/js/lib/axios.min.js"></script>
     
     <!-- Styles -->
     <link rel="stylesheet" href="/static/css/lib/tailwind.min.css">
@@ -20,44 +24,7 @@
 <body>
     <div id="app" style="display: flex; flex-direction: column; height: 100%;">
         <!-- Shared Header -->
-        <header style="background-color: #0A1628; flex-shrink: 0;" class="text-white p-4 shadow-lg">
-            <div class="flex justify-between items-center px-4">
-                <div class="flex items-center space-x-3 cursor-pointer" @click="goToDashboard">
-                    <img src="/static/logo.png" alt="AstroCat" style="width: 96px; height: 96px;">
-                    <h1 class="text-2xl font-bold">AstroCat</h1>
-                </div>
-                
-                <!-- Hamburger Menu Button -->
-                <div class="relative">
-                    <button @click="menuOpen = !menuOpen" 
-                            class="p-2 rounded hover:bg-gray-700 transition focus:outline-none focus:ring-2 focus:ring-gray-500">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
-                        </svg>
-                    </button>
-                
-                    <!-- Dropdown Menu -->
-                    <div v-show="menuOpen" 
-                         @click.away="menuOpen = false"
-                         class="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl z-50 py-2">
-                        
-                        <a @click="navigateTo('/')" class="menu-item">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
-                            </svg>
-                            Dashboard
-                        </a>
-                        
-                        <a @click="openDatabaseBrowser" class="menu-item">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path>
-                            </svg>
-                            Database Browser
-                        </a>
-                    </div>
-                </div>
-            </div>
-        </header>
+        <app-header></app-header>
 
         <!-- Editor Content -->
         <div class="editor-content">
@@ -76,6 +43,9 @@
                 <div id="editor"></div>
             </div>
         </div>
+
+        <!-- Footer -->
+        <app-footer></app-footer>
     </div>
 
     <script src="/static/js/lib/toastui-editor-all.min.js"></script>
@@ -84,6 +54,10 @@
         const { createApp } = Vue;
         
         createApp({
+            components: {
+                'app-header': AppHeader,
+                'app-footer': AppFooter
+            },
             data() {
                 return {
                     menuOpen: false

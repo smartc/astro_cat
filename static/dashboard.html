@@ -8,6 +8,9 @@
     <link rel="icon" type="image/png" href="/static/favicon.png">
     
     <script src="/static/js/lib/vue.global.prod.js"></script>
+    <script src="/static/js/components/icons.js"></script>
+    <script src="/static/js/components/app-header.js"></script>
+    <script src="/static/js/components/app-footer.js"></script>
     <script src="/static/js/lib/axios.min.js"></script>
     
     <!-- Styles -->
@@ -25,91 +28,7 @@
 <body class="bg-gray-100">
     <div id="app">
         <!-- Header with Dropdown Menu -->
-            <header style="background-color: #0A1628;" class="text-white p-4 shadow-lg">
-                <div class="flex justify-between items-center px-4">
-                    <div class="flex items-center space-x-3 cursor-pointer" @click="activeTab = 'dashboard'">
-                        <img src="/static/logo.png" alt="AstroCat" style="width: 96px; height: 96px;">
-                        <h1 class="text-2xl font-bold">AstroCat</h1>
-                    </div>
-                    
-                    <!-- Hamburger Menu Button -->
-                    <div class="relative">
-                        <button @click="menuOpen = !menuOpen" 
-                                class="p-2 rounded hover:bg-gray-700 transition focus:outline-none focus:ring-2 focus:ring-gray-500">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
-                            </svg>
-                        </button>
-                    
-                    <!-- Dropdown Menu -->
-                    <div v-show="menuOpen" 
-                         @click.away="menuOpen = false"
-                         class="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl z-50 py-2">
-                        
-                        <!-- Navigation Items -->
-                        <a @click="navigateTo('dashboard')" class="menu-item">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
-                            </svg>
-                            Dashboard
-                        </a>
-                        
-                        <a @click="navigateTo('files')" class="menu-item">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
-                            </svg>
-                            Files
-                        </a>
-                        
-                        <a @click="navigateTo('imaging-sessions')" class="menu-item">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                            </svg>
-                            Imaging Sessions
-                        </a>
-                        
-                        <a @click="navigateTo('processing-sessions')" class="menu-item">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
-                            </svg>
-                            Processing Sessions
-                        </a>
-                        
-                        <a @click="navigateTo('operations')" class="menu-item">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                            </svg>
-                            Operations
-                        </a>
-                        
-                        <div class="border-t border-gray-200 my-2"></div>
-                        
-                        <!-- New Items -->
-                        <a @click="navigateTo('equipment')" class="menu-item">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
-                            </svg>
-                            Equipment
-                        </a>
-                        
-                        <a @click="openDatabaseBrowser" class="menu-item">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path>
-                            </svg>
-                            Database Browser
-                        </a>
-                        
-                        <a @click="navigateTo('configuration')" class="menu-item">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
-                            </svg>
-                            Configuration
-                        </a>
-                    </div>
-                </div>
-            </div>
-        </header>
+        <app-header></app-header>
 
         <!-- Error Message -->
         <div v-if="errorMessage" class="mx-auto p-6 max-w-none">
@@ -144,9 +63,7 @@
         </main>
 
         <!-- Footer -->
-        <footer class="text-center py-3 text-xs text-gray-500 border-t bg-gray-50">
-            FITS Cataloger {{ appVersion }}
-        </footer>
+        <app-footer></app-footer>
 
         <!-- Component Modals -->
         <imaging-session-detail-modal ref="sessionDetailModal"></imaging-session-detail-modal>   
@@ -169,11 +86,9 @@
     <script src="/static/js/components/imaging-sessions-tab.js"></script>
     <script src="/static/js/components/processing-sessions-tab.js"></script>
     <script src="/static/js/components/operations-tab.js"></script>
-    
-    <!-- New Component Scripts -->
     <script src="/static/js/components/equipment-tab.js"></script>
     <script src="/static/js/components/configuration-tab.js"></script>
-    
     <script src="/static/js/app.js"></script>
+    
 </body>
 </html>

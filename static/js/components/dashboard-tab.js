@@ -158,22 +158,6 @@ const DashboardTab = {
                     </div>
                 </div>
             </div>
-
-            <!-- Footer with Monitoring Status -->
-            <div class="flex justify-between items-center text-sm text-gray-500 pt-4 border-t">
-                <div class="flex items-center space-x-3">
-                    <div class="flex items-center space-x-2">
-                        <div class="w-2 h-2 rounded-full" :class="monitoringEnabled ? 'bg-green-500' : 'bg-red-500'"></div>
-                        <span>{{ monitoringEnabled ? 'Monitoring Active' : 'Monitoring Inactive' }}</span>
-                    </div>
-                    <span v-if="monitoringEnabled && lastScan" class="text-gray-400">
-                        Last scan: {{ formatLastScan(lastScan) }}
-                    </span>
-                </div>
-                <div>
-                    Last updated: {{ lastUpdated }}
-                </div>
-            </div>
         </div>
     `,
     
@@ -216,16 +200,6 @@ const DashboardTab = {
             }
         },
         
-        async checkMonitoringStatus() {
-            try {
-                const response = await fetch('/api/monitoring/status');
-                const data = await response.json();
-                this.monitoringEnabled = data.enabled || false;
-                this.lastScan = data.last_scan || null;
-            } catch (error) {
-                console.error('Error checking monitoring status:', error);
-            }
-        },
         
         formatLastScan(timestamp) {
             if (!timestamp) return 'Never';
@@ -257,23 +231,15 @@ const DashboardTab = {
     
     mounted() {
         this.checkOperationStatus();
-        this.checkMonitoringStatus();
         
         this.statusInterval = setInterval(() => {
             this.checkOperationStatus();
         }, 5000);
-        
-        this.monitoringPollInterval = setInterval(() => {
-            this.checkMonitoringStatus();
-        }, 10000);
     },
     
     beforeUnmount() {
         if (this.statusInterval) {
             clearInterval(this.statusInterval);
-        }
-        if (this.monitoringPollInterval) {
-            clearInterval(this.monitoringPollInterval);
         }
     }
 };
