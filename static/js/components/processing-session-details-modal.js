@@ -80,6 +80,64 @@ const ProcessingSessionDetailsModal = {
                         </div>
                     </div>
                     
+                    <!-- Objects Detail Section -->
+                    <div v-if="currentSessionDetails.objects_detail && currentSessionDetails.objects_detail.length > 0" 
+                         class="space-y-4">
+                        <h4 class="font-semibold text-gray-800 text-lg border-b pb-2">Objects Breakdown</h4>
+                        
+                        <div v-for="obj in currentSessionDetails.objects_detail" :key="obj.name" 
+                             class="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                            <div class="bg-gradient-to-r from-gray-50 to-gray-100 px-4 py-3 border-b border-gray-200">
+                                <h5 class="text-base font-bold text-gray-900">📷 {{ obj.name }}</h5>
+                                <button @click="removeObjectFromSession(obj.name)" 
+                                        class="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded transition">
+                                    Remove Object
+                                </button>
+                            </div>
+                            
+                            <div class="p-4">
+                                <!-- Filters Breakdown -->
+                                <div class="font-mono text-sm space-y-3">
+                                    <div v-for="filter in obj.filters" :key="filter.filter">
+                                        <!-- First exposure on same line as filter name -->
+                                        <div v-if="filter.exposure_breakdown.length > 0" class="flex justify-between">
+                                            <span class="font-bold text-blue-800 w-32 flex-shrink-0 text-base">{{ filter.filter }}</span>
+                                            <span class="flex-1 text-gray-700">
+                                                {{ filter.exposure_breakdown[0].count }} × {{ filter.exposure_breakdown[0].exposure }}s
+                                            </span>
+                                            <span class="font-semibold text-gray-900 w-20 text-right">
+                                                {{ formatExposureTime(filter.exposure_breakdown[0].total) }}
+                                            </span>
+                                        </div>
+                                        
+                                        <!-- Subsequent exposures indented -->
+                                        <div v-for="(exp, index) in filter.exposure_breakdown.slice(1)" :key="exp.exposure" 
+                                             class="flex justify-between">
+                                            <span class="w-32 flex-shrink-0"></span>
+                                            <span class="flex-1 text-gray-700">
+                                                {{ exp.count }} × {{ exp.exposure }}s
+                                            </span>
+                                            <span class="font-semibold text-gray-900 w-20 text-right">
+                                                {{ formatExposureTime(exp.total) }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Total for Object -->
+                                <div class="mt-4 pt-3 border-t-2 border-gray-400 font-mono text-sm">
+                                    <div class="flex justify-between items-center">
+                                        <span class="font-bold text-gray-800">TOTAL</span>
+                                        <div class="text-right">
+                                            <span class="text-gray-600 text-xs mr-3">{{ obj.total_files }} files</span>
+                                            <span class="font-bold text-indigo-700">{{ getTotalObjectTime(obj) }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Notes -->
                     <div v-if="currentSessionDetails.notes" class="bg-yellow-50 p-4 rounded-lg">
                         <h4 class="font-semibold text-yellow-800 mb-2">Notes</h4>
@@ -195,6 +253,74 @@ const ProcessingSessionDetailsModal = {
             const url = `/editor?session_id=${sessionId}&session_name=${encodeURIComponent(sessionName)}`;
             window.open(url, '_blank');
             this.closeSessionDetailsModal();
+        },
+
+        getTotalObjectTime(obj) {
+            let totalSeconds = 0;
+            if (obj.filters) {
+                obj.filters.forEach(filter => {
+                    totalSeconds += filter.total_exposure || 0;
+                });
+            }
+            return this.formatExposureTime(totalSeconds);
+        },
+
+        async removeObjectFromSession(objectName) {
+            try {
+                if (!confirm(`Remove all "${objectName}" light frames and associated calibration files from this session?`)) {
+                    return;
+                }
+                
+                const response = await ApiService.processingSessions.removeObject(
+                    this.currentSessionDetails.id,
+                    objectName
+                );
+                
+                const result = response.data;
+                
+                // Show summary of what was removed
+                let message = `Removed ${result.removed_light_frames} light frames`;
+                if (result.removed_calibration_frames > 0) {
+                    message += ` and ${result.removed_calibration_frames} orphaned calibration frames`;
+                }
+                
+                // If session is now empty, offer to delete it
+                if (result.session_empty) {
+                    const deleteSession = confirm(
+                        `${message}.\n\nNo objects remain in this session. Delete the entire processing session?`
+                    );
+                    
+                    if (deleteSession) {
+                        await this.$root.deleteProcessingSession(this.currentSessionDetails.id);
+                        this.closeSessionDetailsModal();
+                        return;
+                    }
+                } else {
+                    alert(message);
+                }
+                
+                // Reload session details
+                await this.viewProcessingSession(this.currentSessionDetails.id);
+                
+                // Refresh stats
+                await window.refreshStats();
+                
+            } catch (error) {
+                console.error('Error removing object from session:', error);
+                alert(`Failed to remove object: ${error.response?.data?.detail || error.message}`);
+            }
+        },
+
+        formatExposureTime(seconds) {
+            if (!seconds) return '0m';
+            
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            
+            if (hours > 0) {
+                return `${hours}h ${minutes}m`;
+            }
+            return `${minutes}m`;
         }
     }
 };

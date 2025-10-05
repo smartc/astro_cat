@@ -32,7 +32,9 @@ const ApiService = {
         delete: (sessionId, removeFiles = false) => 
             axios.delete(`/api/processing-sessions/${sessionId}?remove_files=${removeFiles}`),
         getCalibrationMatches: (sessionId) => 
-            axios.get(`/api/processing-sessions/${sessionId}/calibration-matches`)
+            axios.get(`/api/processing-sessions/${sessionId}/calibration-matches`),
+        removeObject: (sessionId, objectName) =>  // NEW
+            axios.delete(`/api/processing-sessions/${sessionId}/objects/${encodeURIComponent(objectName)}`)
     },
 
     operations: {
