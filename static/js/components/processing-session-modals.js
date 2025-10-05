@@ -247,6 +247,26 @@ const ProcessingSessionModals = {
             }
         },
         
+        /**
+         * Pre-select files for adding to a processing session
+         * Called from imaging session detail modal
+         * @param {Array} fileIds - Array of file IDs to pre-select
+         * @param {String} suggestedName - Suggested name for the session
+         */
+        preSelectFiles(fileIds, suggestedName) {
+            // Update root app's selected files
+            const app = this.$root;
+            app.selectedFiles = fileIds;
+            
+            // Pre-populate the session name based on which modal is open
+            if (this.showAddToNewModal) {
+                this.newSessionFromFiles.name = suggestedName;
+            } else if (this.showCreateModal) {
+                this.newProcessingSession.name = suggestedName;
+                this.newProcessingSession.fileIds = fileIds.join(', ');
+            }
+        },
+        
         getSelectedFilesCount() {
             const app = this.$root;
             return app.selectedFiles?.length || 0;

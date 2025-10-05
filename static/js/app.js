@@ -167,8 +167,30 @@ createApp({
         // Modal Interaction Methods
         // ===================
         
-        viewSessionDetails(sessionId) {
-            this.$refs.sessionDetailModal.viewSessionDetails(sessionId);
+        async viewSessionDetails(sessionId) {
+            // Get all session IDs matching current filters for navigation
+            try {
+                const params = {
+                    date_start: this.imagingSessionFilters.date_start || undefined,
+                    date_end: this.imagingSessionFilters.date_end || undefined,
+                    cameras: this.imagingSessionFilters.cameras.length > 0 
+                        ? this.imagingSessionFilters.cameras.join(',') 
+                        : undefined,
+                    telescopes: this.imagingSessionFilters.telescopes.length > 0 
+                        ? this.imagingSessionFilters.telescopes.join(',') 
+                        : undefined
+                };
+                
+                const idsResponse = await ApiService.imagingSessions.getIds(params);
+                const allSessionIds = idsResponse.data.session_ids;
+                
+                // Open modal with session IDs for navigation
+                this.$refs.sessionDetailModal.viewSessionDetails(sessionId, allSessionIds);
+            } catch (error) {
+                console.error('Error loading session IDs for navigation:', error);
+                // Fallback: just show current session without navigation
+                this.$refs.sessionDetailModal.viewSessionDetails(sessionId, [sessionId]);
+            }
         },
         
         findCalibrationFiles(sessionId) {

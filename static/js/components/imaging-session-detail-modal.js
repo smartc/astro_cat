@@ -81,7 +81,7 @@ window.ImagingSessionDetailModal = {
                         </div>
 
                         <!-- Objects Section -->
-                        <div v-for="obj in sessionDetails.objects" :key="obj.name" class="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                        <div v-for="obj in sessionDetails.summary.objects" :key="obj.name" class="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
                             <div class="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b border-gray-200">
                                 <div class="flex justify-between items-center">
                                     <h4 class="text-lg font-bold text-gray-900">📷 {{ obj.name }}</h4>
@@ -100,41 +100,41 @@ window.ImagingSessionDetailModal = {
 
                             <div class="p-6">
                                 <!-- Filters Breakdown -->
-                                <div class="space-y-4">
-                                    <div v-for="filter in obj.filters" :key="filter.filter" 
-                                         class="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                                        <div class="flex justify-between items-start mb-3">
-                                            <div>
-                                                <span class="inline-block px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-semibold">
-                                                    {{ filter.filter }}
-                                                </span>
-                                            </div>
-                                            <div class="text-right">
-                                                <div class="text-2xl font-bold text-blue-600">{{ formatExposureTime(filter.total_exposure) }}</div>
-                                                <div class="text-xs text-gray-500">Total Exposure</div>
-                                            </div>
+                                <div class="font-mono text-sm space-y-3">
+                                    <div v-for="filter in obj.filters" :key="filter.filter">
+                                        <!-- First exposure on same line as filter name -->
+                                        <div v-if="filter.exposure_breakdown.length > 0" class="flex justify-between">
+                                            <span class="font-bold text-blue-800 w-32 flex-shrink-0 text-base">{{ filter.filter }}</span>
+                                            <span class="flex-1 text-gray-700">
+                                                {{ filter.exposure_breakdown[0].count }} × {{ filter.exposure_breakdown[0].exposure }}s
+                                            </span>
+                                            <span class="font-semibold text-gray-900 w-20 text-right">
+                                                {{ formatExposureTime(filter.exposure_breakdown[0].total) }}
+                                            </span>
                                         </div>
-
-                                        <!-- Exposure Breakdown -->
-                                        <div class="mt-3 space-y-2">
-                                            <div class="text-xs font-medium text-gray-600 uppercase">Exposure Breakdown:</div>
-                                            <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                                <div v-for="exp in filter.exposure_breakdown" :key="exp.exposure" 
-                                                     class="bg-white rounded px-3 py-2 text-sm border border-gray-200">
-                                                    <span class="font-bold text-gray-900">{{ exp.count }}×</span>
-                                                    <span class="text-gray-600">{{ exp.exposure }}s</span>
-                                                    <span class="text-gray-400 text-xs ml-1">({{ formatExposureTime(exp.total) }})</span>
-                                                </div>
-                                            </div>
+                                        
+                                        <!-- Subsequent exposures indented -->
+                                        <div v-for="(exp, index) in filter.exposure_breakdown.slice(1)" :key="exp.exposure" 
+                                             class="flex justify-between">
+                                            <span class="w-32 flex-shrink-0"></span>
+                                            <span class="flex-1 text-gray-700">
+                                                {{ exp.count }} × {{ exp.exposure }}s
+                                            </span>
+                                            <span class="font-semibold text-gray-900 w-20 text-right">
+                                                {{ formatExposureTime(exp.total) }}
+                                            </span>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- Total Files for Object -->
-                                <div class="pt-4 mt-4 border-t border-gray-200">
+                                <!-- Total for Object -->
+                                <div class="mt-4 pt-3 border-t-2 border-gray-400 font-mono text-sm">
                                     <div class="flex justify-between items-center">
-                                        <span class="text-sm font-medium text-gray-700">Total Light Frames:</span>
-                                        <span class="text-lg font-bold text-gray-900">{{ obj.total_files }}</span>
+                                        <span class="font-bold text-gray-800">TOTAL</span>
+                                        <div class="text-right">
+                                            <span class="text-gray-600 text-xs mr-3">{{ obj.total_files }} files</span>
+                                            <span class="font-bold text-indigo-700">{{ getTotalObjectTime(obj) }}</span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -248,13 +248,15 @@ window.ImagingSessionDetailModal = {
         // Navigation methods
         async navigateToPrevSession() {
             if (this.hasPreviousSession) {
+                this.loadingDetails = true;  // Show loading
                 const prevSessionId = this.allSessionIds[this.currentSessionIndex - 1];
                 await this.viewSessionDetails(prevSessionId, this.allSessionIds);
             }
         },
-        
+
         async navigateToNextSession() {
             if (this.hasNextSession) {
+                this.loadingDetails = true;  // Show loading
                 const nextSessionId = this.allSessionIds[this.currentSessionIndex + 1];
                 await this.viewSessionDetails(nextSessionId, this.allSessionIds);
             }
@@ -269,16 +271,17 @@ window.ImagingSessionDetailModal = {
                 return;
             }
             
-            // Call the root app's method to show create modal with pre-filled data
-            this.$root.addToNewSession();
-            // Wait for modal to initialize then set the selected files
-            this.$nextTick(() => {
-                if (this.$root.$refs.processingModals) {
-                    this.$root.$refs.processingModals.preSelectFiles(fileIds, obj.name);
-                }
-            });
+            // Pre-populate the selected files FIRST
+            this.$root.selectedFiles = fileIds;
+            
+            // Now open the modal and set the session name
+            this.$root.$refs.processingModals.newSessionFromFiles = { 
+                name: obj.name, 
+                notes: '' 
+            };
+            this.$root.$refs.processingModals.showAddToNewModal = true;
         },
-        
+
         async addObjectToExistingSession(obj) {
             // Get all file IDs for this object in this session
             const fileIds = await this.getObjectFileIds(obj.name);
@@ -287,14 +290,13 @@ window.ImagingSessionDetailModal = {
                 return;
             }
             
-            // Call the root app's method to show add to existing modal
-            await this.$root.showAddToExistingModal();
-            // Wait for modal to initialize then set the selected files
-            this.$nextTick(() => {
-                if (this.$root.$refs.processingModals) {
-                    this.$root.$refs.processingModals.preSelectFiles(fileIds, obj.name);
-                }
-            });
+            // Pre-populate the selected files FIRST
+            this.$root.selectedFiles = fileIds;
+            
+            // Load existing sessions and open the modal
+            await this.$root.$refs.processingModals.loadExistingSessions();
+            this.$root.$refs.processingModals.selectedExistingSession = '';
+            this.$root.$refs.processingModals.showAddToExistingSessionModal = true;
         },
         
         async getObjectFileIds(objectName) {
@@ -314,6 +316,16 @@ window.ImagingSessionDetailModal = {
                 console.error('Error fetching object file IDs:', error);
             }
             return [];
+        },
+
+        getTotalObjectTime(obj) {
+            let totalSeconds = 0;
+            if (obj.filters) {
+                obj.filters.forEach(filter => {
+                    totalSeconds += filter.total_exposure || 0;
+                });
+            }
+            return this.formatExposureTime(totalSeconds);
         },
         
         // Utility methods
@@ -335,5 +347,29 @@ window.ImagingSessionDetailModal = {
             }
             return `${minutes}m`;
         }
-    }
+    },
+
+    mounted() {
+        // Add keyboard event listener for arrow navigation
+        this.handleKeypress = (e) => {
+            if (!this.showDetailModal) return;
+            
+            if (e.key === 'ArrowLeft' && this.hasPreviousSession) {
+                this.navigateToPrevSession();
+            } else if (e.key === 'ArrowRight' && this.hasNextSession) {
+                this.navigateToNextSession();
+            } else if (e.key === 'Escape') {
+                this.closeSessionDetails();
+            }
+        };
+        
+        window.addEventListener('keydown', this.handleKeypress);
+    },
+
+    beforeDestroy() {
+        // Clean up event listener
+        if (this.handleKeypress) {
+            window.removeEventListener('keydown', this.handleKeypress);
+        }
+    },
 };

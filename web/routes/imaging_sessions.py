@@ -82,12 +82,10 @@ async def get_imaging_sessions(
         logger.error(f"Error fetching imaging sessions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @router.get("/{session_id}/details")
 async def get_imaging_session_details(
     session_id: str,
-    session: Session = Depends(get_db_session)
-):
+    session: Session = Depends(get_db_session)):
     """Get detailed information about a specific imaging session including object-level summaries."""
     try:
         logger.info(f"Getting imaging session details for: {session_id}")
@@ -125,6 +123,7 @@ async def get_imaging_session_details(
                 "summary": {
                     "total_files": 0,
                     "frame_types": {},
+                    "total_exposure": 0,
                     "objects": []
                 }
             }
@@ -132,6 +131,7 @@ async def get_imaging_session_details(
         # Calculate session-level statistics
         total_files = len(files)
         frame_type_counts = {}
+        session_total_exposure = 0
         
         # Group files by object
         objects_data = {}
@@ -141,55 +141,78 @@ async def get_imaging_session_details(
             frame_type = file.frame_type or 'UNKNOWN'
             frame_type_counts[frame_type] = frame_type_counts.get(frame_type, 0) + 1
             
-            # Object-level data
-            obj_name = file.object or 'UNKNOWN'
-            
-            if obj_name not in objects_data:
-                objects_data[obj_name] = {
-                    'name': obj_name,  # Use 'name' for backwards compatibility
-                    'total_files': 0,
-                    'frame_types': {},
-                    'filters': {},  # Dict with counts, not list
-                    'total_imaging_time': {}  # by filter for LIGHT frames only
-                }
-            
-            objects_data[obj_name]['total_files'] += 1
-            
-            # Frame type counts by object
-            objects_data[obj_name]['frame_types'][frame_type] = \
-                objects_data[obj_name]['frame_types'].get(frame_type, 0) + 1
-            
-            # Track filters used with counts
-            if file.filter:
-                objects_data[obj_name]['filters'][file.filter] = \
-                    objects_data[obj_name]['filters'].get(file.filter, 0) + 1
-            
-            # Calculate imaging time for LIGHT frames only, broken down by filter
+            # Session-level total exposure (LIGHT frames only)
             if frame_type == 'LIGHT' and file.exposure:
-                filter_name = file.filter or 'No Filter'
-                if filter_name not in objects_data[obj_name]['total_imaging_time']:
-                    objects_data[obj_name]['total_imaging_time'][filter_name] = 0
-                objects_data[obj_name]['total_imaging_time'][filter_name] += file.exposure
+                session_total_exposure += file.exposure
+            
+            # Object-level data (only for LIGHT frames)
+            if frame_type == 'LIGHT':
+                obj_name = file.object or 'UNKNOWN'
+                
+                if obj_name not in objects_data:
+                    objects_data[obj_name] = {
+                        'name': obj_name,
+                        'total_files': 0,
+                        'frame_types': {},
+                        'filter_data': {}  # Track detailed filter info
+                    }
+                
+                objects_data[obj_name]['total_files'] += 1
+                objects_data[obj_name]['frame_types'][frame_type] = \
+                    objects_data[obj_name]['frame_types'].get(frame_type, 0) + 1
+                
+                # Track filter-level data with exposure breakdown
+                if file.exposure:
+                    filter_name = file.filter or 'No Filter'
+                    
+                    if filter_name not in objects_data[obj_name]['filter_data']:
+                        objects_data[obj_name]['filter_data'][filter_name] = {
+                            'total_exposure': 0,
+                            'exposures': {}  # {exposure_time: [file_ids]}
+                        }
+                    
+                    # Add to total exposure for this filter
+                    objects_data[obj_name]['filter_data'][filter_name]['total_exposure'] += file.exposure
+                    
+                    # Track individual exposures
+                    exp_time = file.exposure
+                    if exp_time not in objects_data[obj_name]['filter_data'][filter_name]['exposures']:
+                        objects_data[obj_name]['filter_data'][filter_name]['exposures'][exp_time] = []
+                    objects_data[obj_name]['filter_data'][filter_name]['exposures'][exp_time].append(file.id)
         
-        # Convert imaging times to hours:minutes:seconds format with seconds value
-        for obj_data in objects_data.values():
-            formatted_times = {}
-            for filter_name, total_seconds in obj_data['total_imaging_time'].items():
-                hours = int(total_seconds // 3600)
-                minutes = int((total_seconds % 3600) // 60)
-                seconds = int(total_seconds % 60)
-                formatted_times[filter_name] = {
-                    'seconds': total_seconds,
-                    'formatted': f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-                }
-            obj_data['total_imaging_time'] = formatted_times
+        # Convert objects_data to the format expected by frontend
+        objects_list = []
+        for obj_name, obj_data in objects_data.items():
+            # Build filters array with exposure breakdown
+            filters_list = []
+            for filter_name, filter_info in obj_data['filter_data'].items():
+                exposure_breakdown = []
+                for exp_time, file_ids in sorted(filter_info['exposures'].items()):
+                    exposure_breakdown.append({
+                        'exposure': exp_time,
+                        'count': len(file_ids),
+                        'total': exp_time * len(file_ids),
+                        'file_ids': file_ids
+                    })
+                
+                filters_list.append({
+                    'filter': filter_name,
+                    'total_exposure': filter_info['total_exposure'],
+                    'exposure_breakdown': exposure_breakdown
+                })
+            
+            # Sort filters by name
+            filters_list.sort(key=lambda x: x['filter'])
+            
+            objects_list.append({
+                'name': obj_name,
+                'total_files': obj_data['total_files'],
+                'frame_types': obj_data['frame_types'],
+                'filters': filters_list
+            })
         
         # Sort objects by total files (descending)
-        objects_list = sorted(
-            objects_data.values(), 
-            key=lambda x: x['total_files'], 
-            reverse=True
-        )
+        objects_list.sort(key=lambda x: x['total_files'], reverse=True)
         
         result = {
             "session": {
@@ -208,6 +231,7 @@ async def get_imaging_session_details(
             "summary": {
                 "total_files": total_files,
                 "frame_types": frame_type_counts,
+                "total_exposure": session_total_exposure,
                 "objects": objects_list
             }
         }
@@ -220,7 +244,6 @@ async def get_imaging_session_details(
     except Exception as e:
         logger.error(f"Error fetching imaging session details: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.get("/{session_id}/session-info")
 async def get_imaging_session_info(
@@ -300,4 +323,46 @@ async def save_imaging_session_info(
     except Exception as e:
         logger.error(f"Error saving imaging session info: {e}")
         logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/ids")
+async def get_imaging_session_ids(
+    date_start: Optional[str] = None,
+    date_end: Optional[str] = None,
+    cameras: Optional[str] = Query(None, description="Comma-separated cameras"),
+    telescopes: Optional[str] = Query(None, description="Comma-separated telescopes"),
+    session: Session = Depends(get_db_session)
+):
+    """
+    Get all imaging session IDs matching the filters.
+    Used for navigation in the session detail modal.
+    Returns sessions in descending date order.
+    """
+    try:
+        query = session.query(SessionModel.session_id).order_by(desc(SessionModel.session_date))
+        
+        # Apply same filters as main list endpoint
+        if date_start:
+            query = query.filter(SessionModel.session_date >= date_start)
+        if date_end:
+            query = query.filter(SessionModel.session_date <= date_end)
+        if cameras:
+            camera_list = [c.strip() for c in cameras.split(',') if c.strip()]
+            if camera_list:
+                query = query.filter(SessionModel.camera.in_(camera_list))
+        if telescopes:
+            telescope_list = [t.strip() for t in telescopes.split(',') if t.strip()]
+            if telescope_list:
+                query = query.filter(SessionModel.telescope.in_(telescope_list))
+        
+        # Get just the session IDs
+        session_ids = [row[0] for row in query.all()]
+        
+        return {
+            "session_ids": session_ids,
+            "total": len(session_ids)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching imaging session IDs: {e}")
         raise HTTPException(status_code=500, detail=str(e))

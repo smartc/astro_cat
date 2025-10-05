@@ -16,8 +16,9 @@ const ApiService = {
     imagingSessions: {
         getAll: (params) => axios.get('/api/imaging-sessions', { params }),
         getDetails: (sessionId) => axios.get(`/api/imaging-sessions/${sessionId}/details`),
+        getIds: (params) => axios.get('/api/imaging-sessions/ids', { params }),  // NEW
     },
-
+    
     processingSessions: {
         getAll: (params) => axios.get('/api/processing-sessions', { params }),
         getById: (sessionId) => axios.get(`/api/processing-sessions/${sessionId}`),

@@ -10,13 +10,20 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from typing import List
+from pydantic import BaseModel
 
 from models import ProcessingSession
 from web.dependencies import get_db_session, get_processing_manager
 
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/processing-sessions")
+
+class PreSelectFilesRequest(BaseModel):
+    file_ids: List[int]
+    suggested_name: str
 
 
 @router.get("")
@@ -302,4 +309,28 @@ async def save_processing_session_info(
         
     except Exception as e:
         logger.error(f"Error saving session info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{session_id}/preselect-files")
+async def preselect_files_for_session(
+    session_id: str,
+    request: PreSelectFilesRequest,
+    session: Session = Depends(get_db_session)
+):
+    """
+    Endpoint to pre-select files for adding to a processing session.
+    Returns session details with pre-selected file information.
+    """
+    try:
+        # This is primarily for the frontend state management
+        # The actual file addition happens through the existing add-files endpoint
+        return {
+            "session_id": session_id,
+            "preselected_file_ids": request.file_ids,
+            "suggested_name": request.suggested_name,
+            "file_count": len(request.file_ids)
+        }
+    except Exception as e:
+        logger.error(f"Error preselecting files: {e}")
         raise HTTPException(status_code=500, detail=str(e))
