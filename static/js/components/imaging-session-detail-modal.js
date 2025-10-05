@@ -1,4 +1,4 @@
-// Imaging Session Detail Modal Component
+// Imaging Session Detail Modal Component - Enhanced
 // Full modal with inline template
 
 window.ImagingSessionDetailModal = {
@@ -16,7 +16,7 @@ window.ImagingSessionDetailModal = {
                 </div>
 
                 <!-- Modal Body -->
-                <div class="flex-1 overflow-y-auto p-6" style="max-height: calc(90vh - 140px);">
+                <div class="flex-1 overflow-y-auto p-6" style="max-height: calc(90vh - 200px);">
                     <!-- Loading State -->
                     <div v-if="loadingDetails" class="flex justify-center items-center py-12">
                         <div class="spinner"></div>
@@ -40,61 +40,35 @@ window.ImagingSessionDetailModal = {
                                     <p class="text-lg font-semibold text-gray-900">{{ sessionDetails.session.session_date }}</p>
                                 </div>
                                 <div>
-                                    <p class="text-xs text-gray-600 uppercase tracking-wide">Telescope</p>
-                                    <p class="text-lg font-semibold text-gray-900">{{ sessionDetails.session.telescope || 'N/A' }}</p>
-                                </div>
-                                <div>
                                     <p class="text-xs text-gray-600 uppercase tracking-wide">Camera</p>
                                     <p class="text-lg font-semibold text-gray-900">{{ sessionDetails.session.camera || 'N/A' }}</p>
                                 </div>
-                                <div v-if="sessionDetails.session.observer">
-                                    <p class="text-xs text-gray-600 uppercase tracking-wide">Observer</p>
-                                    <p class="text-lg font-semibold text-gray-900">{{ sessionDetails.session.observer }}</p>
-                                </div>
-                                <div v-if="sessionDetails.session.site_name">
-                                    <p class="text-xs text-gray-600 uppercase tracking-wide">Site</p>
-                                    <p class="text-lg font-semibold text-gray-900">{{ sessionDetails.session.site_name }}</p>
-                                </div>
-                                <div v-if="sessionDetails.session.latitude && sessionDetails.session.longitude">
-                                    <p class="text-xs text-gray-600 uppercase tracking-wide">Coordinates</p>
-                                    <p class="text-sm font-mono text-gray-900">
-                                        {{ formatCoordinates(sessionDetails.session.latitude, sessionDetails.session.longitude) }}
-                                    </p>
-                                </div>
-                                <div v-if="sessionDetails.session.elevation">
-                                    <p class="text-xs text-gray-600 uppercase tracking-wide">Elevation</p>
-                                    <p class="text-lg font-semibold text-gray-900">{{ formatElevation(sessionDetails.session.elevation) }}</p>
+                                <div>
+                                    <p class="text-xs text-gray-600 uppercase tracking-wide">Telescope</p>
+                                    <p class="text-lg font-semibold text-gray-900">{{ sessionDetails.session.telescope || 'N/A' }}</p>
                                 </div>
                             </div>
 
-                            <!-- Session Statistics -->
+                            <!-- Statistics Cards -->
                             <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
                                 <div class="bg-white rounded-lg p-3 text-center shadow-sm">
                                     <div class="text-2xl font-bold text-blue-600">{{ sessionDetails.summary.total_files }}</div>
                                     <div class="text-xs text-gray-600">Total Files</div>
                                 </div>
                                 <div class="bg-white rounded-lg p-3 text-center shadow-sm">
-                                    <div class="text-2xl font-bold text-blue-500">
-                                        {{ sessionDetails.summary.frame_types['LIGHT'] || 0 }}
-                                    </div>
+                                    <div class="text-2xl font-bold text-blue-500">{{ sessionDetails.summary.frame_types['LIGHT'] || 0 }}</div>
                                     <div class="text-xs text-gray-600">Light Frames</div>
                                 </div>
                                 <div class="bg-white rounded-lg p-3 text-center shadow-sm">
-                                    <div class="text-2xl font-bold text-gray-600">
-                                        {{ sessionDetails.summary.frame_types['DARK'] || 0 }}
-                                    </div>
+                                    <div class="text-2xl font-bold text-gray-600">{{ sessionDetails.summary.frame_types['DARK'] || 0 }}</div>
                                     <div class="text-xs text-gray-600">Dark Frames</div>
                                 </div>
                                 <div class="bg-white rounded-lg p-3 text-center shadow-sm">
-                                    <div class="text-2xl font-bold text-yellow-600">
-                                        {{ sessionDetails.summary.frame_types['FLAT'] || 0 }}
-                                    </div>
+                                    <div class="text-2xl font-bold text-yellow-600">{{ sessionDetails.summary.frame_types['FLAT'] || 0 }}</div>
                                     <div class="text-xs text-gray-600">Flat Frames</div>
                                 </div>
                                 <div class="bg-white rounded-lg p-3 text-center shadow-sm">
-                                    <div class="text-2xl font-bold text-purple-600">
-                                        {{ sessionDetails.summary.frame_types['BIAS'] || 0 }}
-                                    </div>
+                                    <div class="text-2xl font-bold text-purple-600">{{ sessionDetails.summary.frame_types['BIAS'] || 0 }}</div>
                                     <div class="text-xs text-gray-600">Bias Frames</div>
                                 </div>
                             </div>
@@ -104,83 +78,63 @@ window.ImagingSessionDetailModal = {
                                 <span class="text-sm font-medium text-gray-700">Total Imaging Time:</span>
                                 <span class="text-xl font-bold text-indigo-600">{{ getTotalImagingTime() }}</span>
                             </div>
-
-                            <!-- Session ID -->
-                            <div class="mt-4 text-xs text-gray-500">
-                                <strong>Session ID:</strong> 
-                                <code class="bg-white px-2 py-1 rounded font-mono">{{ sessionDetails.session.session_id }}</code>
-                            </div>
                         </div>
 
-                        <!-- Object-Level Details -->
-                        <div class="space-y-4">
-                            <h3 class="text-xl font-bold text-gray-900 flex items-center">
-                                <svg class="w-6 h-6 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                          d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/>
-                                </svg>
-                                Objects in Session
-                            </h3>
-
-                            <!-- Object Cards -->
-                            <div v-for="obj in sessionDetails.summary.objects" :key="obj.name" 
-                                 class="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
-                                <div class="bg-gradient-to-r from-gray-50 to-gray-100 p-4 border-b border-gray-200">
-                                    <h4 class="text-lg font-bold text-gray-900">{{ obj.name }}</h4>
+                        <!-- Objects Section -->
+                        <div v-for="obj in sessionDetails.objects" :key="obj.name" class="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                            <div class="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b border-gray-200">
+                                <div class="flex justify-between items-center">
+                                    <h4 class="text-lg font-bold text-gray-900">📷 {{ obj.name }}</h4>
+                                    <div class="flex space-x-2">
+                                        <button @click="addObjectToNewSession(obj)" 
+                                                class="px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-sm rounded transition">
+                                            ➕ New Session
+                                        </button>
+                                        <button @click="addObjectToExistingSession(obj)" 
+                                                class="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded transition">
+                                            📋 Add to Existing
+                                        </button>
+                                    </div>
                                 </div>
-                                
-                                <div class="p-4 space-y-4">
-                                    <!-- Frame Type Breakdown -->
-                                    <div>
-                                        <p class="text-sm font-semibold text-gray-700 mb-2">Frame Types:</p>
-                                        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-                                            <div v-for="(count, frameType) in obj.frame_types" :key="frameType"
-                                                 class="px-3 py-2 rounded text-center"
-                                                 :class="getFrameTypeClass(frameType)">
-                                                <div class="font-bold">{{ count }}</div>
-                                                <div class="text-xs">{{ frameType }}</div>
-                                            </div>
-                                        </div>
-                                    </div>
+                            </div>
 
-                                    <!-- Filters Used -->
-                                    <div v-if="Object.keys(obj.filters).length > 0">
-                                        <p class="text-sm font-semibold text-gray-700 mb-2">Filters:</p>
-                                        <div class="flex flex-wrap gap-2">
-                                            <span v-for="(count, filter) in obj.filters" :key="filter"
-                                                  class="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
-                                                {{ filter }} ({{ count }})
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    <!-- Imaging Time by Filter -->
-                                    <div v-if="Object.keys(obj.total_imaging_time).length > 0">
-                                        <p class="text-sm font-semibold text-gray-700 mb-2">Imaging Time by Filter:</p>
-                                        <div class="bg-gray-50 rounded-lg p-3 space-y-2">
-                                            <div v-for="(timeData, filter) in obj.total_imaging_time" :key="filter"
-                                                 class="flex justify-between items-center">
-                                                <span class="text-sm text-gray-700">{{ filter }}:</span>
-                                                <span class="font-mono font-semibold text-indigo-600">
-                                                    {{ formatTimeCompact(timeData.seconds) }}
+                            <div class="p-6">
+                                <!-- Filters Breakdown -->
+                                <div class="space-y-4">
+                                    <div v-for="filter in obj.filters" :key="filter.filter" 
+                                         class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                                        <div class="flex justify-between items-start mb-3">
+                                            <div>
+                                                <span class="inline-block px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-semibold">
+                                                    {{ filter.filter }}
                                                 </span>
                                             </div>
-                                            <!-- Total row -->
-                                            <div class="flex justify-between items-center pt-2 border-t border-gray-300">
-                                                <span class="text-sm font-bold text-gray-900">Total:</span>
-                                                <span class="font-mono font-bold text-indigo-700">
-                                                    {{ getObjectTotalTime(obj) }}
-                                                </span>
+                                            <div class="text-right">
+                                                <div class="text-2xl font-bold text-blue-600">{{ formatExposureTime(filter.total_exposure) }}</div>
+                                                <div class="text-xs text-gray-500">Total Exposure</div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Exposure Breakdown -->
+                                        <div class="mt-3 space-y-2">
+                                            <div class="text-xs font-medium text-gray-600 uppercase">Exposure Breakdown:</div>
+                                            <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                                <div v-for="exp in filter.exposure_breakdown" :key="exp.exposure" 
+                                                     class="bg-white rounded px-3 py-2 text-sm border border-gray-200">
+                                                    <span class="font-bold text-gray-900">{{ exp.count }}×</span>
+                                                    <span class="text-gray-600">{{ exp.exposure }}s</span>
+                                                    <span class="text-gray-400 text-xs ml-1">({{ formatExposureTime(exp.total) }})</span>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
+                                </div>
 
-                                    <!-- Total Files for Object -->
-                                    <div class="pt-2 border-t border-gray-200">
-                                        <div class="flex justify-between items-center">
-                                            <span class="text-sm font-medium text-gray-700">Total Files:</span>
-                                            <span class="text-lg font-bold text-gray-900">{{ obj.total_files }}</span>
-                                        </div>
+                                <!-- Total Files for Object -->
+                                <div class="pt-4 mt-4 border-t border-gray-200">
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm font-medium text-gray-700">Total Light Frames:</span>
+                                        <span class="text-lg font-bold text-gray-900">{{ obj.total_files }}</span>
                                     </div>
                                 </div>
                             </div>
@@ -188,21 +142,36 @@ window.ImagingSessionDetailModal = {
                     </div>
                 </div>
 
-                <!-- Modal Footer -->
-                <div class="bg-gray-50 p-4 border-t border-gray-200 flex justify-between items-center">
-                    <div class="flex space-x-3">
-                        <button @click="openMarkdownEditor" class="btn btn-green text-sm">
-                            📝 Edit Session Notes
-                        </button>
-                        <button @click="viewSessionFiles" class="btn btn-blue text-sm">
-                            <svg class="w-4 h-4 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                            </svg>
-                            View All Files
-                        </button>
+                <!-- Modal Footer with Navigation -->
+                <div class="bg-gray-50 p-4 border-t border-gray-200">
+                    <div class="flex justify-between items-center">
+                        <!-- Navigation Buttons -->
+                        <div class="flex space-x-2">
+                            <button @click="navigateToPrevSession" 
+                                    :disabled="!hasPreviousSession"
+                                    :class="hasPreviousSession ? 'btn btn-blue' : 'btn btn-gray cursor-not-allowed'"
+                                    class="text-sm">
+                                ← Previous Session
+                            </button>
+                            <button @click="navigateToNextSession" 
+                                    :disabled="!hasNextSession"
+                                    :class="hasNextSession ? 'btn btn-blue' : 'btn btn-gray cursor-not-allowed'"
+                                    class="text-sm">
+                                Next Session →
+                            </button>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="flex space-x-3">
+                            <button @click="openMarkdownEditor" class="btn btn-green text-sm">
+                                📝 Edit Notes
+                            </button>
+                            <button @click="viewSessionFiles" class="btn btn-blue text-sm">
+                                View All Files
+                            </button>
+                            <button @click="closeSessionDetails" class="btn btn-gray text-sm">Close</button>
+                        </div>
                     </div>
-                    <button @click="closeSessionDetails" class="btn btn-gray">Close</button>
                 </div>
             </div>
         </div>
@@ -214,107 +183,157 @@ window.ImagingSessionDetailModal = {
             loadingDetails: false,
             detailsError: null,
             sessionDetails: null,
-            selectedSessionId: null
+            selectedSessionId: null,
+            allSessionIds: [],  // List of all session IDs for navigation
+            currentSessionIndex: -1
         };
     },
     
+    computed: {
+        hasPreviousSession() {
+            return this.currentSessionIndex > 0;
+        },
+        hasNextSession() {
+            return this.currentSessionIndex < this.allSessionIds.length - 1;
+        }
+    },
+    
     methods: {
-        async viewSessionDetails(sessionId) {
+        async viewSessionDetails(sessionId, allSessionIds = []) {
             this.showDetailModal = true;
             this.loadingDetails = true;
             this.detailsError = null;
             this.sessionDetails = null;
             this.selectedSessionId = sessionId;
+            this.allSessionIds = allSessionIds;
+            this.currentSessionIndex = allSessionIds.indexOf(sessionId);
             
             try {
-                const response = await ApiService.imagingSessions.getDetails(sessionId);
-                this.sessionDetails = response.data;
+                const response = await fetch(`/api/imaging-sessions/${sessionId}/details`);
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to load session details: ${response.statusText}`);
+                }
+                
+                this.sessionDetails = await response.json();
             } catch (error) {
                 console.error('Error loading session details:', error);
-                this.detailsError = error.response?.data?.detail || error.message;
+                this.detailsError = error.message || 'Failed to load session details';
             } finally {
                 this.loadingDetails = false;
             }
         },
-
+        
         closeSessionDetails() {
             this.showDetailModal = false;
             this.sessionDetails = null;
-            this.detailsError = null;
             this.selectedSessionId = null;
         },
         
+        openMarkdownEditor() {
+            if (this.selectedSessionId) {
+                window.open(`/imaging-editor?session_id=${this.selectedSessionId}&session_name=${encodeURIComponent(this.selectedSessionId)}`, '_blank');
+            }
+        },
+        
         viewSessionFiles() {
-            // Navigate to files tab with session filter
-            // Access parent app through Vue's $root
-            const app = this.$root || this;
-            app.activeTab = 'files';
-            app.searchFilters.session_id = this.selectedSessionId;
-            this.closeSessionDetails();
-            app.loadFiles();
+            if (this.selectedSessionId) {
+                this.closeSessionDetails();
+                this.$root.activeTab = 'files';
+                this.$root.searchFilters.session_id = this.selectedSessionId;
+                this.$root.loadFiles();
+            }
         },
         
-        getTotalImagingTime() {
-            if (!this.sessionDetails?.summary?.objects) return '0h 0m';
+        // Navigation methods
+        async navigateToPrevSession() {
+            if (this.hasPreviousSession) {
+                const prevSessionId = this.allSessionIds[this.currentSessionIndex - 1];
+                await this.viewSessionDetails(prevSessionId, this.allSessionIds);
+            }
+        },
+        
+        async navigateToNextSession() {
+            if (this.hasNextSession) {
+                const nextSessionId = this.allSessionIds[this.currentSessionIndex + 1];
+                await this.viewSessionDetails(nextSessionId, this.allSessionIds);
+            }
+        },
+        
+        // Add to processing session methods
+        async addObjectToNewSession(obj) {
+            // Get all file IDs for this object in this session
+            const fileIds = await this.getObjectFileIds(obj.name);
+            if (fileIds.length === 0) {
+                alert('No files found for this object');
+                return;
+            }
             
-            let totalSeconds = 0;
-            this.sessionDetails.summary.objects.forEach(obj => {
-                Object.values(obj.total_imaging_time || {}).forEach(timeData => {
-                    totalSeconds += timeData.seconds || 0;
+            // Call the root app's method to show create modal with pre-filled data
+            this.$root.addToNewSession();
+            // Wait for modal to initialize then set the selected files
+            this.$nextTick(() => {
+                if (this.$root.$refs.processingModals) {
+                    this.$root.$refs.processingModals.preSelectFiles(fileIds, obj.name);
+                }
+            });
+        },
+        
+        async addObjectToExistingSession(obj) {
+            // Get all file IDs for this object in this session
+            const fileIds = await this.getObjectFileIds(obj.name);
+            if (fileIds.length === 0) {
+                alert('No files found for this object');
+                return;
+            }
+            
+            // Call the root app's method to show add to existing modal
+            await this.$root.showAddToExistingModal();
+            // Wait for modal to initialize then set the selected files
+            this.$nextTick(() => {
+                if (this.$root.$refs.processingModals) {
+                    this.$root.$refs.processingModals.preSelectFiles(fileIds, obj.name);
+                }
+            });
+        },
+        
+        async getObjectFileIds(objectName) {
+            try {
+                const params = new URLSearchParams({
+                    session_id: this.selectedSessionId,
+                    objects: objectName,
+                    frame_types: 'LIGHT'
                 });
-            });
-            
-            const hours = Math.floor(totalSeconds / 3600);
-            const minutes = Math.floor((totalSeconds % 3600) / 60);
-            return `${hours}h ${minutes}m`;
+                
+                const response = await fetch(`/api/files/ids?${params}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    return data.file_ids || [];
+                }
+            } catch (error) {
+                console.error('Error fetching object file IDs:', error);
+            }
+            return [];
         },
         
-        getObjectTotalTime(obj) {
-            let totalSeconds = 0;
-            Object.values(obj.total_imaging_time || {}).forEach(timeData => {
-                totalSeconds += timeData.seconds || 0;
-            });
+        // Utility methods
+        getTotalImagingTime() {
+            if (!this.sessionDetails || !this.sessionDetails.summary) return '0h 0m';
             
-            const hours = Math.floor(totalSeconds / 3600);
-            const minutes = Math.floor((totalSeconds % 3600) / 60);
-            return `${hours}h ${minutes}m`;
+            const totalSeconds = this.sessionDetails.summary.total_exposure || 0;
+            return this.formatExposureTime(totalSeconds);
         },
         
-        formatTimeCompact(seconds) {
+        formatExposureTime(seconds) {
+            if (!seconds) return '0m';
+            
             const hours = Math.floor(seconds / 3600);
             const minutes = Math.floor((seconds % 3600) / 60);
+            
             if (hours > 0) {
                 return `${hours}h ${minutes}m`;
             }
             return `${minutes}m`;
-        },
-        
-        formatCoordinates(lat, lon) {
-            const latDir = lat >= 0 ? 'N' : 'S';
-            const lonDir = lon >= 0 ? 'E' : 'W';
-            return `${Math.abs(lat).toFixed(2)}°${latDir}, ${Math.abs(lon).toFixed(2)}°${lonDir}`;
-        },
-        
-        formatElevation(elevation) {
-            return `${elevation}m`;
-        },
-        
-        getFrameTypeClass(frameType) {
-            const classes = {
-                'LIGHT': 'bg-blue-100 text-blue-800',
-                'DARK': 'bg-gray-100 text-gray-800',
-                'FLAT': 'bg-yellow-100 text-yellow-800',
-                'BIAS': 'bg-purple-100 text-purple-800'
-            };
-            return classes[frameType] || 'bg-gray-100 text-gray-800';
-        },
-
-        openMarkdownEditor() {
-            const sessionId = this.sessionDetails.session.session_id.trim();
-            const sessionName = `${this.sessionDetails.session.session_date} - ${this.sessionDetails.session.telescope || 'Unknown'}`;
-            const url = `/imaging-editor?session_id=${sessionId}&session_name=${encodeURIComponent(sessionName)}`;
-            window.open(url, '_blank');
-            this.closeSessionDetails();
         }
     }
 };
