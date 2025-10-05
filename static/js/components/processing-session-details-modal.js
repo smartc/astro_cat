@@ -4,164 +4,170 @@
 
 const ProcessingSessionDetailsModal = {
     template: `
-        <div v-if="showSessionDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 modal-backdrop">
-            <div class="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto modal-content">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-lg font-bold">Processing Session Details</h3>
-                    <button @click="closeSessionDetailsModal" class="text-gray-500 hover:text-gray-700">
+        <div v-if="showSessionDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div class="bg-white rounded-lg w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+                <!-- Modal Header -->
+                <div class="bg-blue-600 text-white p-4 flex justify-between items-center">
+                    <h2 class="text-xl font-bold">Processing Session Details</h2>
+                    <button @click="closeSessionDetailsModal" class="text-white hover:text-gray-200">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                         </svg>
                     </button>
                 </div>
-                
-                <!-- Loading State -->
-                <div v-if="sessionDetailsLoading" class="text-center py-8">
-                    <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                    <p class="mt-2 text-gray-600">Loading session details...</p>
-                </div>
-                
-                <!-- Session Details -->
-                <div v-else-if="currentSessionDetails" class="space-y-6">
-                    <!-- Basic Information -->
-                    <div class="bg-gray-50 p-4 rounded-lg">
-                        <h4 class="font-semibold text-gray-800 mb-3">Session Information</h4>
-                        <div class="grid grid-cols-2 gap-4 text-sm">
-                            <div>
-                                <strong>Name:</strong> {{ currentSessionDetails.name }}
-                            </div>
-                            <div>
-                                <strong>Session ID:</strong> 
-                                <span class="font-mono text-xs">{{ currentSessionDetails.id }}</span>
-                            </div>
-                            <div>
-                                <strong>Status:</strong>
-                                <span :class="getProcessingStatusClass(currentSessionDetails.status)" class="processing-status-badge ml-2">
-                                    {{ formatProcessingStatus(currentSessionDetails.status) }}
-                                </span>
-                            </div>
-                            <div>
-                                <strong>Created:</strong> {{ formatDate(currentSessionDetails.created_at) }}
-                            </div>
-                            <div class="col-span-2">
-                                <strong>Objects:</strong> {{ currentSessionDetails.objects.length > 0 ? currentSessionDetails.objects.join(', ') : 'None specified' }}
-                            </div>
-                            <div class="col-span-2" v-if="currentSessionDetails.folder_path">
-                                <strong>Folder:</strong> 
-                                <span class="font-mono text-xs bg-white px-2 py-1 rounded">{{ currentSessionDetails.folder_path }}</span>
-                            </div>
-                        </div>
+
+                <!-- Modal Body -->
+                <div class="flex-1 overflow-y-auto p-6" style="max-height: calc(90vh - 200px);">
+                    <!-- Loading State -->
+                    <div v-if="sessionDetailsLoading" class="flex justify-center items-center py-12">
+                        <div class="spinner"></div>
+                        <span class="ml-3 text-gray-600">Loading session details...</span>
                     </div>
                     
-                    <!-- File Summary -->
-                    <div class="bg-blue-50 p-4 rounded-lg">
-                        <h4 class="font-semibold text-blue-800 mb-3">File Summary</h4>
-                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                            <div class="bg-white p-3 rounded">
-                                <div class="text-2xl font-bold text-blue-600">{{ currentSessionDetails.total_files }}</div>
-                                <div class="text-xs text-gray-600">Total Files</div>
-                            </div>
-                            <div class="bg-white p-3 rounded">
-                                <div class="text-2xl font-bold text-blue-500">{{ currentSessionDetails.lights }}</div>
-                                <div class="text-xs text-gray-600">Light Frames</div>
-                            </div>
-                            <div class="bg-white p-3 rounded">
-                                <div class="text-2xl font-bold text-gray-600">{{ currentSessionDetails.darks }}</div>
-                                <div class="text-xs text-gray-600">Dark Frames</div>
-                            </div>
-                            <div class="bg-white p-3 rounded">
-                                <div class="text-2xl font-bold text-yellow-600">{{ currentSessionDetails.flats }}</div>
-                                <div class="text-xs text-gray-600">Flat Frames</div>
-                            </div>
-                            <div class="bg-white p-3 rounded">
-                                <div class="text-2xl font-bold text-purple-600">{{ currentSessionDetails.bias }}</div>
-                                <div class="text-xs text-gray-600">Bias Frames</div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Objects Detail Section -->
-                    <div v-if="currentSessionDetails.objects_detail && currentSessionDetails.objects_detail.length > 0" 
-                         class="space-y-4">
-                        <h4 class="font-semibold text-gray-800 text-lg border-b pb-2">Objects Breakdown</h4>
-                        
-                        <div v-for="obj in currentSessionDetails.objects_detail" :key="obj.name" 
-                             class="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                            <div class="bg-gradient-to-r from-gray-50 to-gray-100 px-4 py-3 border-b border-gray-200">
-                                <h5 class="text-base font-bold text-gray-900">📷 {{ obj.name }}</h5>
-                                <button @click="removeObjectFromSession(obj.name)" 
-                                        class="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded transition">
-                                    Remove Object
-                                </button>
-                            </div>
+                    <!-- Session Details -->
+                    <div v-else-if="currentSessionDetails" class="space-y-6">
+                        <!-- Session-Level Summary -->
+                        <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
+                            <h3 class="text-xl font-bold text-blue-900 mb-4">Session Summary</h3>
                             
-                            <div class="p-4">
-                                <!-- Filters Breakdown -->
-                                <div class="font-mono text-sm space-y-3">
-                                    <div v-for="filter in obj.filters" :key="filter.filter">
-                                        <!-- First exposure on same line as filter name -->
-                                        <div v-if="filter.exposure_breakdown.length > 0" class="flex justify-between">
-                                            <span class="font-bold text-blue-800 w-32 flex-shrink-0 text-base">{{ filter.filter }}</span>
-                                            <span class="flex-1 text-gray-700">
-                                                {{ filter.exposure_breakdown[0].count }} × {{ filter.exposure_breakdown[0].exposure }}s
-                                            </span>
-                                            <span class="font-semibold text-gray-900 w-20 text-right">
-                                                {{ formatExposureTime(filter.exposure_breakdown[0].total) }}
-                                            </span>
-                                        </div>
-                                        
-                                        <!-- Subsequent exposures indented -->
-                                        <div v-for="(exp, index) in filter.exposure_breakdown.slice(1)" :key="exp.exposure" 
-                                             class="flex justify-between">
-                                            <span class="w-32 flex-shrink-0"></span>
-                                            <span class="flex-1 text-gray-700">
-                                                {{ exp.count }} × {{ exp.exposure }}s
-                                            </span>
-                                            <span class="font-semibold text-gray-900 w-20 text-right">
-                                                {{ formatExposureTime(exp.total) }}
-                                            </span>
-                                        </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                                <div>
+                                    <p class="text-xs text-gray-600 uppercase tracking-wide">Name</p>
+                                    <p class="text-lg font-semibold text-gray-900">{{ currentSessionDetails.name }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-600 uppercase tracking-wide">Status</p>
+                                    <span :class="getProcessingStatusClass(currentSessionDetails.status)" class="inline-block px-3 py-1 rounded-full text-sm font-semibold">
+                                        {{ formatProcessingStatus(currentSessionDetails.status) }}
+                                    </span>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-600 uppercase tracking-wide">Created</p>
+                                    <p class="text-lg font-semibold text-gray-900">{{ formatDate(currentSessionDetails.created_at) }}</p>
+                                </div>
+                            </div>
+
+                            <!-- Statistics Cards -->
+                            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
+                                <div class="bg-white rounded-lg p-3 text-center shadow-sm">
+                                    <div class="text-2xl font-bold text-blue-600">{{ currentSessionDetails.total_files }}</div>
+                                    <div class="text-xs text-gray-600">Total Files</div>
+                                </div>
+                                <div class="bg-white rounded-lg p-3 text-center shadow-sm">
+                                    <div class="text-2xl font-bold text-blue-500">{{ currentSessionDetails.lights }}</div>
+                                    <div class="text-xs text-gray-600">Light Frames</div>
+                                </div>
+                                <div class="bg-white rounded-lg p-3 text-center shadow-sm">
+                                    <div class="text-2xl font-bold text-gray-600">{{ currentSessionDetails.darks }}</div>
+                                    <div class="text-xs text-gray-600">Dark Frames</div>
+                                </div>
+                                <div class="bg-white rounded-lg p-3 text-center shadow-sm">
+                                    <div class="text-2xl font-bold text-yellow-600">{{ currentSessionDetails.flats }}</div>
+                                    <div class="text-xs text-gray-600">Flat Frames</div>
+                                </div>
+                                <div class="bg-white rounded-lg p-3 text-center shadow-sm">
+                                    <div class="text-2xl font-bold text-purple-600">{{ currentSessionDetails.bias }}</div>
+                                    <div class="text-xs text-gray-600">Bias Frames</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Objects Section -->
+                        <div v-if="currentSessionDetails.objects_detail && currentSessionDetails.objects_detail.length > 0">
+                            <div v-for="obj in currentSessionDetails.objects_detail" :key="obj.name" 
+                                 class="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm mb-4">
+                                <div class="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b border-gray-200">
+                                    <div class="flex justify-between items-center">
+                                        <h4 class="text-lg font-bold text-gray-900">📷 {{ obj.name }}</h4>
+                                        <button @click="removeObjectFromSession(obj.name)" 
+                                                class="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-sm rounded transition">
+                                            Remove Object
+                                        </button>
                                     </div>
                                 </div>
                                 
-                                <!-- Total for Object -->
-                                <div class="mt-4 pt-3 border-t-2 border-gray-400 font-mono text-sm">
-                                    <div class="flex justify-between items-center">
-                                        <span class="font-bold text-gray-800">TOTAL</span>
-                                        <div class="text-right">
-                                            <span class="text-gray-600 text-xs mr-3">{{ obj.total_files }} files</span>
-                                            <span class="font-bold text-indigo-700">{{ getTotalObjectTime(obj) }}</span>
+                                <div class="p-6">
+                                    <!-- Filters Breakdown -->
+                                    <div class="font-mono text-sm space-y-3">
+                                        <div v-for="filter in obj.filters" :key="filter.filter">
+                                            <!-- First exposure on same line as filter name -->
+                                            <div v-if="filter.exposure_breakdown.length > 0" class="flex justify-between">
+                                                <span class="font-bold text-blue-800 w-32 flex-shrink-0 text-base">{{ filter.filter }}</span>
+                                                <span class="flex-1 text-gray-700">
+                                                    {{ filter.exposure_breakdown[0].count }} × {{ filter.exposure_breakdown[0].exposure }}s
+                                                </span>
+                                                <span class="font-semibold text-gray-900 w-20 text-right">
+                                                    {{ formatExposureTime(filter.exposure_breakdown[0].total) }}
+                                                </span>
+                                            </div>
+                                            
+                                            <!-- Subsequent exposures indented -->
+                                            <div v-for="(exp, index) in filter.exposure_breakdown.slice(1)" :key="exp.exposure" 
+                                                 class="flex justify-between">
+                                                <span class="w-32 flex-shrink-0"></span>
+                                                <span class="flex-1 text-gray-700">
+                                                    {{ exp.count }} × {{ exp.exposure }}s
+                                                </span>
+                                                <span class="font-semibold text-gray-900 w-20 text-right">
+                                                    {{ formatExposureTime(exp.total) }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Total for Object -->
+                                    <div class="mt-4 pt-3 border-t-2 border-gray-400 font-mono text-sm">
+                                        <div class="flex justify-between items-center">
+                                            <span class="font-bold text-gray-800">TOTAL</span>
+                                            <div class="text-right">
+                                                <span class="text-gray-600 text-xs mr-3">{{ obj.total_files }} files</span>
+                                                <span class="font-bold text-indigo-700">{{ getTotalObjectTime(obj) }}</span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Notes -->
-                    <div v-if="currentSessionDetails.notes" class="bg-yellow-50 p-4 rounded-lg">
-                        <h4 class="font-semibold text-yellow-800 mb-2">Notes</h4>
-                        <p class="text-sm text-yellow-700 whitespace-pre-wrap">{{ currentSessionDetails.notes }}</p>
-                    </div>
-                    
-                    <!-- Action Buttons -->
-                    <div class="flex justify-between items-center pt-4 border-t">
-                        <div class="text-sm text-gray-500">
-                            Last updated: {{ formatDateTime(currentSessionDetails.created_at) }}
+                        <!-- Notes -->
+                        <div v-if="currentSessionDetails.notes" class="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                            <h4 class="font-semibold text-yellow-800 mb-2">Notes</h4>
+                            <p class="text-sm text-yellow-700 whitespace-pre-wrap">{{ currentSessionDetails.notes }}</p>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Modal Footer with Navigation -->
+                <div class="bg-gray-50 p-4 border-t border-gray-200">
+                    <div class="flex justify-between items-center">
+                        <!-- Navigation Buttons -->
+                        <div class="flex space-x-2">
+                            <button @click="navigateToPrevSession" 
+                                    :disabled="!hasPreviousSession"
+                                    :class="hasPreviousSession ? 'btn btn-blue' : 'btn btn-gray cursor-not-allowed'"
+                                    class="text-sm">
+                                ← Previous Session
+                            </button>
+                            <button @click="navigateToNextSession" 
+                                    :disabled="!hasNextSession"
+                                    :class="hasNextSession ? 'btn btn-blue' : 'btn btn-gray cursor-not-allowed'"
+                                    class="text-sm">
+                                Next Session →
+                            </button>
+                        </div>
+
+                        <!-- Action Buttons -->
                         <div class="flex space-x-3">
-                            <button @click="openMarkdownEditor" class="btn btn-blue text-sm">
+                            <button @click="openMarkdownEditor" class="btn btn-green text-sm">
                                 📝 Edit Notes
-                            </button>        
+                            </button>
                             <button @click="findCalibrationFromDetails" class="btn btn-purple text-sm">
                                 🔍 Find Calibration
                             </button>
                             <button @click="updateStatusFromDetails" class="btn btn-yellow text-sm">
                                 Update Status
                             </button>
-                            <button @click="closeSessionDetailsModal" class="btn btn-blue">
-                                Close
-                            </button>
+                            <button @click="closeSessionDetailsModal" class="btn btn-gray text-sm">Close</button>
                         </div>
                     </div>
                 </div>
@@ -173,15 +179,28 @@ const ProcessingSessionDetailsModal = {
         return {
             showSessionDetailsModal: false,
             currentSessionDetails: null,
-            sessionDetailsLoading: false
+            sessionDetailsLoading: false,
+            allSessionIds: [],  
+            currentSessionIndex: -1
         };
+    },
+
+    computed: {
+        hasPreviousSession() {
+            return this.currentSessionIndex > 0;
+        },
+        hasNextSession() {
+            return this.currentSessionIndex < this.allSessionIds.length - 1;
+        }
     },
     
     methods: {
-        async viewProcessingSession(sessionId) {
+        async viewProcessingSession(sessionId, allSessionIds = []) {
             try {
                 this.sessionDetailsLoading = true;
                 this.showSessionDetailsModal = true;
+                this.allSessionIds = allSessionIds;  // ADD THIS
+                this.currentSessionIndex = allSessionIds.indexOf(sessionId);  // ADD THIS
                 
                 const response = await ApiService.processingSessions.getById(sessionId);
                 this.currentSessionDetails = response.data;
@@ -192,6 +211,21 @@ const ProcessingSessionDetailsModal = {
                 alert(`Failed to load session details: ${error.response?.data?.detail || error.message}`);
             } finally {
                 this.sessionDetailsLoading = false;
+            }
+        },
+        async navigateToPrevSession() {
+            if (this.hasPreviousSession) {
+                this.sessionDetailsLoading = true;
+                const prevSessionId = this.allSessionIds[this.currentSessionIndex - 1];
+                await this.viewProcessingSession(prevSessionId, this.allSessionIds);
+            }
+        },
+        
+        async navigateToNextSession() {
+            if (this.hasNextSession) {
+                this.sessionDetailsLoading = true;
+                const nextSessionId = this.allSessionIds[this.currentSessionIndex + 1];
+                await this.viewProcessingSession(nextSessionId, this.allSessionIds);
             }
         },
         
@@ -322,7 +356,31 @@ const ProcessingSessionDetailsModal = {
             }
             return `${minutes}m`;
         }
-    }
+    },
+
+    mounted() {
+        // Add keyboard event listener for arrow navigation
+        this.handleKeypress = (e) => {
+            if (!this.showSessionDetailsModal) return;
+            
+            if (e.key === 'ArrowLeft' && this.hasPreviousSession) {
+                this.navigateToPrevSession();
+            } else if (e.key === 'ArrowRight' && this.hasNextSession) {
+                this.navigateToNextSession();
+            } else if (e.key === 'Escape') {
+                this.closeSessionDetailsModal();
+            }
+        };
+        
+        window.addEventListener('keydown', this.handleKeypress);
+    },
+
+    beforeDestroy() {
+        // Clean up event listener
+        if (this.handleKeypress) {
+            window.removeEventListener('keydown', this.handleKeypress);
+        }
+    },
 };
 
 window.ProcessingSessionDetailsModal = ProcessingSessionDetailsModal;

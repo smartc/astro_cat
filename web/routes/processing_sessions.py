@@ -81,6 +81,33 @@ async def get_processing_sessions(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/ids")
+async def get_processing_session_ids(
+    status: Optional[str] = Query(None),
+    processing_manager = Depends(get_processing_manager)
+):
+    """
+    Get all processing session IDs matching the filters.
+    Used for navigation in the session detail modal.
+    Returns sessions in descending creation date order.
+    """
+    try:
+        # Get all sessions matching the filter
+        all_sessions = processing_manager.list_processing_sessions(status_filter=status)
+        
+        # Extract just the IDs in order
+        session_ids = [s.id for s in all_sessions]
+        
+        return {
+            "session_ids": session_ids,
+            "total": len(session_ids)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching processing session IDs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{session_id}")
 async def get_processing_session(
     session_id: str,
@@ -327,9 +354,14 @@ async def get_calibration_matches(
         matches = processing_manager.find_matching_calibration(session_id)
         
         # Convert matches to JSON-serializable format
-        result = {}
-        for frame_type, match_list in matches.items():
+        result = {
+            'already_has': matches.get('already_has', {'darks': False, 'flats': False, 'bias': False})
+        }
+        
+        # Only process the calibration frame types, not 'already_has'
+        for frame_type in ['darks', 'flats', 'bias']:
             result[frame_type] = []
+            match_list = matches.get(frame_type, [])
             for match in match_list:
                 result[frame_type].append({
                     "capture_session_id": match.capture_session_id,
@@ -347,6 +379,7 @@ async def get_calibration_matches(
     except Exception as e:
         logger.error(f"Error finding calibration matches for {session_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/{session_id}/session-info")
 async def get_processing_session_info(

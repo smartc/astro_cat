@@ -15,6 +15,17 @@ const CalibrationModalComponent = {
                         </svg>
                     </button>
                 </div>
+
+                <!-- Already Has Calibration Info -->
+                <div v-if="hasExistingCalibration()" class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded">
+                    <p class="text-sm text-blue-800">
+                        <strong>ℹ️ This session already has:</strong>
+                        <span v-if="calibrationMatches.already_has.darks"> Dark frames</span><span v-if="calibrationMatches.already_has.darks && (calibrationMatches.already_has.flats || calibrationMatches.already_has.bias)">,</span>
+                        <span v-if="calibrationMatches.already_has.flats"> Flat frames</span><span v-if="calibrationMatches.already_has.flats && calibrationMatches.already_has.bias">,</span>
+                        <span v-if="calibrationMatches.already_has.bias"> Bias frames</span>
+                    </p>
+                    <p class="text-xs text-blue-600 mt-1">Showing only new matches not already in session</p>
+                </div>
                 
                 <!-- Loading State -->
                 <div v-if="calibrationLoading" class="text-center py-8">
@@ -23,7 +34,7 @@ const CalibrationModalComponent = {
                 </div>
                 
                 <!-- No Matches Found -->
-                <div v-else-if="Object.keys(calibrationMatches).length === 0" class="text-center py-8">
+                <div v-else-if="!hasAnyCalibrationMatches()" class="text-center py-8">
                     <div class="text-4xl mb-4">🔍</div>
                     <p class="text-gray-600 text-lg">No matching calibration files found for this session.</p>
                     <p class="text-sm text-gray-500 mt-2">Calibration files are matched based on camera, telescope, and capture date proximity.</p>
@@ -44,7 +55,7 @@ const CalibrationModalComponent = {
                     </div>
                     
                     <!-- Calibration Type Sections -->
-                    <div v-for="(matches, frameType) in calibrationMatches" :key="frameType" class="border rounded-lg p-4 calibration-match-card">
+                    <div v-for="(matches, frameType) in getCalibrationFrameTypes()" :key="frameType" class="border rounded-lg p-4 calibration-match-card">
                         <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center space-x-3">
                                 <input 
@@ -69,7 +80,7 @@ const CalibrationModalComponent = {
                                     <div>
                                         <strong>Session:</strong> {{ match.capture_session_id }}<br>
                                         <strong>Camera:</strong> {{ match.camera }}<br>
-                                        <strong>Telescope:</strong> {{ match.telescope }}
+                                        <strong>Telescope:</strong> {{ match.telescope || 'N/A' }}
                                     </div>
                                     <div>
                                         <strong>Date:</strong> {{ formatDate(match.capture_date) }}<br>
@@ -157,12 +168,14 @@ const CalibrationModalComponent = {
                 // Extract file IDs from selected calibration types
                 Object.keys(this.selectedCalibrationTypes).forEach(frameType => {
                     if (this.selectedCalibrationTypes[frameType]) {
-                        this.calibrationMatches[frameType].forEach(match => {
-                            // Each match has a file_ids array
-                            if (match.file_ids && Array.isArray(match.file_ids)) {
-                                fileIds.push(...match.file_ids);
-                            }
-                        });
+                        const matches = this.calibrationMatches[frameType];
+                        if (Array.isArray(matches)) {
+                            matches.forEach(match => {
+                                if (match.file_ids && Array.isArray(match.file_ids)) {
+                                    fileIds.push(...match.file_ids);
+                                }
+                            });
+                        }
                     }
                 });
                 
@@ -201,18 +214,48 @@ const CalibrationModalComponent = {
             this.currentCalibrationSession = null;
         },
         
+        getCalibrationFrameTypes() {
+            const result = {};
+            ['darks', 'flats', 'bias'].forEach(frameType => {
+                if (this.calibrationMatches[frameType] && Array.isArray(this.calibrationMatches[frameType])) {
+                    result[frameType] = this.calibrationMatches[frameType];
+                }
+            });
+            return result;
+        },
+        
+        hasAnyCalibrationMatches() {
+            const frameTypes = this.getCalibrationFrameTypes();
+            return Object.keys(frameTypes).length > 0;
+        },
+        
         getTotalFilesForFrameType(matches) {
-            return matches.reduce((total, match) => total + match.file_count, 0);
+            if (!Array.isArray(matches)) {
+                return 0;
+            }
+            
+            return matches.reduce((sum, match) => sum + match.file_count, 0);
         },
         
         getSelectedCalibrationCount() {
             let total = 0;
             Object.keys(this.selectedCalibrationTypes).forEach(frameType => {
                 if (this.selectedCalibrationTypes[frameType]) {
-                    total += this.getTotalFilesForFrameType(this.calibrationMatches[frameType]);
+                    const matches = this.calibrationMatches[frameType];
+                    if (Array.isArray(matches)) {
+                        total += this.getTotalFilesForFrameType(matches);
+                    }
                 }
             });
             return total;
+        },
+
+        hasExistingCalibration() {
+            if (!this.calibrationMatches || !this.calibrationMatches.already_has) {
+                return false;
+            }
+            const has = this.calibrationMatches.already_has;
+            return has.darks || has.flats || has.bias;
         },
         
         formatDate(dateString) {

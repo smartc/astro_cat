@@ -296,255 +296,254 @@ class ProcessingSessionManager:
         finally:
             session.close()
     
-    def find_matching_calibration(self, session_id: str) -> Dict[str, List[CalibrationMatch]]:
-        """Find calibration files that match the lights in a processing session."""
+    def find_matching_calibration(self, session_id: str) -> Dict[str, List]:
+        """Find matching calibration files for combinations not already covered in the session."""
         session = self.db_service.db_manager.get_session()
         
         try:
-            # Get light frames from processing session
-            light_files_query = session.query(FitsFile).join(ProcessingSessionFile).filter(
-                ProcessingSessionFile.processing_session_id == session_id,
-                FitsFile.frame_type == 'LIGHT'
-            )
-            light_files = light_files_query.all()
+            # Get ALL files in the processing session (both lights and existing calibration)
+            existing_files = session.query(FitsFile).join(ProcessingSessionFile).filter(
+                ProcessingSessionFile.processing_session_id == session_id
+            ).all()
+            
+            # Build sets of what calibration combinations are ALREADY COVERED
+            covered_darks = set()  # (camera, exposure) tuples
+            covered_flats = set()  # (camera, telescope, filter) tuples
+            covered_bias = set()   # camera names
+            
+            light_files = []
+            
+            for f in existing_files:
+                if f.frame_type == 'LIGHT':
+                    light_files.append(f)
+                elif f.frame_type == 'DARK':
+                    if f.camera and f.camera != 'UNKNOWN' and f.exposure is not None:
+                        covered_darks.add((f.camera, f.exposure))
+                elif f.frame_type == 'FLAT':
+                    if (f.camera and f.camera != 'UNKNOWN' and 
+                        f.telescope and f.telescope != 'UNKNOWN' and 
+                        f.filter and f.filter not in ['UNKNOWN', 'NONE']):
+                        covered_flats.add((f.camera, f.telescope, f.filter))
+                elif f.frame_type == 'BIAS':
+                    if f.camera and f.camera != 'UNKNOWN':
+                        covered_bias.add(f.camera)
             
             if not light_files:
-                return {}
+                return {
+                    'darks': [], 
+                    'flats': [], 
+                    'bias': [],
+                    'already_has': {
+                        'darks': len(covered_darks) > 0,
+                        'flats': len(covered_flats) > 0,
+                        'bias': len(covered_bias) > 0
+                    }
+                }
             
-            # Analyze light files - create actual camera+exposure combinations that exist
-            light_sessions = set(f.session_id for f in light_files if f.session_id)
-            light_cameras = set(f.camera for f in light_files if f.camera and f.camera != 'UNKNOWN')
-            light_telescopes = set(f.telescope for f in light_files if f.telescope and f.telescope != 'UNKNOWN')
-            light_dates = set(f.obs_date for f in light_files if f.obs_date)
-            light_filters = set(f.filter for f in light_files if f.filter and f.filter not in ['UNKNOWN', 'NONE'])
+            # Build sets of what calibration combinations are NEEDED based on lights
+            needed_darks = set()
+            needed_flats = set()
+            needed_bias = set()
             
-            # Create actual camera+exposure combinations that exist in lights
-            camera_exposures = set()
-            camera_telescope_filters = set()
+            light_sessions = set()
+            light_dates = set()
+            
             for f in light_files:
-                if f.camera and f.camera != 'UNKNOWN' and f.exposure:
-                    camera_exposures.add((f.camera, f.exposure))
-                if (f.camera and f.camera != 'UNKNOWN' and 
-                    f.telescope and f.telescope != 'UNKNOWN' and 
-                    f.filter and f.filter not in ['UNKNOWN', 'NONE']):
-                    camera_telescope_filters.add((f.camera, f.telescope, f.filter))
+                if f.session_id:
+                    light_sessions.add(f.session_id)
+                if f.obs_date:
+                    light_dates.add(f.obs_date)
+                    
+                if f.camera and f.camera != 'UNKNOWN':
+                    needed_bias.add(f.camera)
+                    
+                    if f.exposure is not None:
+                        needed_darks.add((f.camera, f.exposure))
+                        
+                    if (f.telescope and f.telescope != 'UNKNOWN' and 
+                        f.filter and f.filter not in ['UNKNOWN', 'NONE']):
+                        needed_flats.add((f.camera, f.telescope, f.filter))
             
-            logger.info(f"Matching calibration for session {session_id}:")
-            logger.info(f"  Light cameras: {light_cameras}")
-            logger.info(f"  Camera+exposure combinations: {camera_exposures}")
+            # Calculate GAPS - what's needed but not covered
+            gap_darks = needed_darks - covered_darks
+            gap_flats = needed_flats - covered_flats
+            gap_bias = needed_bias - covered_bias
             
+            logger.info(f"Calibration analysis for session {session_id}:")
+            logger.info(f"  Already covered - Darks: {covered_darks}, Flats: {covered_flats}, Bias: {covered_bias}")
+            logger.info(f"  Needed - Darks: {needed_darks}, Flats: {needed_flats}, Bias: {needed_bias}")
+            logger.info(f"  Gaps to fill - Darks: {gap_darks}, Flats: {gap_flats}, Bias: {gap_bias}")
+            
+            # Only search for calibration that fills the gaps
             matches = {
-                'darks': self._find_matching_darks(session, light_sessions, camera_exposures, light_dates),
-                'flats': self._find_matching_flats(session, light_sessions, camera_telescope_filters, light_dates),
-                'bias': self._find_matching_bias(session, light_sessions, light_cameras, light_dates)
+                'darks': self._find_matching_darks(session, light_sessions, gap_darks, light_dates),
+                'flats': self._find_matching_flats(session, light_sessions, gap_flats, light_dates),
+                'bias': self._find_matching_bias(session, light_sessions, gap_bias, light_dates),
+                'already_has': {
+                    'darks': len(covered_darks) > 0,
+                    'flats': len(covered_flats) > 0,
+                    'bias': len(covered_bias) > 0
+                }
             }
             
             return matches
             
         finally:
             session.close()
-    
-    def _find_matching_darks(self, session, light_sessions: set, camera_exposures: set,
-                           light_dates: set) -> List[CalibrationMatch]:
-        """Find dark frames matching the exact camera+exposure combinations in lights."""
+
+
+    def _find_matching_darks(self, session, light_sessions: set, gap_combinations: set,
+                            light_dates: set) -> List[CalibrationMatch]:
+        """Find dark frames only for camera+exposure combinations that aren't already covered."""
         matches = []
         
-        for camera, exposure in camera_exposures:
-            # Query for darks with matching camera and exposure
-            dark_query = session.query(FitsFile).filter(
+        for camera, exposure in gap_combinations:
+            # Query for matching darks
+            query = session.query(FitsFile).filter(
                 FitsFile.frame_type == 'DARK',
                 FitsFile.camera == camera,
-                FitsFile.exposure == exposure
+                FitsFile.exposure == exposure,
+                FitsFile.migration_ready == True
             )
             
-            # Group by capture session and find closest dates
-            darks_by_session = defaultdict(list)
-            for dark in dark_query.all():
-                if dark.session_id:
-                    darks_by_session[dark.session_id].append(dark)
+            # Prefer from same sessions, then same dates, then any
+            for_same_session = query.filter(FitsFile.session_id.in_(light_sessions)).all() if light_sessions else []
             
-            # Find best matching sessions (prefer same session, then closest date)
-            best_sessions = []
+            if for_same_session:
+                files = for_same_session
+            else:
+                for_same_date = query.filter(FitsFile.obs_date.in_(light_dates)).all() if light_dates else []
+                if for_same_date:
+                    files = for_same_date
+                else:
+                    files = query.all()
             
-            # First priority: same capture session
-            for light_session in light_sessions:
-                if light_session in darks_by_session:
-                    best_sessions.append(light_session)
-            
-            # Second priority: closest date if no same session darks
-            if not best_sessions:
-                light_dates_parsed = [datetime.strptime(d, '%Y-%m-%d') for d in light_dates if d]
-                if light_dates_parsed:
-                    avg_light_date = min(light_dates_parsed)  # Use earliest light date
-                    
-                    session_dates = []
-                    for sess_id, darks in darks_by_session.items():
-                        dark_dates = [datetime.strptime(d.obs_date, '%Y-%m-%d') 
-                                    for d in darks if d.obs_date]
-                        if dark_dates:
-                            avg_dark_date = min(dark_dates)
-                            days_diff = abs((avg_light_date - avg_dark_date).days)
-                            session_dates.append((days_diff, sess_id))
-                    
-                    # Sort by date difference and take closest
-                    session_dates.sort()
-                    if session_dates:  # Accept any timeframe for darks
-                        best_sessions.append(session_dates[0][1])
-            
-            # Create matches for best sessions
-            for sess_id in best_sessions:
-                darks = darks_by_session[sess_id]
-                if darks:
-                    match = CalibrationMatch(
-                        capture_session_id=sess_id,
+            if files:
+                # Group by session
+                by_session = {}
+                for f in files:
+                    sid = f.session_id or 'UNKNOWN'
+                    if sid not in by_session:
+                        by_session[sid] = []
+                    by_session[sid].append(f)
+                
+                for sid, session_files in by_session.items():
+                    obs_date = session_files[0].obs_date if session_files[0].obs_date else 'Unknown'
+                    matches.append(CalibrationMatch(
+                        capture_session_id=sid,
                         camera=camera,
-                        telescope=darks[0].telescope,
-                        filters=[],  # Darks don't have filters
-                        capture_date=darks[0].obs_date or 'Unknown',
+                        telescope=None,
+                        filters=[],
+                        capture_date=obs_date,
                         frame_type='DARK',
-                        file_count=len(darks),
+                        file_count=len(session_files),
                         exposure_times=[exposure],
-                        files=darks
-                    )
-                    matches.append(match)
+                        files=session_files
+                    ))
         
         return matches
-    
-    def _find_matching_flats(self, session, light_sessions: set, camera_telescope_filters: set,
-                           light_dates: set) -> List[CalibrationMatch]:
-        """Find flat frames matching exact camera+telescope+filter combinations in lights."""
+
+
+    def _find_matching_flats(self, session, light_sessions: set, gap_combinations: set,
+                            light_dates: set) -> List[CalibrationMatch]:
+        """Find flat frames only for camera+telescope+filter combinations that aren't already covered."""
         matches = []
         
-        for camera, telescope, filter_name in camera_telescope_filters:
-            # Query for flats with matching camera, telescope, filter
-            flat_query = session.query(FitsFile).filter(
+        for camera, telescope, filter_name in gap_combinations:
+            # Query for matching flats
+            query = session.query(FitsFile).filter(
                 FitsFile.frame_type == 'FLAT',
                 FitsFile.camera == camera,
                 FitsFile.telescope == telescope,
-                FitsFile.filter == filter_name
+                FitsFile.filter == filter_name,
+                FitsFile.migration_ready == True
             )
             
-            # Group by capture session
-            flats_by_session = defaultdict(list)
-            for flat in flat_query.all():
-                if flat.session_id:
-                    flats_by_session[flat.session_id].append(flat)
+            # Prefer from same sessions, then same dates, then any
+            for_same_session = query.filter(FitsFile.session_id.in_(light_sessions)).all() if light_sessions else []
             
-            # Find best matching sessions
-            best_sessions = []
+            if for_same_session:
+                files = for_same_session
+            else:
+                for_same_date = query.filter(FitsFile.obs_date.in_(light_dates)).all() if light_dates else []
+                if for_same_date:
+                    files = for_same_date
+                else:
+                    files = query.all()
             
-            # First priority: same capture session
-            for light_session in light_sessions:
-                if light_session in flats_by_session:
-                    best_sessions.append(light_session)
-            
-            # Second priority: closest date
-            if not best_sessions:
-                light_dates_parsed = [datetime.strptime(d, '%Y-%m-%d') for d in light_dates if d]
-                if light_dates_parsed:
-                    avg_light_date = min(light_dates_parsed)
-                    
-                    session_dates = []
-                    for sess_id, flats in flats_by_session.items():
-                        flat_dates = [datetime.strptime(d.obs_date, '%Y-%m-%d') 
-                                    for d in flats if d.obs_date]
-                        if flat_dates:
-                            avg_flat_date = min(flat_dates)
-                            days_diff = abs((avg_light_date - avg_flat_date).days)
-                            session_dates.append((days_diff, sess_id))
-                    
-                    session_dates.sort()
-                    if session_dates and session_dates[0][0] <= 90:  # Within 90 days
-                        best_sessions.append(session_dates[0][1])
-            
-            # Create matches
-            for sess_id in best_sessions:
-                flats = flats_by_session[sess_id]
-                if flats:
-                    match = CalibrationMatch(
-                        capture_session_id=sess_id,
+            if files:
+                # Group by session
+                by_session = {}
+                for f in files:
+                    sid = f.session_id or 'UNKNOWN'
+                    if sid not in by_session:
+                        by_session[sid] = []
+                    by_session[sid].append(f)
+                
+                for sid, session_files in by_session.items():
+                    obs_date = session_files[0].obs_date if session_files[0].obs_date else 'Unknown'
+                    matches.append(CalibrationMatch(
+                        capture_session_id=sid,
                         camera=camera,
                         telescope=telescope,
                         filters=[filter_name],
-                        capture_date=flats[0].obs_date or 'Unknown',
+                        capture_date=obs_date,
                         frame_type='FLAT',
-                        file_count=len(flats),
-                        exposure_times=[],  # Flats have varying exposures
-                        files=flats
-                    )
-                    matches.append(match)
+                        file_count=len(session_files),
+                        exposure_times=[],
+                        files=session_files
+                    ))
         
         return matches
-    
-    def _find_matching_bias(self, session, light_sessions: set, light_cameras: set,
-                          light_dates: set) -> List[CalibrationMatch]:
-        """Find bias frames matching the criteria."""
+
+
+    def _find_matching_bias(self, session, light_sessions: set, gap_cameras: set,
+                           light_dates: set) -> List[CalibrationMatch]:
+        """Find bias frames only for cameras that aren't already covered."""
         matches = []
         
-        for camera in light_cameras:
-            # Query for bias with matching camera
-            bias_query = session.query(FitsFile).filter(
+        for camera in gap_cameras:
+            # Query for matching bias
+            query = session.query(FitsFile).filter(
                 FitsFile.frame_type == 'BIAS',
-                FitsFile.camera == camera
+                FitsFile.camera == camera,
+                FitsFile.migration_ready == True
             )
             
-            # Debug: check all bias for this camera
-            all_bias = bias_query.all()
-            logger.info(f"Found {len(all_bias)} total BIAS frames for camera {camera}")
-            for bias in all_bias:
-                logger.info(f"  BIAS: {bias.session_id}, date: {bias.obs_date}")
+            # Prefer from same sessions, then same dates, then any
+            for_same_session = query.filter(FitsFile.session_id.in_(light_sessions)).all() if light_sessions else []
             
-            # Group by capture session
-            bias_by_session = defaultdict(list)
-            for bias in all_bias:
-                if bias.session_id:
-                    bias_by_session[bias.session_id].append(bias)
+            if for_same_session:
+                files = for_same_session
+            else:
+                for_same_date = query.filter(FitsFile.obs_date.in_(light_dates)).all() if light_dates else []
+                if for_same_date:
+                    files = for_same_date
+                else:
+                    files = query.all()
             
-            # Find best matching sessions
-            best_sessions = []
-            
-            # First priority: same capture session
-            for light_session in light_sessions:
-                if light_session in bias_by_session:
-                    best_sessions.append(light_session)
-            
-            # Second priority: closest date (extended range)
-            if not best_sessions:
-                light_dates_parsed = [datetime.strptime(d, '%Y-%m-%d') for d in light_dates if d]
-                if light_dates_parsed:
-                    avg_light_date = min(light_dates_parsed)
-                    
-                    session_dates = []
-                    for sess_id, bias_frames in bias_by_session.items():
-                        bias_dates = [datetime.strptime(d.obs_date, '%Y-%m-%d') 
-                                    for d in bias_frames if d.obs_date]
-                        if bias_dates:
-                            avg_bias_date = min(bias_dates)
-                            days_diff = abs((avg_light_date - avg_bias_date).days)
-                            session_dates.append((days_diff, sess_id))
-                            logger.info(f"  BIAS session {sess_id}: {days_diff} days difference")
-                    
-                    session_dates.sort()
-                    if session_dates:  # Accept any timeframe for bias
-                        best_sessions.append(session_dates[0][1])
-                        logger.info(f"  Selected BIAS session: {session_dates[0][1]} ({session_dates[0][0]} days)")
-            
-            # Create matches
-            for sess_id in best_sessions:
-                bias_frames = bias_by_session[sess_id]
-                if bias_frames:
-                    match = CalibrationMatch(
-                        capture_session_id=sess_id,
+            if files:
+                # Group by session
+                by_session = {}
+                for f in files:
+                    sid = f.session_id or 'UNKNOWN'
+                    if sid not in by_session:
+                        by_session[sid] = []
+                    by_session[sid].append(f)
+                
+                for sid, session_files in by_session.items():
+                    obs_date = session_files[0].obs_date if session_files[0].obs_date else 'Unknown'
+                    matches.append(CalibrationMatch(
+                        capture_session_id=sid,
                         camera=camera,
-                        telescope=bias_frames[0].telescope,
-                        filters=[],  # Bias don't have filters
-                        capture_date=bias_frames[0].obs_date or 'Unknown',
+                        telescope=None,
+                        filters=[],
+                        capture_date=obs_date,
                         frame_type='BIAS',
-                        file_count=len(bias_frames),
-                        exposure_times=[],  # Bias are 0s exposure
-                        files=bias_frames
-                    )
-                    matches.append(match)
+                        file_count=len(session_files),
+                        exposure_times=[],
+                        files=session_files
+                    ))
         
         return matches
     

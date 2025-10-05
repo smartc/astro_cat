@@ -22,6 +22,7 @@ const ApiService = {
     processingSessions: {
         getAll: (params) => axios.get('/api/processing-sessions', { params }),
         getById: (sessionId) => axios.get(`/api/processing-sessions/${sessionId}`),
+        getIds: (params) => axios.get('/api/processing-sessions/ids', { params }),  // NEW
         create: (payload) => axios.post('/api/processing-sessions', payload),
         addFiles: (sessionId, fileIds) => 
             axios.post(`/api/processing-sessions/${sessionId}/add-files`, fileIds, {
@@ -33,7 +34,7 @@ const ApiService = {
             axios.delete(`/api/processing-sessions/${sessionId}?remove_files=${removeFiles}`),
         getCalibrationMatches: (sessionId) => 
             axios.get(`/api/processing-sessions/${sessionId}/calibration-matches`),
-        removeObject: (sessionId, objectName) =>  // NEW
+        removeObject: (sessionId, objectName) =>
             axios.delete(`/api/processing-sessions/${sessionId}/objects/${encodeURIComponent(objectName)}`)
     },
 

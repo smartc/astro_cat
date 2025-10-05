@@ -113,6 +113,26 @@ const ProcessingSessionsComponent = {
             }
         },
         
+        async viewProcessingSession(sessionId) {
+            // Get all session IDs matching current filters for navigation
+            try {
+                const params = {};
+                if (this.processingSessionStatusFilter) {
+                    params.status = this.processingSessionStatusFilter;
+                }
+                
+                const idsResponse = await ApiService.processingSessions.getIds(params);
+                const allSessionIds = idsResponse.data.session_ids;
+                
+                // Open modal with session IDs for navigation
+                this.$refs.processingDetailsModal.viewProcessingSession(sessionId, allSessionIds);
+            } catch (error) {
+                console.error('Error loading session IDs for navigation:', error);
+                // Fallback: just show current session without navigation
+                this.$refs.processingDetailsModal.viewProcessingSession(sessionId, [sessionId]);
+            }
+        },
+        
         // ==================
         // Pagination
         // ==================
