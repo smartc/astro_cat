@@ -59,23 +59,34 @@ async def monitoring_callback(filepaths: list):
         logger.error(f"Error in monitoring callback: {e}", exc_info=True)
 
 
-async def periodic_scan_task(interval_minutes: int):
-    """Periodic scanning task."""
+async def periodic_scan_task(interval_minutes: int, initial_delay_minutes: int = 0):
+    """
+    Periodic scanning task with optional initial delay.
+    
+    Args:
+        interval_minutes: Minutes between scans
+        initial_delay_minutes: Minutes to wait before first scan (0 = scan immediately)
+    """
     global monitoring_enabled, last_scan
     
     app_module = sys.modules['web.app']
     config = app_module.config
     db_service = app_module.db_service
     
-    from fits_processor import OptimizedFitsProcessor
+    # Wait for initial delay if specified
+    if initial_delay_minutes > 0:
+        logger.info(f"First scan will run in {initial_delay_minutes} minutes")
+        await asyncio.sleep(initial_delay_minutes * 60)
     
-    logger.info(f"Periodic scanning started (interval: {interval_minutes} minutes)")
+    logger.info(f"Periodic scanning active (interval: {interval_minutes} minutes)")
     
     while monitoring_enabled:
         try:
             last_scan = datetime.now().isoformat()
+            logger.info("Running scheduled scan...")
             
             # Scan quarantine
+            from fits_processor import OptimizedFitsProcessor
             processor = OptimizedFitsProcessor(
                 config, 
                 app_module.cameras, 
@@ -85,6 +96,7 @@ async def periodic_scan_task(interval_minutes: int):
             )
             
             df, sessions = processor.scan_quarantine()
+            logger.info(f"Scan complete: {len(df)} files found")
             
             if len(df) > 0:
                 await monitoring_callback([])
@@ -201,7 +213,12 @@ async def update_monitoring_config(config: MonitoringConfigModel = Body(...)):
 
 
 async def auto_start_monitoring():
-    """Auto-start monitoring on app startup if enabled in database."""
+    """
+    Auto-start monitoring on app startup if enabled in database.
+    
+    Waits 60 seconds before starting to allow web server to fully initialize,
+    then runs first scan immediately.
+    """
     try:
         app_module = sys.modules['web.app']
         db_service = app_module.db_service
@@ -218,10 +235,55 @@ async def auto_start_monitoring():
                 ignore_files_newer_than_minutes=ignore_newer
             )
             
-            await start_monitoring(config)
-            logger.info("✓ Auto-started monitoring from database settings")
+            # Start monitoring with 60 second delay - DON'T await
+            # This prevents blocking the web server startup
+            asyncio.create_task(start_monitoring_with_delay(config, delay_seconds=60))
+            
+            logger.info(f"✓ Monitoring will auto-start in 60 seconds (interval: {interval} minutes)")
         else:
             logger.info("Monitoring not auto-started (disabled in database)")
             
     except Exception as e:
         logger.error(f"Error auto-starting monitoring: {e}", exc_info=True)
+
+
+async def start_monitoring_with_delay(config: MonitoringConfigModel, delay_seconds: int = 60):
+    """
+    Start monitoring after a delay to prevent blocking server startup.
+    First scan runs immediately after the delay period.
+    
+    Args:
+        config: Monitoring configuration
+        delay_seconds: Seconds to wait before starting monitoring (default: 60)
+    """
+    global monitoring_task, monitoring_enabled
+    
+    try:
+        # Wait before starting
+        logger.info(f"Monitoring startup in {delay_seconds} seconds...")
+        await asyncio.sleep(delay_seconds)
+        
+        # Check if monitoring was manually started/stopped while waiting
+        if monitoring_task and not monitoring_task.done():
+            logger.info("Monitoring already started manually, skipping auto-start")
+            return
+        
+        # Save settings to database
+        app_module = sys.modules['web.app']
+        db_service = app_module.db_service
+        
+        db_service.set_setting('monitoring.enabled', True)
+        db_service.set_setting('monitoring.interval_minutes', config.interval_minutes)
+        db_service.set_setting('monitoring.ignore_newer_than_minutes', config.ignore_files_newer_than_minutes)
+        
+        monitoring_enabled = True
+        
+        # Start monitoring task with NO initial delay (first scan runs immediately)
+        monitoring_task = asyncio.create_task(
+            periodic_scan_task(config.interval_minutes, initial_delay_minutes=0)
+        )
+        
+        logger.info(f"✓ Monitoring started: {config.interval_minutes}min interval, first scan starting now")
+        
+    except Exception as e:
+        logger.error(f"Error starting delayed monitoring: {e}", exc_info=True)
