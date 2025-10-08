@@ -12,7 +12,7 @@ const AppHeader = {
             <!-- Content layer (logo, menu, etc.) -->
             <div class="relative z-10 flex justify-between items-center px-4 h-full">
                 <div class="flex items-center space-x-3 cursor-pointer" @click="goToDashboard">
-                    <img src="/static/logo.png" alt="AstroCat" style="width: 96px; height: 96px;">
+                    <img src="/static/assets/logo.png" alt="AstroCat" style="width: 96px; height: 96px;">
                     <h1 class="text-2xl font-bold">AstroCat</h1>
                 </div>
                 

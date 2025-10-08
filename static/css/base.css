@@ -174,19 +174,3 @@
     overflow: hidden;
 }
 
-
-/* Star speck overlay (using radial gradients for small stars) */
-/*
-.bg-astrocat-gradient {
-    background-image:
-      url('/static/assets/starfield_tile_1.png'),
-      url('/static/assets/starfield_tile_2.png'),
-      url('/static/assets/starfield_tile_3.png'),
-      url('/static/assets/starfield_tile_4.png'),
-      linear-gradient(135deg, #070F12 0%, #0C0F1A 100%);
-    background-size: 1024px 1024px, 1400px 1400px, 1600px 1600px, 1800px 1800px, cover;
-    background-repeat: repeat, repeat, repeat, repeat, no-repeat;
-    background-position: 0 0, 25% 15%, 50% 35%, 75% 55%, center;
-}
-
-*/
