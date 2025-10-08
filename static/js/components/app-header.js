@@ -1,11 +1,16 @@
 /**
  * App Header Component - Shared across all pages
+ * Uses the StarfieldBackground component for visual effect
  */
 
 const AppHeader = {
     template: `
-        <header style="background-color: #0A1628; flex-shrink: 0;" class="text-white p-4 shadow-lg">
-            <div class="flex justify-between items-center px-4">
+        <header class="relative text-white p-4 shadow-lg" style="flex-shrink: 0; height: 128px;">
+            <!-- Starfield Background Component -->
+            <starfield-background></starfield-background>
+            
+            <!-- Content layer (logo, menu, etc.) -->
+            <div class="relative z-10 flex justify-between items-center px-4 h-full">
                 <div class="flex items-center space-x-3 cursor-pointer" @click="goToDashboard">
                     <img src="/static/logo.png" alt="AstroCat" style="width: 96px; height: 96px;">
                     <h1 class="text-2xl font-bold">AstroCat</h1>
@@ -70,6 +75,10 @@ const AppHeader = {
         </header>
     `,
     
+    components: {
+        'starfield-background': StarfieldBackground
+    },
+    
     data() {
         return {
             menuOpen: false
@@ -89,10 +98,12 @@ const AppHeader = {
         goToDashboard() {
             window.location.href = '/';
         },
+        
         navigateTo(path) {
             window.location.href = path;
             this.menuOpen = false;
         },
+        
         openDatabaseDirectly() {
             window.open(this.databaseUrl, '_blank', 'width=1400,height=900');
             this.menuOpen = false;

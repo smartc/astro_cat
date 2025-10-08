@@ -6,16 +6,18 @@ const ProcessingSessionDetailsModal = {
     template: `
         <div v-if="showSessionDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div class="bg-white rounded-lg w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
-                <!-- Modal Header -->
-                <div class="text-white p-4 flex justify-between items-center" style="background-color: #070F12;">
-                    <h2 class="text-xl font-bold">Processing Session Details</h2>
-                    <button @click="closeSessionDetailsModal" class="text-white hover:text-gray-200">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                        </svg>
-                    </button>
+                <!-- Modal Header with Starfield -->
+                <div class="relative text-white p-4 flex justify-between items-center" style="min-height: 64px;">
+                    <starfield-background :num-stars="30" :min-size="0.3" :max-size="0.7"></starfield-background>
+                    <div class="relative z-10 flex justify-between items-center w-full">
+                        <h2 class="text-xl font-bold">Processing Session Details</h2>
+                        <button @click="closeSessionDetailsModal" class="text-white hover:text-gray-200">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
-
                 <!-- Modal Body -->
                 <div class="flex-1 overflow-y-auto p-6" style="max-height: calc(90vh - 200px);">
                     <!-- Loading State -->
@@ -183,6 +185,10 @@ const ProcessingSessionDetailsModal = {
             allSessionIds: [],  
             currentSessionIndex: -1
         };
+    },
+
+    components: {
+        'starfield-background': StarfieldBackground
     },
 
     computed: {
