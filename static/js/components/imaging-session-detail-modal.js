@@ -6,7 +6,7 @@ window.ImagingSessionDetailModal = {
         <div v-if="showDetailModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div class="bg-white rounded-lg w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
                 <!-- Modal Header -->
-                <div class="bg-blue-600 text-white p-4 flex justify-between items-center">
+                <div class="text-white p-4 flex justify-between items-center" style="background-color: #070F12;">
                     <h2 class="text-xl font-bold">Imaging Session Details</h2>
                     <button @click="closeSessionDetails" class="text-white hover:text-gray-200">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
