@@ -3,7 +3,7 @@
 
 window.ImagingSessionDetailModal = {
     template: `
-        <div v-if="showDetailModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div v-if="showDetailModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4" style="z-index: 250;">
             <div class="bg-white rounded-lg w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
                 <!-- Modal Header with Starfield -->
                 <div class="relative text-white p-4" style="height: 80px;">

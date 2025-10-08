@@ -5,7 +5,7 @@
 
 const AppHeader = {
     template: `
-        <header class="relative text-white p-4 shadow-lg" style="flex-shrink: 0; height: 128px;">
+        <header class="relative text-white p-4 shadow-lg" style="flex-shrink: 0; height: 128px; z-index: 50;">
             <!-- Starfield Background Component -->
             <starfield-background></starfield-background>
             

@@ -1,5 +1,13 @@
 /* FITS Cataloger - Base Styles */
 
+/*body {
+    overflow: visible !important;
+}
+
+#app {
+    overflow: visible !important;
+}*/
+
 /* Utility Classes */
 .text-truncate {
     overflow: hidden;

@@ -11,12 +11,21 @@ body {
     flex-direction: column;
 }
 
+#app {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
 .editor-content {
     padding: 15px 15px 60px 15px;
     flex: 1;
     display: flex;
     flex-direction: column;
     min-height: 0;
+    overflow: hidden;
 }
 
 .header-section {
