@@ -1,0 +1,39 @@
+{
+  "profiles": [
+    {
+      "name": "Voyager",
+      "priority": 90,
+      "camera_keys": [
+        "INSTRUME",
+        "CAMERA"
+      ],
+      "telescope_keys": [
+        "TELESCOP"
+      ],
+      "filter_keys": [
+        "FILTER"
+      ],
+      "target_keys": [
+        "OBJECT"
+      ],
+      "frame_type_keys": [
+        "IMAGETYP"
+      ],
+      "frame_type_mappings": {
+        "Light Frame": "LIGHT",
+        "Dark Frame": "DARK",
+        "Bias Frame": "BIAS",
+        "Flat Frame": "FLAT",
+        "LIGHT": "LIGHT",
+        "DARK": "DARK",
+        "BIAS": "BIAS",
+        "FLAT": "FLAT"
+      },
+      "detection_keywords": {
+        "SWCREATE": "Voyager",
+        "CREATOR": "Voyager"
+      },
+      "notes": "Voyager Advanced - advanced automation and session management features"
+    }
+  ]
+}

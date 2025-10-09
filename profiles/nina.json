@@ -1,0 +1,38 @@
+{
+  "profiles": [
+    {
+      "name": "NINA",
+      "priority": 95,
+      "camera_keys": [
+        "INSTRUME",
+        "CAMERA"
+      ],
+      "telescope_keys": [
+        "TELESCOP"
+      ],
+      "filter_keys": [
+        "FILTER",
+        "FILT"
+      ],
+      "target_keys": [
+        "OBJECT"
+      ],
+      "frame_type_keys": [
+        "IMAGETYP"
+      ],
+      "frame_type_mappings": {
+        "LIGHT": "LIGHT",
+        "DARK": "DARK",
+        "BIAS": "BIAS",
+        "FLAT": "FLAT",
+        "Light": "LIGHT",
+        "Dark": "DARK",
+        "Flat": "FLAT"
+      },
+      "detection_keywords": {
+        "SWCREATE": "N.I.N.A"
+      },
+      "notes": "Nighttime Imaging 'N' Astronomy - supports both Native and ASCOM drivers. Native drivers may have different EGAIN values than ASCOM."
+    }
+  ]
+}

@@ -13,6 +13,8 @@ from typing import Dict, List, Optional
 
 from astropy.io import fits
 
+from .software_profiles import get_profile_manager
+
 logger = logging.getLogger(__name__)
 
 
@@ -207,24 +209,11 @@ def parse_coordinate(header, keys: List[str]) -> Optional[float]:
 
 
 def extract_fits_metadata_simple(filepath: str, header, 
-                                 cameras_dict: Dict, 
-                                 telescopes_dict: Dict, 
-                                 filter_mappings: Dict[str, str]) -> Dict:
+                                cameras_dict: dict, 
+                                telescopes_dict: dict, 
+                                filter_mappings: dict) -> dict:
     """
-    Extract metadata from FITS header (simplified for in-memory processing).
-    
-    This function assumes the header is already loaded and focuses on
-    extracting and normalizing the metadata values.
-    
-    Args:
-        filepath: Path to FITS file
-        header: Already-loaded FITS header object
-        cameras_dict: Dictionary of camera configurations
-        telescopes_dict: Dictionary of telescope configurations
-        filter_mappings: Dictionary of filter name mappings
-        
-    Returns:
-        Dictionary of extracted metadata
+    Extract metadata from FITS header with software profile support.
     """
     from .equipment_identifier import (
         identify_camera_simple, identify_telescope_simple,
@@ -232,6 +221,12 @@ def extract_fits_metadata_simple(filepath: str, header,
     )
     from .session_generator import generate_session_id_with_hash
     from object_processor import ObjectNameProcessor
+    
+    # Get profile manager (loads custom profiles if available)
+    profile_manager = get_profile_manager('profiles/custom_profiles.json')
+    
+    # Detect capture software
+    detected_software = profile_manager.detect_software(header)
     
     # Extract basic metadata
     metadata = {
@@ -251,77 +246,172 @@ def extract_fits_metadata_simple(filepath: str, header,
         obs_date = None
         obs_timestamp_truncated = None
     
-    # Extract header values with fallbacks
-    raw_object = get_header_value(header, ['OBJECT', 'TARGET'])
-    instrument = get_header_value(header, ['INSTRUME'])
-    filter_wheel = get_header_value(header, ['FWHEEL'])
-    observer = get_header_value(header, ['OBSERVER'])
-    site_name = get_header_value(header, ['SITENAME'])
-    binning = get_header_value(header, ['XBINNING', 'BINNING'], int, 1)
+    # =======================================================================
+    # USE PROFILE-AWARE EXTRACTION
+    # =======================================================================
     
-    metadata.update({
-        'obs_date': obs_date,
-        'obs_timestamp': obs_timestamp_truncated,
-        'ra': get_header_value(header, ['RA', 'OBJCTRA', 'CRVAL1']),
-        'dec': get_header_value(header, ['DEC', 'OBJCTDEC', 'CRVAL2']),
-        'x': get_header_value(header, ['NAXIS1'], int),
-        'y': get_header_value(header, ['NAXIS2'], int),
-        'frame_type': normalize_frame_type(
-            get_header_value(header, ['IMAGETYP', 'FRAME'])
-        ),
-        'filter': normalize_filter(
-            get_header_value(header, ['FILTER', 'FILTERS']), filter_mappings
-        ),
-        'focal_length': get_header_value(header, ['FOCALLEN'], float),
-        'exposure': get_header_value(header, ['EXPOSURE', 'EXPTIME'], float),
-    })
+    # Extract header values using profile system
+    raw_object = profile_manager.get_value(header, 'target', detected_software)
+    instrument = profile_manager.get_value(header, 'camera', detected_software)
+    filter_wheel = profile_manager.get_value(header, 'filter', detected_software)
+    telescope_raw = profile_manager.get_value(header, 'telescope', detected_software)
+    frame_type_raw = profile_manager.get_value(header, 'frame_type', detected_software)
+    
+    # Fallback to direct header access if profile doesn't find it
+    if not raw_object:
+        raw_object = get_header_value(header, ['OBJECT', 'TARGET'])
+    if not instrument:
+        instrument = get_header_value(header, ['INSTRUME'])
+    if not filter_wheel:
+        filter_wheel = get_header_value(header, ['FILTER'])
+    if not telescope_raw:
+        telescope_raw = get_header_value(header, ['TELESCOP'])
+    if not frame_type_raw:
+        frame_type_raw = get_header_value(header, ['IMAGETYP', 'FRAMETYPE'])
+    
+    # Continue with existing logic...
+    focal_len_raw = get_header_value(header, ['FOCALLEN'], float)
+    
+    # Normalize frame type (profile may have already done this)
+    frame_type = normalize_frame_type(frame_type_raw)
     
     # Process object name
     object_processor = ObjectNameProcessor()
-    frame_type = metadata['frame_type']
-    processed_object = object_processor.process_object_name(raw_object, frame_type)
-    metadata['object'] = processed_object
+    if raw_object:
+        object_name = object_processor.process_object_name(raw_object, frame_type)
+    else:
+        object_name = None
     
-    # Extract location data
+    # Identify equipment
+    camera_name, camera_info = identify_camera_simple(instrument, cameras_dict)
+    telescope_name, telescope_info = identify_telescope_simple(
+        telescope_raw, focal_len_raw, telescopes_dict
+    )
+    filter_name = normalize_filter(filter_wheel, filter_mappings)
+    
+    # Image dimensions
+    x = get_header_value(header, ['NAXIS1'], int)
+    y = get_header_value(header, ['NAXIS2'], int)
+    
+    # Coordinates
+    ra = parse_coordinate(header, ['OBJCTRA', 'RA'])
+    dec = parse_coordinate(header, ['OBJCTDEC', 'DEC'])
+    
+    # Location
+    latitude = get_header_value(header, ['SITELAT'], float)
+    longitude = get_header_value(header, ['SITELONG'], float)
+    elevation = get_header_value(header, ['SITEELEV'], float)
+    
+    # Calculate field of view
+    if camera_info and telescope_info:
+        fov_x, fov_y, pixel_scale = calculate_field_of_view_simple(
+            camera_info, telescope_info
+        )
+    else:
+        fov_x = fov_y = pixel_scale = None
+    
+    # Build metadata dict
     metadata.update({
-        'latitude': parse_coordinate(header, ['SITELAT', 'LAT-OBS', 'LATITUDE']),
-        'longitude': parse_coordinate(header, ['SITELONG', 'LONG-OBS', 'LONGITUDE']),
-        'elevation': get_header_value(header, ['SITEELEV', 'ALT-OBS', 'ELEVATION'], float),
+        'object': object_name,
+        'obs_date': obs_date,
+        'obs_timestamp': obs_timestamp_truncated,
+        'ra': str(ra) if ra is not None else None,
+        'dec': str(dec) if dec is not None else None,
+        'x': x,
+        'y': y,
+        'frame_type': frame_type,
+        'filter': filter_name,
+        'focal_length': telescope_info.get('focal') if telescope_info else focal_len_raw,
+        'exposure': get_header_value(header, ['EXPTIME', 'EXPOSURE'], float),
+        'camera': camera_name,
+        'telescope': telescope_name,
+        'latitude': latitude,
+        'longitude': longitude,
+        'elevation': elevation,
+        'fov_x': fov_x,
+        'fov_y': fov_y,
+        'pixel_scale': pixel_scale,
     })
     
-    # Identify camera and telescope
-    metadata['camera'] = identify_camera_simple(
-        metadata['x'], metadata['y'], instrument, binning, cameras_dict
-    )
-    metadata['telescope'] = identify_telescope_simple(
-        metadata['focal_length'], telescopes_dict
-    )
-    
-    # Calculate field of view and pixel scale
-    fov_data = calculate_field_of_view_simple(
-        metadata['camera'], metadata['telescope'], 
-        metadata['x'], metadata['y'], binning, cameras_dict, telescopes_dict
-    )
-    metadata.update(fov_data)
-    
     # Generate session ID
-    metadata['session_id'] = generate_session_id_with_hash(
-        metadata['obs_date'], instrument, metadata['focal_length'],
-        metadata['x'], metadata['y'], filter_wheel, observer, site_name
-    )
+    if obs_date and telescope_name and camera_name:
+        session_id = generate_session_id_with_hash(obs_date, telescope_name, camera_name)
+        metadata['session_id'] = session_id
+    else:
+        metadata['session_id'] = None
     
-    # Store session data for later extraction
-    metadata['_session_data'] = {
-        'session_id': metadata['session_id'],
-        'session_date': obs_date,
-        'telescope': metadata['telescope'],
-        'camera': metadata['camera'],
-        'site_name': site_name,
-        'latitude': metadata['latitude'],
-        'longitude': metadata['longitude'],
-        'elevation': metadata['elevation'],
-        'observer': observer,
-        'notes': None
-    }
+    # Add extended metadata
+    extended = extract_extended_metadata(header)
+    metadata.update(extended)
     
     return metadata
+
+
+def extract_extended_metadata(header) -> dict:
+    """
+    Extract extended metadata fields from FITS header.
+    
+    Args:
+        header: FITS header object
+        
+    Returns:
+        Dictionary of extended metadata fields
+    """
+    extended = {}
+    
+    # Camera/Sensor settings
+    extended['gain'] = get_header_value(header, ['GAIN'], int)
+    extended['offset'] = get_header_value(header, ['OFFSET'], int)
+    extended['egain'] = get_header_value(header, ['EGAIN'], float)
+    extended['binning_x'] = get_header_value(header, ['XBINNING'], int, 1)
+    extended['binning_y'] = get_header_value(header, ['YBINNING'], int, 1)
+    extended['sensor_temp'] = get_header_value(header, ['CCD-TEMP', 'TEMPERAT', 'SET-TEMP'], float)
+    extended['readout_mode'] = get_header_value(header, ['READOUTM', 'READMODE'], str)
+    extended['bayerpat'] = get_header_value(header, ['BAYERPAT'], str)
+    extended['iso_speed'] = get_header_value(header, ['ISOSPEED'], int)
+    
+    # Guiding information
+    extended['guide_rms'] = get_header_value(header, ['GUIDERMS'], float)
+    extended['guide_fwhm'] = get_header_value(header, ['AVG_FWHM', 'GUIDEFWH'], float)
+    extended['guide_rms_ra'] = get_header_value(header, ['GUIDERMSRA', 'GUIDERRMS'], float)
+    extended['guide_rms_dec'] = get_header_value(header, ['GUIDERMSDEC', 'GUIDERMSDE'], float)
+    
+    # Weather conditions
+    extended['ambient_temp'] = get_header_value(header, ['AMBTEMP', 'AOCAMBT'], float)
+    extended['dewpoint'] = get_header_value(header, ['DEWPOINT', 'AOCDEW'], float)
+    extended['humidity'] = get_header_value(header, ['HUMIDITY', 'AOCHUM'], float)
+    extended['pressure'] = get_header_value(header, ['PRESSURE'], float)
+    extended['sky_temp'] = get_header_value(header, ['SKYTEMP'], float)
+    extended['sky_quality_mpsas'] = get_header_value(header, ['MPSAS', 'SQM'], float)
+    extended['sky_brightness'] = get_header_value(header, ['SKYBRGHT'], float)
+    extended['wind_speed'] = get_header_value(header, ['WINDSPD', 'AOCWIND'], float)
+    extended['wind_direction'] = get_header_value(header, ['WINDDIR'], float)
+    extended['wind_gust'] = get_header_value(header, ['WINDGUST'], float)
+    extended['cloud_cover'] = get_header_value(header, ['CLOUDCVR'], float)
+    extended['seeing_fwhm'] = get_header_value(header, ['SEEING', 'STARFWHM', 'AOCFWHM'], float)
+    
+    # Focus information
+    extended['focuser_position'] = get_header_value(header, ['FOCUSPOS'], int)
+    extended['focuser_temp'] = get_header_value(header, ['FOCUSTEM'], float)
+    
+    # Software and observer
+    extended['software_creator'] = get_header_value(header, ['SWCREATE'], str)
+    extended['software_modifier'] = get_header_value(header, ['SWMODIFY'], str)
+    extended['observer'] = get_header_value(header, ['OBSERVER'], str)
+    extended['site_name'] = get_header_value(header, ['SITENAME'], str)
+    
+    # Airmass and timing
+    extended['airmass'] = get_header_value(header, ['AIRMASS'], float)
+    
+    # Additional quality metrics
+    extended['star_count'] = get_header_value(header, ['STARCOUNT'], int)
+    extended['median_fwhm'] = get_header_value(header, ['MEDFWHM', 'FWHM'], float)
+    extended['eccentricity'] = get_header_value(header, ['ECCENTRIC'], float)
+    
+    # Boltwood Cloud Sensor fields
+    extended['boltwood_cloud'] = get_header_value(header, ['BOLTCLOU'], float)
+    extended['boltwood_wind'] = get_header_value(header, ['BOLTWIND'], float)
+    extended['boltwood_rain'] = get_header_value(header, ['BOLTRAIN'], float)
+    extended['boltwood_daylight'] = get_header_value(header, ['BOLTDAY'], float)
+    
+    return extended

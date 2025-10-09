@@ -1,0 +1,35 @@
+{
+  "profiles": [
+    {
+      "name": "SequenceGeneratorPro",
+      "priority": 100,
+      "camera_keys": [
+        "INSTRUME",
+        "CAMERA"
+      ],
+      "telescope_keys": [
+        "TELESCOP"
+      ],
+      "filter_keys": [
+        "FILTER"
+      ],
+      "target_keys": [
+        "OBJECT"
+      ],
+      "frame_type_keys": [
+        "IMAGETYP"
+      ],
+      "frame_type_mappings": {
+        "Light Frame": "LIGHT",
+        "Dark Frame": "DARK",
+        "Bias Frame": "BIAS",
+        "Flat Frame": "FLAT"
+      },
+      "detection_keywords": {
+        "CREATOR": "Sequence Generator",
+        "SWCREATE": "Sequence Generator"
+      },
+      "notes": "Sequence Generator Pro - reliable FITS standard compliance"
+    }
+  ]
+}

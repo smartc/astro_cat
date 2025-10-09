@@ -1,0 +1,38 @@
+{
+  "profiles": [
+    {
+      "name": "BackyardEOS",
+      "priority": 70,
+      "camera_keys": [
+        "INSTRUME",
+        "CAMERA"
+      ],
+      "telescope_keys": [
+        "TELESCOP"
+      ],
+      "filter_keys": [
+        "FILTER"
+      ],
+      "target_keys": [
+        "OBJECT"
+      ],
+      "frame_type_keys": [
+        "IMAGETYP",
+        "FRAMETYPE"
+      ],
+      "frame_type_mappings": {
+        "Light Frame": "LIGHT",
+        "Dark Frame": "DARK",
+        "Bias Frame": "BIAS",
+        "Flat Frame": "FLAT"
+      },
+      "detection_keywords": {
+        "SWCREATE": "BackyardEOS",
+        "CREATOR": "BackyardEOS",
+        "SWCREATE": "BackyardNIKON",
+        "CREATOR": "BackyardNIKON"
+      },
+      "notes": "BackyardEOS/BackyardNIKON - DSLR camera control software. May have limited FITS header completeness. Uses ISOSPEED instead of GAIN."
+    }
+  ]
+}

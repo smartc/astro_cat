@@ -1,0 +1,37 @@
+{
+  "profiles": [
+    {
+      "name": "MaximDL",
+      "priority": 85,
+      "camera_keys": [
+        "INSTRUME",
+        "CAMERA"
+      ],
+      "telescope_keys": [
+        "TELESCOP"
+      ],
+      "filter_keys": [
+        "FILTER"
+      ],
+      "target_keys": [
+        "OBJECT"
+      ],
+      "frame_type_keys": [
+        "IMAGETYP",
+        "FRAMETYPE"
+      ],
+      "frame_type_mappings": {
+        "Light Frame": "LIGHT",
+        "Dark Frame": "DARK",
+        "Bias Frame": "BIAS",
+        "Flat Frame": "FLAT",
+        "Tricolor Image": "LIGHT"
+      },
+      "detection_keywords": {
+        "SWCREATE": "MaxIm DL",
+        "CREATOR": "MaxIm DL"
+      },
+      "notes": "MaximDL - Time in DATE-OBS may be start, midpoint, or end depending on driver. XPIXSZ includes binning. Uses BZERO=32768 for 16-bit data."
+    }
+  ]
+}

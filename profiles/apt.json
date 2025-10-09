@@ -1,0 +1,40 @@
+{
+  "profiles": [
+    {
+      "name": "APT",
+      "priority": 75,
+      "camera_keys": [
+        "INSTRUME",
+        "CAMERA"
+      ],
+      "telescope_keys": [
+        "TELESCOP"
+      ],
+      "filter_keys": [
+        "FILTER"
+      ],
+      "target_keys": [
+        "OBJECT"
+      ],
+      "frame_type_keys": [
+        "IMAGETYP",
+        "FRAMETYPE"
+      ],
+      "frame_type_mappings": {
+        "Light Frame": "LIGHT",
+        "Dark Frame": "DARK",
+        "Bias Frame": "BIAS",
+        "Flat Frame": "FLAT",
+        "Light": "LIGHT",
+        "Dark": "DARK",
+        "Bias": "BIAS",
+        "Flat": "FLAT"
+      },
+      "detection_keywords": {
+        "SWCREATE": "AstroPhotography Tool",
+        "CREATOR": "AstroPhotography Tool"
+      },
+      "notes": "AstroPhotography Tool - popular free capture software with planetarium integration"
+    }
+  ]
+}
