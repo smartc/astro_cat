@@ -14,6 +14,7 @@ from typing import Dict, List, Optional
 from astropy.io import fits
 
 from .software_profiles import get_profile_manager
+from .timezone_utils import calculate_observation_date
 
 logger = logging.getLogger(__name__)
 
@@ -110,18 +111,9 @@ fix_microseconds = normalize_microseconds
 
 
 def get_header_value(header, keys: List[str], value_type=str, default=None):
-    """
-    Get value from header with multiple possible key names.
+    """Get value from header with multiple possible key names."""
+    from astropy.io.fits.verify import VerifyError
     
-    Args:
-        header: FITS header object
-        keys: List of possible header key names to try
-        value_type: Type to cast the value to (default: str)
-        default: Default value if key not found
-        
-    Returns:
-        Header value or default
-    """
     for key in keys:
         if key in header:
             try:
@@ -129,7 +121,8 @@ def get_header_value(header, keys: List[str], value_type=str, default=None):
                 if value_type and value is not None:
                     return value_type(value)
                 return value
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, VerifyError) as e:
+                logger.debug(f"Error reading {key}: {e}")
                 continue
     return default
 
@@ -237,14 +230,20 @@ def extract_fits_metadata_simple(filepath: str, header,
     # Parse observation timestamp
     obs_timestamp = parse_observation_date(header, filepath)
     
-    # Calculate observation date (shifted by 12 hours)
+    # Calculate observation date (shifted by 12 hours and adjusted for localtime at location)
     if obs_timestamp:
-        shifted_time = obs_timestamp - timedelta(hours=12)
-        obs_date = shifted_time.strftime('%Y-%m-%d')
+        # Get coordinates for timezone calculation
+        latitude = get_header_value(header, ['SITELAT'], float)
+        longitude = get_header_value(header, ['SITELONG'], float)
+        
+        # Calculate observation date in local time
+        obs_date = calculate_observation_date(
+            obs_timestamp, 
+            latitude, 
+            longitude,
+            config_offset=getattr(config, 'timezone_offset', None) if 'config' in locals() else None
+        )
         obs_timestamp_truncated = obs_timestamp.replace(second=0, microsecond=0)
-    else:
-        obs_date = None
-        obs_timestamp_truncated = None
     
     # =======================================================================
     # USE PROFILE-AWARE EXTRACTION
@@ -259,9 +258,15 @@ def extract_fits_metadata_simple(filepath: str, header,
     if not instrument:
         instrument = get_header_value(header, ['INSTRUME'])
     
-    filter_wheel = profile_manager.get_value(header, 'filter', detected_software)
+    # Get filter NAME from profile
+    filter_raw = profile_manager.get_value(header, 'filter', detected_software)
+    if not filter_raw:
+        filter_raw = get_header_value(header, ['FILTER'])
+
+    # Get filter WHEEL device from profile
+    filter_wheel = profile_manager.get_value(header, 'filter_wheel', detected_software)
     if not filter_wheel:
-        filter_wheel = get_header_value(header, ['FILTER'])
+        filter_wheel = get_header_value(header, ['FWHEEL'])
     
     telescope_raw = profile_manager.get_value(header, 'telescope', detected_software)
     if not telescope_raw:
@@ -300,7 +305,7 @@ def extract_fits_metadata_simple(filepath: str, header,
         focal_len_raw, telescopes_dict
     )
     
-    filter_name = normalize_filter(filter_wheel, filter_mappings)
+    filter_name = normalize_filter(filter_raw, filter_mappings)
     
     # Coordinates
     ra = parse_coordinate(header, ['OBJCTRA', 'RA'])

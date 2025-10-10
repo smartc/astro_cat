@@ -24,6 +24,7 @@ class SoftwareProfile:
     camera_keys: List[str] = field(default_factory=lambda: ['INSTRUME', 'CAMERA'])
     telescope_keys: List[str] = field(default_factory=lambda: ['TELESCOP'])
     filter_keys: List[str] = field(default_factory=lambda: ['FILTER'])
+    filter_wheel_keys: List[str] = field(default_factory=lambda: ['FWHEEL']) 
     target_keys: List[str] = field(default_factory=lambda: ['OBJECT'])
     
     # Frame type keywords and value mappings
@@ -173,6 +174,7 @@ class ProfileManager:
             'camera': 'camera_keys',
             'telescope': 'telescope_keys',
             'filter': 'filter_keys',
+            'filter_wheel': 'filter_wheel_keys',
             'target': 'target_keys',
             'frame_type': 'frame_type_keys'
         }
