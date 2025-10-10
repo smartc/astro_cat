@@ -1,4 +1,4 @@
-"""Database models for FITS Cataloger - EXTENDED VERSION."""
+"""Database models for FITS Cataloger - EXTENDED VERSION with ALL original methods."""
 
 from datetime import datetime
 from typing import Optional, List, Dict, Tuple
@@ -265,7 +265,7 @@ class ProcessingSession(Base):
     # Metadata
     objects = Column(Text)  # JSON array of object names
     notes = Column(Text)
-    status = Column(String(20), default='not_started')  # not_started, in_progress, complete
+    status = Column(String(20), default='not_started')
     version = Column(Integer, default=1)
     
     # External references
@@ -445,23 +445,70 @@ class DatabaseService:
         """Get database statistics."""
         session = self.db_manager.get_session()
         try:
-            stats = {
-                'total_files': session.query(FitsFile).count(),
-                'light_frames': session.query(FitsFile).filter_by(frame_type='LIGHT').count(),
-                'dark_frames': session.query(FitsFile).filter_by(frame_type='DARK').count(),
-                'flat_frames': session.query(FitsFile).filter_by(frame_type='FLAT').count(),
-                'bias_frames': session.query(FitsFile).filter_by(frame_type='BIAS').count(),
-                'cameras': session.query(Camera).filter_by(active=True).count(),
-                'telescopes': session.query(Telescope).filter_by(active=True).count(),
-                'sessions': session.query(Session).count(),
-            }
+            stats = {}
+            
+            # Total files
+            total_files = session.query(FitsFile).count()
+            stats['total_files'] = total_files
+            
+            # Files by frame type
+            frame_type_counts = session.query(
+                FitsFile.frame_type, 
+                func.count(FitsFile.id)
+            ).group_by(FitsFile.frame_type).all()
+            stats['by_frame_type'] = {ft: count for ft, count in frame_type_counts}
+            
+            # Files by camera
+            camera_counts = session.query(
+                FitsFile.camera, 
+                func.count(FitsFile.id)
+            ).group_by(FitsFile.camera).all()
+            stats['by_camera'] = {cam: count for cam, count in camera_counts}
+            
+            # Files by telescope
+            telescope_counts = session.query(
+                FitsFile.telescope, 
+                func.count(FitsFile.id)
+            ).group_by(FitsFile.telescope).all()
+            stats['by_telescope'] = {tel: count for tel, count in telescope_counts}
+            
             return stats
+            
         finally:
             session.close()
     
-    def log_object_processing_error(self, filename: str, raw_name: str, 
-                                    proposed_name: str, error: str):
-        """Log object name processing errors."""
+    def add_session(self, session_data: dict) -> bool:
+        """Add a new session record."""
+        session = self.db_manager.get_session()
+        try:
+            # Check if session already exists
+            existing = session.query(Session).filter_by(
+                session_id=session_data['session_id']
+            ).first()
+            
+            if existing:
+                # Update existing session with any new data
+                for key, value in session_data.items():
+                    if hasattr(existing, key) and value is not None:
+                        setattr(existing, key, value)
+                existing.updated_at = datetime.utcnow()
+            else:
+                # Create new session
+                new_session = Session(**session_data)
+                session.add(new_session)
+            
+            session.commit()
+            return True
+            
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+    
+    def log_object_processing_failure(self, filename: str, raw_name: str, 
+                                     proposed_name: str = None, error: str = None):
+        """Log object name processing failure."""
         session = self.db_manager.get_session()
         try:
             log_entry = ObjectProcessingLog(

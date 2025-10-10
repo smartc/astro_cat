@@ -30,15 +30,15 @@ const StarfieldBackground = {
     props: {
         numStars: {
             type: Number,
-            default: 40
+            default: 55
         },
         minSize: {
             type: Number,
-            default: 0.3
+            default: 0.4
         },
         maxSize: {
             type: Number,
-            default: 0.8
+            default: 1.0
         },
         gradient: {
             type: String,
@@ -71,9 +71,9 @@ const StarfieldBackground = {
         generateStars() {
             // Color palette with weights (more white stars, fewer colored)
             const palette = [
-                { color: 'white', weight: 70 },
-                { color: '#C8DCFF', weight: 15 },  // cool blue
-                { color: '#FFB57A', weight: 10 },  // warm orange
+                { color: 'white', weight: 55 },
+                { color: '#C8DCFF', weight: 25 },  // cool blue
+                { color: '#FFB57A', weight: 15 },  // warm orange
                 { color: 'white', weight: 5 }
             ];
             

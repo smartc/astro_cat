@@ -222,8 +222,8 @@ def extract_fits_metadata_simple(filepath: str, header,
     from .session_generator import generate_session_id_with_hash
     from object_processor import ObjectNameProcessor
     
-    # Get profile manager (loads custom profiles if available)
-    profile_manager = get_profile_manager('profiles/custom_profiles.json')
+    # Get profile manager (auto-loads from profiles/ directory)
+    profile_manager = get_profile_manager()
     
     # Detect capture software
     detected_software = profile_manager.detect_software(header)
@@ -250,29 +250,38 @@ def extract_fits_metadata_simple(filepath: str, header,
     # USE PROFILE-AWARE EXTRACTION
     # =======================================================================
     
-    # Extract header values using profile system
+    # Extract header values using profile system with fallbacks
     raw_object = profile_manager.get_value(header, 'target', detected_software)
-    instrument = profile_manager.get_value(header, 'camera', detected_software)
-    filter_wheel = profile_manager.get_value(header, 'filter', detected_software)
-    telescope_raw = profile_manager.get_value(header, 'telescope', detected_software)
-    frame_type_raw = profile_manager.get_value(header, 'frame_type', detected_software)
-    
-    # Fallback to direct header access if profile doesn't find it
     if not raw_object:
         raw_object = get_header_value(header, ['OBJECT', 'TARGET'])
+    
+    instrument = profile_manager.get_value(header, 'camera', detected_software)
     if not instrument:
         instrument = get_header_value(header, ['INSTRUME'])
+    
+    filter_wheel = profile_manager.get_value(header, 'filter', detected_software)
     if not filter_wheel:
         filter_wheel = get_header_value(header, ['FILTER'])
+    
+    telescope_raw = profile_manager.get_value(header, 'telescope', detected_software)
     if not telescope_raw:
         telescope_raw = get_header_value(header, ['TELESCOP'])
+    
+    frame_type_raw = profile_manager.get_value(header, 'frame_type', detected_software)
     if not frame_type_raw:
         frame_type_raw = get_header_value(header, ['IMAGETYP', 'FRAMETYPE'])
     
-    # Continue with existing logic...
+    # Continue with existing extraction...
     focal_len_raw = get_header_value(header, ['FOCALLEN'], float)
+    observer = get_header_value(header, ['OBSERVER'])
+    site_name = get_header_value(header, ['SITENAME'])
+    binning = get_header_value(header, ['XBINNING', 'BINNING'], int, 1)
     
-    # Normalize frame type (profile may have already done this)
+    # Image dimensions
+    x = get_header_value(header, ['NAXIS1'], int)
+    y = get_header_value(header, ['NAXIS2'], int)
+    
+    # Normalize frame type (profile may have already mapped it)
     frame_type = normalize_frame_type(frame_type_raw)
     
     # Process object name
@@ -282,16 +291,16 @@ def extract_fits_metadata_simple(filepath: str, header,
     else:
         object_name = None
     
-    # Identify equipment
-    camera_name, camera_info = identify_camera_simple(instrument, cameras_dict)
-    telescope_name, telescope_info = identify_telescope_simple(
-        telescope_raw, focal_len_raw, telescopes_dict
+    # Identify equipment using current function signatures
+    camera_name = identify_camera_simple(
+        x, y, instrument, binning, cameras_dict
     )
-    filter_name = normalize_filter(filter_wheel, filter_mappings)
     
-    # Image dimensions
-    x = get_header_value(header, ['NAXIS1'], int)
-    y = get_header_value(header, ['NAXIS2'], int)
+    telescope_name = identify_telescope_simple(
+        focal_len_raw, telescopes_dict
+    )
+    
+    filter_name = normalize_filter(filter_wheel, filter_mappings)
     
     # Coordinates
     ra = parse_coordinate(header, ['OBJCTRA', 'RA'])
@@ -303,12 +312,10 @@ def extract_fits_metadata_simple(filepath: str, header,
     elevation = get_header_value(header, ['SITEELEV'], float)
     
     # Calculate field of view
-    if camera_info and telescope_info:
-        fov_x, fov_y, pixel_scale = calculate_field_of_view_simple(
-            camera_info, telescope_info
-        )
-    else:
-        fov_x = fov_y = pixel_scale = None
+    fov_data = calculate_field_of_view_simple(
+        camera_name, telescope_name, x, y, binning, 
+        cameras_dict, telescopes_dict
+    )
     
     # Build metadata dict
     metadata.update({
@@ -321,24 +328,37 @@ def extract_fits_metadata_simple(filepath: str, header,
         'y': y,
         'frame_type': frame_type,
         'filter': filter_name,
-        'focal_length': telescope_info.get('focal') if telescope_info else focal_len_raw,
+        'focal_length': focal_len_raw,
         'exposure': get_header_value(header, ['EXPTIME', 'EXPOSURE'], float),
         'camera': camera_name,
         'telescope': telescope_name,
         'latitude': latitude,
         'longitude': longitude,
         'elevation': elevation,
-        'fov_x': fov_x,
-        'fov_y': fov_y,
-        'pixel_scale': pixel_scale,
     })
     
+    # Add FOV data
+    metadata.update(fov_data)
+    
     # Generate session ID
-    if obs_date and telescope_name and camera_name:
-        session_id = generate_session_id_with_hash(obs_date, telescope_name, camera_name)
-        metadata['session_id'] = session_id
-    else:
-        metadata['session_id'] = None
+    metadata['session_id'] = generate_session_id_with_hash(
+        obs_date, instrument, focal_len_raw, x, y, 
+        filter_wheel, observer, site_name
+    )
+    
+    # Store session data
+    metadata['_session_data'] = {
+        'session_id': metadata['session_id'],
+        'session_date': obs_date,
+        'telescope': telescope_name,
+        'camera': camera_name,
+        'site_name': site_name,
+        'latitude': latitude,
+        'longitude': longitude,
+        'elevation': elevation,
+        'observer': observer,
+        'notes': None
+    }
     
     # Add extended metadata
     extended = extract_extended_metadata(header)
