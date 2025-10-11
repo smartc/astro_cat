@@ -6,7 +6,7 @@ import hashlib
 import logging
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Set
 from dataclasses import dataclass
 from collections import defaultdict
 
@@ -60,6 +60,8 @@ class CalibrationMatch:
     file_count: int
     exposure_times: List[float]  # For darks
     files: List[FitsFile]
+    matched_light_dates: Optional[List[str]] = None
+    days_from_lights: Optional[int] = None
 
 
 class ProcessingSessionManager:
@@ -392,13 +394,144 @@ class ProcessingSessionManager:
             session.close()
 
 
+    def _cluster_light_dates(self, light_dates: Set[str], max_gap_days: int = 7) -> List[List[str]]:
+        """
+        Cluster light frame dates into groups based on temporal proximity.
+        
+        Dates within max_gap_days of each other are grouped together.
+        This helps identify when a session has frames from multiple distinct time periods.
+        
+        Args:
+            light_dates: Set of observation dates (YYYY-MM-DD format)
+            max_gap_days: Maximum days between dates to consider them in the same cluster
+            
+        Returns:
+            List of date clusters, each cluster is a list of dates
+        """
+        if not light_dates:
+            return []
+        
+        # Convert to datetime objects and sort
+        dates_list = []
+        for date_str in light_dates:
+            try:
+                dates_list.append(datetime.strptime(date_str, '%Y-%m-%d'))
+            except:
+                logger.warning(f"Could not parse date: {date_str}")
+                continue
+        
+        if not dates_list:
+            return []
+        
+        dates_list.sort()
+        
+        # Cluster dates
+        clusters = []
+        current_cluster = [dates_list[0]]
+        
+        for date in dates_list[1:]:
+            days_diff = (date - current_cluster[-1]).days
+            
+            if days_diff <= max_gap_days:
+                current_cluster.append(date)
+            else:
+                # Start a new cluster
+                clusters.append([d.strftime('%Y-%m-%d') for d in current_cluster])
+                current_cluster = [date]
+        
+        # Don't forget the last cluster
+        clusters.append([d.strftime('%Y-%m-%d') for d in current_cluster])
+        
+        return clusters
+    
+    def _find_closest_calibration_for_dates(self, calibration_files: List[FitsFile], 
+                                           target_dates: List[str],
+                                           max_days: Optional[int] = None) -> Optional[Tuple[List[FitsFile], int]]:
+        """
+        Find the calibration files closest in time to the target dates.
+        
+        Args:
+            calibration_files: List of potential calibration files
+            target_dates: List of target observation dates (YYYY-MM-DD)
+            max_days: Maximum allowed days difference (None = no limit)
+            
+        Returns:
+            Tuple of (matching files, days_difference) or None if no match within range
+        """
+        if not calibration_files or not target_dates:
+            return None
+        
+        # Calculate the median date of the target light frames
+        target_datetimes = []
+        for date_str in target_dates:
+            try:
+                target_datetimes.append(datetime.strptime(date_str, '%Y-%m-%d'))
+            except:
+                continue
+        
+        if not target_datetimes:
+            return None
+        
+        target_datetimes.sort()
+        median_target = target_datetimes[len(target_datetimes) // 2]
+        
+        # Group calibration files by session and find closest
+        by_session = defaultdict(list)
+        for f in calibration_files:
+            if f.obs_date:
+                sid = f.session_id or 'UNKNOWN'
+                by_session[sid].append(f)
+        
+        closest_match = None
+        closest_days = None
+        
+        for sid, session_files in by_session.items():
+            # Get median date of this calibration session
+            cal_dates = []
+            for f in session_files:
+                if f.obs_date:
+                    try:
+                        cal_dates.append(datetime.strptime(f.obs_date, '%Y-%m-%d'))
+                    except:
+                        continue
+            
+            if not cal_dates:
+                continue
+            
+            cal_dates.sort()
+            median_cal = cal_dates[len(cal_dates) // 2]
+            
+            days_diff = abs((median_cal - median_target).days)
+            
+            # Check if within max_days limit (if specified)
+            if max_days is not None and days_diff > max_days:
+                continue
+            
+            # Track closest match
+            if closest_days is None or days_diff < closest_days:
+                closest_days = days_diff
+                closest_match = session_files
+        
+        if closest_match is None:
+            return None
+        
+        return (closest_match, closest_days)
+    
+
     def _find_matching_darks(self, session, light_sessions: set, gap_combinations: set,
                             light_dates: set) -> List[CalibrationMatch]:
-        """Find dark frames only for camera+exposure combinations that aren't already covered."""
+        """
+        Find dark frames only for camera+exposure combinations that aren't already covered.
+        Returns only ONE set of darks per (camera, exposure) - the closest to ALL light frames.
+        No time limit - will find the closest match regardless of age.
+        """
         matches = []
         
+        # Convert set to list for matching (use ALL dates, not clusters)
+        all_light_dates = list(light_dates) if light_dates else []
+        
         for camera, exposure in gap_combinations:
-            # Query for matching darks
+            # Query for ALL matching darks
             query = session.query(FitsFile).filter(
                 FitsFile.frame_type == 'DARK',
                 FitsFile.camera == camera,
@@ -406,51 +539,58 @@ class ProcessingSessionManager:
                 FitsFile.migration_ready == True
             )
             
-            # Prefer from same sessions, then same dates, then any
-            for_same_session = query.filter(FitsFile.session_id.in_(light_sessions)).all() if light_sessions else []
+            all_darks = query.all()
             
-            if for_same_session:
-                files = for_same_session
-            else:
-                for_same_date = query.filter(FitsFile.obs_date.in_(light_dates)).all() if light_dates else []
-                if for_same_date:
-                    files = for_same_date
-                else:
-                    files = query.all()
+            if not all_darks:
+                continue
             
-            if files:
-                # Group by session
-                by_session = {}
-                for f in files:
-                    sid = f.session_id or 'UNKNOWN'
-                    if sid not in by_session:
-                        by_session[sid] = []
-                    by_session[sid].append(f)
+            # Find the single closest match to ALL light dates
+            result = self._find_closest_calibration_for_dates(
+                all_darks, 
+                all_light_dates,
+                max_days=None  # No time limit for darks
+            )
+            
+            if result:
+                matched_files, days_diff = result
                 
-                for sid, session_files in by_session.items():
-                    obs_date = session_files[0].obs_date if session_files[0].obs_date else 'Unknown'
-                    matches.append(CalibrationMatch(
-                        capture_session_id=sid,
-                        camera=camera,
-                        telescope=None,
-                        filters=[],
-                        capture_date=obs_date,
-                        frame_type='DARK',
-                        file_count=len(session_files),
-                        exposure_times=[exposure],
-                        files=session_files
-                    ))
+                # Get the session ID and date from the matched files
+                sid = matched_files[0].session_id or 'UNKNOWN'
+                obs_date = matched_files[0].obs_date if matched_files[0].obs_date else 'Unknown'
+                
+                matches.append(CalibrationMatch(
+                    capture_session_id=sid,
+                    camera=camera,
+                    telescope=None,
+                    filters=[],
+                    capture_date=obs_date,
+                    frame_type='DARK',
+                    file_count=len(matched_files),
+                    exposure_times=[exposure],
+                    files=matched_files,
+                    matched_light_dates=all_light_dates,
+                    days_from_lights=days_diff
+                ))
         
         return matches
 
 
     def _find_matching_flats(self, session, light_sessions: set, gap_combinations: set,
                             light_dates: set) -> List[CalibrationMatch]:
-        """Find flat frames only for camera+telescope+filter combinations that aren't already covered."""
+        """
+        Find flat frames only for camera+telescope+filter combinations that aren't already covered.
+        Returns the CLOSEST match for each date cluster, with cascading time windows:
+        - First try: ±30 days (green - ideal)
+        - Second try: ±60 days (yellow - acceptable)
+        - Third try: ±90 days (red - old but usable)
+        """
         matches = []
         
+        # Cluster light dates to handle multi-date sessions
+        date_clusters = self._cluster_light_dates(light_dates)
+        
         for camera, telescope, filter_name in gap_combinations:
-            # Query for matching flats
+            # Query for ALL matching flats
             query = session.query(FitsFile).filter(
                 FitsFile.frame_type == 'FLAT',
                 FitsFile.camera == camera,
@@ -459,29 +599,52 @@ class ProcessingSessionManager:
                 FitsFile.migration_ready == True
             )
             
-            # Prefer from same sessions, then same dates, then any
-            for_same_session = query.filter(FitsFile.session_id.in_(light_sessions)).all() if light_sessions else []
+            all_flats = query.all()
             
-            if for_same_session:
-                files = for_same_session
-            else:
-                for_same_date = query.filter(FitsFile.obs_date.in_(light_dates)).all() if light_dates else []
-                if for_same_date:
-                    files = for_same_date
-                else:
-                    files = query.all()
+            if not all_flats:
+                continue
             
-            if files:
-                # Group by session
-                by_session = {}
-                for f in files:
-                    sid = f.session_id or 'UNKNOWN'
-                    if sid not in by_session:
-                        by_session[sid] = []
-                    by_session[sid].append(f)
+            # For each date cluster, try cascading time windows
+            for cluster_dates in date_clusters:
+                matched_files = None
+                days_diff = None
                 
-                for sid, session_files in by_session.items():
-                    obs_date = session_files[0].obs_date if session_files[0].obs_date else 'Unknown'
+                # Try 30 days first (green - ideal)
+                result = self._find_closest_calibration_for_dates(
+                    all_flats, 
+                    cluster_dates,
+                    max_days=30
+                )
+                
+                if result:
+                    matched_files, days_diff = result
+                else:
+                    # Try 60 days (yellow - acceptable)
+                    result = self._find_closest_calibration_for_dates(
+                        all_flats, 
+                        cluster_dates,
+                        max_days=60
+                    )
+                    
+                    if result:
+                        matched_files, days_diff = result
+                    else:
+                        # Try 90 days (red - old but usable)
+                        result = self._find_closest_calibration_for_dates(
+                            all_flats, 
+                            cluster_dates,
+                            max_days=90
+                        )
+                        
+                        if result:
+                            matched_files, days_diff = result
+                
+                # If we found a match at any tier, add it
+                if matched_files:
+                    # Get the session ID and date from the matched files
+                    sid = matched_files[0].session_id or 'UNKNOWN'
+                    obs_date = matched_files[0].obs_date if matched_files[0].obs_date else 'Unknown'
+                    
                     matches.append(CalibrationMatch(
                         capture_session_id=sid,
                         camera=camera,
@@ -489,64 +652,71 @@ class ProcessingSessionManager:
                         filters=[filter_name],
                         capture_date=obs_date,
                         frame_type='FLAT',
-                        file_count=len(session_files),
+                        file_count=len(matched_files),
                         exposure_times=[],
-                        files=session_files
+                        files=matched_files,
+                        matched_light_dates=cluster_dates,
+                        days_from_lights=days_diff
                     ))
         
         return matches
-
+        
 
     def _find_matching_bias(self, session, light_sessions: set, gap_cameras: set,
                            light_dates: set) -> List[CalibrationMatch]:
-        """Find bias frames only for cameras that aren't already covered."""
+        """
+        Find bias frames only for cameras that aren't already covered.
+        Returns only ONE set of bias per camera - the closest to ALL light frames.
+        No time limit - will find the closest match regardless of age.
+        """
         matches = []
         
+        # Convert set to list for matching (use ALL dates, not clusters)
+        all_light_dates = list(light_dates) if light_dates else []
+        
         for camera in gap_cameras:
-            # Query for matching bias
+            # Query for ALL matching bias
             query = session.query(FitsFile).filter(
                 FitsFile.frame_type == 'BIAS',
                 FitsFile.camera == camera,
                 FitsFile.migration_ready == True
             )
             
-            # Prefer from same sessions, then same dates, then any
-            for_same_session = query.filter(FitsFile.session_id.in_(light_sessions)).all() if light_sessions else []
+            all_bias = query.all()
             
-            if for_same_session:
-                files = for_same_session
-            else:
-                for_same_date = query.filter(FitsFile.obs_date.in_(light_dates)).all() if light_dates else []
-                if for_same_date:
-                    files = for_same_date
-                else:
-                    files = query.all()
+            if not all_bias:
+                continue
             
-            if files:
-                # Group by session
-                by_session = {}
-                for f in files:
-                    sid = f.session_id or 'UNKNOWN'
-                    if sid not in by_session:
-                        by_session[sid] = []
-                    by_session[sid].append(f)
+            # Find the single closest match to ALL light dates
+            result = self._find_closest_calibration_for_dates(
+                all_bias, 
+                all_light_dates,
+                max_days=None  # No time limit for bias
+            )
+            
+            if result:
+                matched_files, days_diff = result
                 
-                for sid, session_files in by_session.items():
-                    obs_date = session_files[0].obs_date if session_files[0].obs_date else 'Unknown'
-                    matches.append(CalibrationMatch(
-                        capture_session_id=sid,
-                        camera=camera,
-                        telescope=None,
-                        filters=[],
-                        capture_date=obs_date,
-                        frame_type='BIAS',
-                        file_count=len(session_files),
-                        exposure_times=[],
-                        files=session_files
-                    ))
+                # Get the session ID and date from the matched files
+                sid = matched_files[0].session_id or 'UNKNOWN'
+                obs_date = matched_files[0].obs_date if matched_files[0].obs_date else 'Unknown'
+                
+                matches.append(CalibrationMatch(
+                    capture_session_id=sid,
+                    camera=camera,
+                    telescope=None,
+                    filters=[],
+                    capture_date=obs_date,
+                    frame_type='BIAS',
+                    file_count=len(matched_files),
+                    exposure_times=[],
+                    files=matched_files,
+                    matched_light_dates=all_light_dates,
+                    days_from_lights=days_diff
+                ))
         
         return matches
-    
+
     def add_calibration_to_session(self, session_id: str, 
                                  calibration_matches: Dict[str, List[CalibrationMatch]]) -> bool:
         """Add selected calibration files to processing session."""

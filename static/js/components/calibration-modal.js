@@ -5,7 +5,7 @@
 
 const CalibrationModalComponent = {
     template: `
-        <div v-if="showCalibrationModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 modal-backdrop">
+        <div v-if="showCalibrationModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-250 modal-backdrop">
             <div class="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto modal-content">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-lg font-bold">Calibration Files for {{ currentCalibrationSession?.name }}</h3>
@@ -80,23 +80,38 @@ const CalibrationModalComponent = {
                                     <div>
                                         <strong>Session:</strong> {{ match.capture_session_id }}<br>
                                         <strong>Camera:</strong> {{ match.camera }}<br>
-                                        <strong>Telescope:</strong> {{ match.telescope || 'N/A' }}
+                                        <span v-if="match.telescope">
+                                            <strong>Telescope:</strong> {{ match.telescope }}<br>
+                                        </span>
+                                        <span v-if="match.filters && match.filters.length > 0">
+                                            <strong>Filter:</strong> {{ match.filters.join(', ') }}<br>
+                                        </span>
+                                        <span v-if="match.exposure_times && match.exposure_times.length > 0">
+                                            <strong>Exposure:</strong> {{ match.exposure_times.join(', ') }}s<br>
+                                        </span>
                                     </div>
                                     <div>
-                                        <strong>Date:</strong> {{ formatDate(match.capture_date) }}<br>
+                                        <strong>Calibration Date:</strong> {{ formatDate(match.capture_date) }}<br>
+                                        <span v-if="match.matched_light_dates">
+                                            <strong>Matches Lights:</strong> {{ formatDateRange(match.matched_light_dates) }}<br>
+                                        </span>
                                         <strong>Files:</strong> {{ match.file_count }}<br>
-                                        <strong v-if="match.exposure_times && match.exposure_times.length">
-                                            Exposures:</strong> 
-                                        <span v-if="match.exposure_times && match.exposure_times.length">
-                                            {{ match.exposure_times.join(', ') }}s
+                                        <span v-if="match.days_from_lights !== null && match.days_from_lights !== undefined">
+                                            <span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium"
+                                                  :class="getTemporalProximityBadge(match.days_from_lights, frameType).class">
+                                                {{ getTemporalProximityBadge(match.days_from_lights, frameType).text }}
+                                            </span>
                                         </span>
                                     </div>
                                 </div>
-                                <div v-if="match.filters && match.filters.length" class="mt-2 text-sm">
-                                    <strong>Filters:</strong> {{ match.filters.join(', ') }}
-                                </div>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- Multi-date warning -->
+                    <div v-if="hasMultipleDateClusters()" class="mt-4 p-3 bg-yellow-50 border-l-4 border-yellow-400 text-yellow-800 text-sm">
+                        <strong>Note:</strong> Your session contains light frames from multiple time periods. 
+                        Calibration has been matched to each period separately for best results.
                     </div>
                     
                     <!-- Action Buttons -->
@@ -261,6 +276,62 @@ const CalibrationModalComponent = {
         formatDate(dateString) {
             if (!dateString) return 'N/A';
             return new Date(dateString).toLocaleDateString();
+        },
+
+        formatDateRange(dates) {
+            if (!dates || dates.length === 0) return 'N/A';
+            if (dates.length === 1) return this.formatDate(dates[0]);
+            return `${this.formatDate(dates[0])} to ${this.formatDate(dates[dates.length - 1])}`;
+        },
+        
+        getTemporalProximityBadge(daysFromLights, frameType) {
+            if (daysFromLights === null || daysFromLights === undefined) {
+                return { text: '', class: '' };
+            }
+            
+            // For flats, use tiered color coding
+            if (frameType === 'flats') {
+                if (daysFromLights === 0) {
+                    return { text: 'Same day', class: 'bg-green-100 text-green-800' };
+                } else if (daysFromLights <= 7) {
+                    return { text: `${daysFromLights}d close`, class: 'bg-green-100 text-green-800' };
+                } else if (daysFromLights <= 30) {
+                    return { text: `${daysFromLights}d away`, class: 'bg-green-100 text-green-800' };
+                } else if (daysFromLights <= 60) {
+                    return { text: `${daysFromLights}d away`, class: 'bg-yellow-100 text-yellow-800' };
+                } else if (daysFromLights <= 90) {
+                    return { text: `${daysFromLights}d away`, class: 'bg-red-100 text-red-800' };
+                } else {
+                    return { text: `${daysFromLights}d (too old)`, class: 'bg-gray-100 text-gray-800' };
+                }
+            } else {
+                // For darks and bias, simpler color coding
+                if (daysFromLights === 0) {
+                    return { text: 'Same day', class: 'bg-green-100 text-green-800' };
+                } else if (daysFromLights <= 7) {
+                    return { text: `${daysFromLights}d close`, class: 'bg-green-100 text-green-800' };
+                } else if (daysFromLights <= 30) {
+                    return { text: `${daysFromLights}d away`, class: 'bg-yellow-100 text-yellow-800' };
+                } else {
+                    return { text: `${daysFromLights}d away`, class: 'bg-orange-100 text-orange-800' };
+                }
+            }
+        },
+        
+        hasMultipleDateClusters() {
+            // Check if there are multiple distinct date clusters across all calibration matches
+            const dateGroups = new Set();
+            ['darks', 'flats', 'bias'].forEach(frameType => {
+                const matches = this.calibrationMatches[frameType];
+                if (Array.isArray(matches)) {
+                    matches.forEach(match => {
+                        if (match.matched_light_dates) {
+                            dateGroups.add(JSON.stringify(match.matched_light_dates));
+                        }
+                    });
+                }
+            });
+            return dateGroups.size > 1;
         }
     }
 };

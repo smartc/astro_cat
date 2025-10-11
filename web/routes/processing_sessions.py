@@ -363,7 +363,7 @@ async def get_calibration_matches(
             result[frame_type] = []
             match_list = matches.get(frame_type, [])
             for match in match_list:
-                result[frame_type].append({
+                match_dict = {
                     "capture_session_id": match.capture_session_id,
                     "camera": match.camera,
                     "telescope": match.telescope,
@@ -373,13 +373,21 @@ async def get_calibration_matches(
                     "file_count": match.file_count,
                     "exposure_times": match.exposure_times,
                     "file_ids": [f.id for f in match.files]
-                })
+                }
+                
+                # Add new temporal matching fields
+                if match.matched_light_dates:
+                    match_dict["matched_light_dates"] = match.matched_light_dates
+                if match.days_from_lights is not None:
+                    match_dict["days_from_lights"] = match.days_from_lights
+                
+                result[frame_type].append(match_dict)
         
         return result
     except Exception as e:
         logger.error(f"Error finding calibration matches for {session_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
+        
 
 @router.get("/{session_id}/session-info")
 async def get_processing_session_info(

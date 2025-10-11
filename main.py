@@ -942,13 +942,39 @@ def add_calibration(ctx, session_id, frame_type, auto_add, dry_run):
                         click.echo(f"  Exposure: {exposures[0]}s")
                     else:
                         click.echo(f"  Exposures: {exposures}s")
-                click.echo(f"  Date: {match.capture_date}")
+                click.echo(f"  Calibration Date: {match.capture_date}")
+                
+                # NEW: Show which light frame dates this matches
+                if match.matched_light_dates:
+                    if len(match.matched_light_dates) == 1:
+                        click.echo(f"  → Matches lights from: {match.matched_light_dates[0]}")
+                    else:
+                        date_range = f"{min(match.matched_light_dates)} to {max(match.matched_light_dates)}"
+                        click.echo(f"  → Matches lights from: {date_range}")
+                
+                # NEW: Show temporal proximity
+                if match.days_from_lights is not None:
+                    if match.days_from_lights == 0:
+                        click.echo(f"  ✓ Same day as lights")
+                    elif match.days_from_lights <= 7:
+                        click.echo(f"  ✓ Within {match.days_from_lights} days of lights")
+                    elif match.days_from_lights <= 30:
+                        click.echo(f"  ~ {match.days_from_lights} days from lights")
+                    else:
+                        click.echo(f"  ⚠ {match.days_from_lights} days from lights")
+                
                 click.echo(f"  Files: {match.file_count}")
                 click.echo()
                 
                 total_files += match.file_count
-        
+
         click.echo(f"Total calibration files found: {total_files}")
+
+        # If multiple date clusters were found, inform the user
+        if len(set(tuple(m.matched_light_dates) for calib_matches in matches.values() 
+                   for m in calib_matches if m.matched_light_dates)) > 1:
+            click.echo("\n⚠ Note: Your processing session contains light frames from multiple")
+            click.echo("  time periods. Calibration has been matched to each period separately.")
         
         if dry_run:
             click.echo("\nDry run completed - no files added.")
