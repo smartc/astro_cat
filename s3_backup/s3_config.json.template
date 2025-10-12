@@ -1,0 +1,113 @@
+{
+  "_comment": "S3 Backup Configuration - Copy to s3_config.json and customize",
+  
+  "enabled": true,
+  "aws_region": "ca-west-1",
+  
+  "buckets": {
+    "primary": "your-aws-bucket-id",
+    "backup": null,
+    "_comment": "backup bucket is optional for redundancy"
+  },
+  
+  "s3_paths": {
+    "raw_archives": "backups/raw",
+    "session_notes": "backups/sessions",
+    "processing_notes": "backups/processing",
+    "final_outputs": "backups/final",
+    "_comment": "All paths relative to bucket root"
+  },
+  
+  "backup_rules": {
+    "raw_lights": {
+      "archive_policy": "fast",
+      "backup_policy": "deep",
+      "archive_days": 7,
+      "storage_class": "STANDARD",
+      "_comment": "Transitions to Deep Archive after 7 days via lifecycle"
+    },
+    "raw_calibration": {
+      "archive_policy": "fast",
+      "backup_policy": "deep",
+      "archive_days": 7,
+      "storage_class": "STANDARD"
+    },
+    "imaging_sessions": {
+      "archive_policy": "standard",
+      "backup_policy": "deep",
+      "archive_days": 30,
+      "storage_class": "STANDARD",
+      "_comment": "Session notes kept readily accessible longer"
+    },
+    "processing_sessions": {
+      "archive_policy": "delayed",
+      "backup_policy": "flexible",
+      "archive_days": 90,
+      "storage_class": "STANDARD",
+      "_comment": "Processing notes archived more slowly"
+    }
+  },
+  
+  "upload_settings": {
+    "multipart_threshold_mb": 100,
+    "multipart_chunksize_mb": 25,
+    "max_concurrency": 4,
+    "use_threads": true,
+    "max_bandwidth_mbps": null,
+    "_comment": "null = no bandwidth limit, otherwise specify MB/s"
+  },
+  
+  "restore_settings": {
+    "default_tier": "Standard",
+    "default_days": 7,
+    "restore_path": "/path/to/restore",
+    "_comment": "Tiers: Expedited (1-5 min), Standard (3-5 hrs), Bulk (5-12 hrs)"
+  },
+  
+  "archive_settings": {
+    "compression_level": 0,
+    "use_pigz": false,
+    "verify_after_upload": true,
+    "keep_archive_index": true,
+    "max_archive_size_gb": 50,
+    "temp_dir": ".tmp/backup_archives",
+    "_comment": "compression_level: 0=none (recommended for FITS), 1-9 for gzip. Uncompressed is faster for minimal cost increase."
+  },
+  
+  "retry_settings": {
+    "max_retries": 3,
+    "initial_backoff_seconds": 2,
+    "max_backoff_seconds": 60,
+    "backoff_multiplier": 2
+  },
+  
+  "logging": {
+    "log_uploads": true,
+    "log_verifications": true,
+    "log_restores": true,
+    "verbose": false
+  },
+  
+  "cost_tracking": {
+    "track_costs": true,
+    "storage_cost_per_gb_per_month": {
+      "STANDARD": 0.025,
+      "STANDARD_IA": 0.0138,
+      "GLACIER_IR": 0.005,
+      "GLACIER_FLEXIBLE": 0.00405,
+      "DEEP_ARCHIVE": 0.0018,
+      "_comment": "ca-west-1 pricing (USD) - update as needed"
+    },
+    "data_transfer_cost_per_gb": {
+      "upload": 0.0,
+      "download": 0.09,
+      "_comment": "Upload is free, download charged after first 100GB/month"
+    }
+  },
+  
+  "notifications": {
+    "email_on_complete": false,
+    "email_address": null,
+    "email_on_error": true
+  }
+}

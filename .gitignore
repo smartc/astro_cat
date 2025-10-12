@@ -206,6 +206,12 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# S3 Backup
+s3_config.json
+*.tar.gz
+_archive_temp/
+
+
 # Corey's Stuff
 _debug_code_/
 astro.quarantine
