@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Browser</title>
+
+    <link rel="icon" type="image/png" href="/static/assets/favicon.png">
+    
+    <!-- Local Libraries -->
+    <script src="/static/js/lib/vue.global.prod.js"></script>
+    <script src="/static/js/components/icons.js"></script>
+    <script src="/static/js/components/starfield-background.js"></script> 
+    <script src="/static/js/components/app-header.js"></script>
+    <script src="/static/js/components/app-footer.js"></script>
+    <script src="/static/js/lib/axios.min.js"></script>
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="/static/css/lib/tailwind.min.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/file-browser.css">
+</head>
+<body>
+    <div id="app" style="display: flex; flex-direction: column; height: 100%;">
+        <!-- Shared Header -->
+        <app-header></app-header>
+
+        <!-- Session Info Bar -->
+        <div class="session-info-bar">
+            <div v-if="sessionDetails" class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                    <span class="text-gray-600 text-xs uppercase tracking-wide">Session</span>
+                    <div class="font-mono text-green-600 font-semibold">{{ sessionId }}</div>
+                </div>
+                <div>
+                    <span class="text-gray-600 text-xs uppercase tracking-wide">Name</span>
+                    <div class="font-semibold text-gray-900">{{ sessionDetails.name }}</div>
+                </div>
+                <div>
+                    <span class="text-gray-600 text-xs uppercase tracking-wide">Status</span>
+                    <div>
+                        <span :class="getStatusClass(sessionDetails.status)" class="inline-block px-2 py-1 rounded text-xs font-semibold">
+                            {{ formatStatus(sessionDetails.status) }}
+                        </span>
+                    </div>
+                </div>
+                <div>
+                    <span class="text-gray-600 text-xs uppercase tracking-wide">Objects</span>
+                    <div class="font-semibold text-gray-900">{{ formatObjects(sessionDetails.objects) }}</div>
+                </div>
+            </div>
+            <div v-else class="flex items-center gap-4">
+                <span class="text-gray-400 text-sm">Session:</span>
+                <span class="font-mono text-green-600 font-semibold">{{ sessionId || 'Loading...' }}</span>
+            </div>
+        </div>
+
+        <!-- Instructions Bar -->
+        <div class="instructions-bar">
+            <span class="label">💡 Quick Access:</span>
+            <span>Windows Explorer: <code @click="copyToClipboard(webdavUrl)" title="Click to copy">{{ webdavUrl || 'Loading...' }}</code></span>
+        </div>
+
+        <!-- File Browser Container -->
+        <div class="iframe-container">
+            <!-- Loading State -->
+            <div v-if="loading" class="loading">
+                <div class="spinner"></div>
+                <div>Loading file browser...</div>
+            </div>
+            
+            <!-- Error State -->
+            <div v-if="error" class="error-message">
+                <div class="error-icon">⚠️</div>
+                <div>{{ errorMessage }}</div>
+            </div>
+            
+            <!-- WebDAV iframe -->
+            <iframe 
+                v-show="!loading && !error" 
+                :src="iframeSrc"
+                @load="onIframeLoad"
+                @error="onIframeError"
+                id="webdav-frame"
+            ></iframe>
+        </div>
+
+        <!-- Footer -->
+        <app-footer></app-footer>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            components: {
+                'app-header': AppHeader,
+                'app-footer': AppFooter
+            },
+
+            data() {
+                return {
+                    sessionId: '',
+                    sessionDetails: null,
+                    webdavUrl: '',
+                    iframeSrc: '',
+                    loading: true,
+                    error: false,
+                    errorMessage: '',
+                    menuOpen: false
+                };
+            },
+
+            methods: {
+                async loadProcessingSessionDetails() {
+                    try {
+                        const response = await fetch(`/api/processing-sessions/${this.sessionId}`);
+                        if (response.ok) {
+                            this.sessionDetails = await response.json();
+                        }
+                    } catch (error) {
+                        console.error('Error loading session details:', error);
+                        // Non-critical, continue without details
+                    }
+                },
+
+                async loadWebDAVInfo() {
+                    try {
+                        const response = await fetch(`/api/webdav/session/${this.sessionId}`);
+                        
+                        if (!response.ok) {
+                            throw new Error(`Failed to load WebDAV info: ${response.statusText}`);
+                        }
+
+                        const webdavInfo = await response.json();
+                        
+                        // Set the WebDAV base URL
+                        this.webdavUrl = webdavInfo.webdav_base;
+                        this.iframeSrc = webdavInfo.webdav_root;
+
+                    } catch (error) {
+                        console.error('Error loading WebDAV info:', error);
+                        this.showError(error.message);
+                    }
+                },
+
+                onIframeLoad() {
+                    this.loading = false;
+                },
+
+                onIframeError() {
+                    this.showError('Failed to load file browser. Make sure WebDAV server is running.');
+                },
+
+                showError(message) {
+                    this.loading = false;
+                    this.error = true;
+                    this.errorMessage = message;
+                },
+
+                copyToClipboard(text) {
+                    if (!text) return;
+                    
+                    // Check if Clipboard API is available (requires HTTPS or localhost)
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(text).then(() => {
+                            this.showCopyFeedback();
+                        }).catch(err => {
+                            console.error('Clipboard API failed:', err);
+                            this.fallbackCopy(text);
+                        });
+                    } else {
+                        // Fallback for non-HTTPS contexts
+                        this.fallbackCopy(text);
+                    }
+                },
+
+                fallbackCopy(text) {
+                    // Create a temporary textarea element
+                    const textarea = document.createElement('textarea');
+                    textarea.value = text;
+                    textarea.style.position = 'fixed';
+                    textarea.style.opacity = '0';
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    
+                    try {
+                        document.execCommand('copy');
+                        this.showCopyFeedback();
+                    } catch (err) {
+                        console.error('Fallback copy failed:', err);
+                        alert('Failed to copy to clipboard. Please copy manually: ' + text);
+                    } finally {
+                        document.body.removeChild(textarea);
+                    }
+                },
+
+                showCopyFeedback() {
+                    // Visual feedback
+                    if (event && event.target) {
+                        const element = event.target;
+                        const originalBg = element.style.background;
+                        const originalBorder = element.style.borderColor;
+                        
+                        element.style.background = '#10b981';
+                        element.style.borderColor = '#10b981';
+                        element.style.color = 'white';
+                        
+                        setTimeout(() => {
+                            element.style.background = originalBg;
+                            element.style.borderColor = originalBorder;
+                            element.style.color = '';
+                        }, 500);
+                    }
+                },
+
+                getStatusClass(status) {
+                    const classes = {
+                        'not_started': 'bg-gray-100 text-gray-800',
+                        'in_progress': 'bg-blue-100 text-blue-800',
+                        'complete': 'bg-green-100 text-green-800'
+                    };
+                    return classes[status] || 'bg-gray-100 text-gray-800';
+                },
+
+                formatStatus(status) {
+                    const labels = {
+                        'not_started': 'Not Started',
+                        'in_progress': 'In Progress',
+                        'complete': 'Complete'
+                    };
+                    return labels[status] || status;
+                },
+
+                formatObjects(objectsJson) {
+                    try {
+                        const objects = JSON.parse(objectsJson || '[]');
+                        return objects.join(', ') || 'None';
+                    } catch {
+                        return 'None';
+                    }
+                },
+
+                goToDashboard() {
+                    window.location.href = '/';
+                },
+
+                navigateTo(path) {
+                    window.location.href = path;
+                    this.menuOpen = false;
+                }
+            },
+
+            mounted() {
+                // Get session ID from URL parameter
+                const urlParams = new URLSearchParams(window.location.search);
+                this.sessionId = urlParams.get('session_id');
+
+                if (!this.sessionId) {
+                    this.showError('No session ID provided');
+                } else {
+                    this.loadProcessingSessionDetails();
+                    this.loadWebDAVInfo();
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

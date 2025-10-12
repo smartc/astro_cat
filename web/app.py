@@ -15,6 +15,7 @@ from version import __version__
 from config import load_config
 from models import DatabaseManager, DatabaseService
 from processing_session_manager import ProcessingSessionManager
+from webdav_server import start_webdav_server, stop_webdav_server
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +30,7 @@ telescopes = []
 filter_mappings = {}
 processing_manager = None
 sqlite_web_process = None
+webdav_server = None
 
 app = FastAPI(
     title="FITS Cataloger",
@@ -84,7 +86,7 @@ def start_sqlite_web(db_path: str, port: int = 8081):
 @app.on_event("startup")
 async def startup_event():
     """Initialize application on startup with enhanced error checking."""
-    global config, db_manager, db_service, cameras, telescopes, filter_mappings, processing_manager
+    global config, db_manager, db_service, cameras, telescopes, filter_mappings, processing_manager, webdav_server
     
     try:
         logger.info("=" * 60)
@@ -114,6 +116,23 @@ async def startup_event():
         processing_manager = ProcessingSessionManager(config, db_service)
         logger.info("✓ Processing session manager initialized")
         
+        # Start WebDAV server (add this near the end, before the final success message)
+        if config and config.paths.processing_dir:
+            try:
+                from pathlib import Path
+                from webdav_server import start_webdav_server
+                
+                processing_dir = Path(config.paths.processing_dir)
+                webdav_server = start_webdav_server(processing_dir, port=8082)
+                if webdav_server:
+                    logger.info("✓ WebDAV server ready for file access")
+                else:
+                    logger.warning("! WebDAV server failed to start - file access unavailable")
+            except Exception as e:
+                logger.error(f"Failed to start WebDAV server: {e}")
+                logger.warning("Continuing without WebDAV file access")
+
+
         # Start sqlite_web for database management
         db_path = Path(config.paths.database_path)
         if db_path.exists():
@@ -136,7 +155,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown."""
-    global db_manager, sqlite_web_process
+    global db_manager, sqlite_web_process, webdav_server
     
     logger.info("Shutting down web interface...")
     
@@ -152,6 +171,11 @@ async def shutdown_event():
     if db_manager:
         db_manager.close()
         logger.info("✓ Database connection closed")
+
+    # Stop WebDAV server
+    if webdav_server:
+        from webdav_server import stop_webdav_server
+        stop_webdav_server()
     
     logger.info("Shutdown complete")
 
@@ -175,7 +199,8 @@ from web.routes import (
     processing_sessions,
     equipment,
     config as config_routes,
-    database
+    database,
+    webdav
 )
 
 # Register all routers
@@ -189,5 +214,6 @@ app.include_router(processing_sessions.router)
 app.include_router(equipment.router)
 app.include_router(config_routes.router)
 app.include_router(database.router)
+app.include_router(webdav.router)
 
 logger.info("✓ All routes registered")

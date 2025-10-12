@@ -72,3 +72,8 @@ async def imaging_session_markdown_editor():
 async def database_viewer():
     """Database browser with header."""
     return FileResponse("static/database-viewer.html")
+
+@router.get("/file-browser", response_class=HTMLResponse)
+async def file_browser():
+    """File browser with WebDAV iframe."""
+    return FileResponse("static/file-browser.html")

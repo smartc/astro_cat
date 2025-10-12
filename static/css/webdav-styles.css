@@ -1,0 +1,120 @@
+/* WebDAV File Access Styling */
+
+.webdav-instructions {
+    padding: 8px 0;
+}
+
+.webdav-instructions h4 {
+    margin-top: 0;
+    margin-bottom: 16px;
+    color: #4CAF50;
+}
+
+.webdav-instructions h5 {
+    margin-top: 24px;
+    margin-bottom: 12px;
+    color: #e0e0e0;
+    font-size: 16px;
+}
+
+.instruction-section {
+    background: #2d2d2d;
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.instruction-section p {
+    margin: 8px 0;
+}
+
+.instruction-section ol {
+    margin: 8px 0;
+    padding-left: 24px;
+}
+
+.instruction-section ol li {
+    margin: 6px 0;
+}
+
+.code-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #1a1a1a;
+    padding: 12px;
+    border-radius: 4px;
+    margin: 8px 0;
+    border: 1px solid #404040;
+}
+
+.code-box code {
+    flex: 1;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 13px;
+    color: #4CAF50;
+    word-break: break-all;
+}
+
+.code-box .copy-btn {
+    padding: 6px 12px;
+    background: #2196F3;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    white-space: nowrap;
+    transition: background 0.2s;
+}
+
+.code-box .copy-btn:hover {
+    background: #0b7dda;
+}
+
+.hint {
+    font-size: 13px;
+    color: #999;
+    font-style: italic;
+    margin-top: 4px;
+}
+
+.benefits-section {
+    background: #1a3a1a;
+    padding: 16px;
+    border-radius: 8px;
+    border-left: 4px solid #4CAF50;
+}
+
+.benefits-section h5 {
+    margin-top: 0;
+    color: #4CAF50;
+}
+
+.benefits-section ul {
+    margin: 8px 0;
+    padding-left: 20px;
+}
+
+.benefits-section li {
+    margin: 6px 0;
+    color: #e0e0e0;
+}
+
+.btn-success {
+    background: #4CAF50;
+    color: white;
+}
+
+.btn-success:hover {
+    background: #45a049;
+}
+
+.btn-info {
+    background: #2196F3;
+    color: white;
+}
+
+.btn-info:hover {
+    background: #0b7dda;
+}
