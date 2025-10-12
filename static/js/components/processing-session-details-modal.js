@@ -7,15 +7,26 @@ const ProcessingSessionDetailsModal = {
         <div v-if="showSessionDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4" style="z-index: 250;">
             <div class="bg-white rounded-lg w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
                 <!-- Modal Header with Starfield -->
-                <div class="relative text-white p-4 flex justify-between items-center" style="min-height: 64px;">
+                <div class="relative text-white p-4" style="min-height: 80px;">
                     <starfield-background :num-stars="30" :min-size="0.3" :max-size="0.7"></starfield-background>
-                    <div class="relative z-10 flex justify-between items-center w-full">
-                        <h2 class="text-xl font-bold">Processing Session Details</h2>
-                        <button @click="closeSessionDetailsModal" class="text-white hover:text-gray-200">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                            </svg>
-                        </button>
+                    <div class="relative z-10">
+                        <div class="flex justify-between items-center">
+                            <h2 class="text-xl font-bold">Processing Session Details</h2>
+                            <button @click="closeSessionDetailsModal" class="text-white hover:text-gray-200">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <!-- WebDAV Path (clickable to copy) -->
+                        <div v-if="webdavStatus && webdavStatus.running && nativeFilePath" class="mt-2 text-sm">
+                            <span class="text-gray-200 mr-2">📂 Quick Access:</span>
+                            <code @click="copyPathToClipboard" 
+                                  class="bg-white bg-opacity-20 px-2 py-1 rounded cursor-pointer hover:bg-opacity-30 transition-colors"
+                                  title="Click to copy path">
+                                {{ nativeFilePath }}
+                            </code>
+                        </div>
                     </div>
                 </div>
                 <!-- Modal Body -->
@@ -174,12 +185,6 @@ const ProcessingSessionDetailsModal = {
                                     class="btn btn-success">
                                 <i class="fas fa-folder-open"></i> Browse Files
                             </button>
-                            
-                            <button v-if="webdavStatus && webdavStatus.running" 
-                                    @click="showWebdavInstructions" 
-                                    class="btn btn-info">
-                                <i class="fas fa-question-circle"></i> How to Access
-                            </button>
 
                             <button @click="updateStatusFromDetails" class="btn btn-yellow text-sm">
                                 Update Status
@@ -191,84 +196,6 @@ const ProcessingSessionDetailsModal = {
                 </div>
             </div>
         </div>
-        <!-- WebDAV Instructions Modal -->
-        <div v-if="showWebdavModal" class="modal" @click.self="closeWebdavModal">
-            <div class="modal-content" style="max-width: 700px;">
-                <div class="modal-header">
-                    <h3>File Access Instructions</h3>
-                    <button @click="closeWebdavModal" class="close-btn">&times;</button>
-                </div>
-                
-                <div class="modal-body" v-if="webdavInfo">
-                    <div class="webdav-instructions">
-                        <h4>📂 Quick Access</h4>
-                        <p>Click "Browse Files" to view files in your browser, or use one of these methods to access files directly from your computer:</p>
-                        
-                        <div class="instruction-section">
-                            <h5>💻 Windows</h5>
-                            <p><strong>Option 1: Quick Browse</strong></p>
-                            <div class="code-box">
-                                <code>{{ webdavInfo.instructions.windows_explorer }}</code>
-                                <button @click="copyToClipboard(webdavInfo.instructions.windows_explorer)" class="copy-btn">
-                                    <i class="fas fa-copy"></i> Copy
-                                </button>
-                            </div>
-                            <p class="hint">Paste this into Windows Explorer address bar</p>
-
-                            <p><strong>Option 2: Map Network Drive</strong></p>
-                            <ol>
-                                <li>Open File Explorer</li>
-                                <li>Right-click "This PC" → "Map network drive"</li>
-                                <li>Choose drive letter (e.g., Z:)</li>
-                                <li>Enter: <code>{{ webdavInfo.webdav_base }}</code></li>
-                                <li>Check "Reconnect at sign-in"</li>
-                                <li>Click Finish</li>
-                            </ol>
-
-                            <p><strong>Command Line:</strong></p>
-                            <div class="code-box">
-                                <code>{{ webdavInfo.instructions.windows_cmd }}</code>
-                                <button @click="copyToClipboard(webdavInfo.instructions.windows_cmd)" class="copy-btn">
-                                    <i class="fas fa-copy"></i> Copy
-                                </button>
-                            </div>
-                        </div>
-
-                        <div class="instruction-section">
-                            <h5>🍎 macOS</h5>
-                            <ol>
-                                <li>Open Finder</li>
-                                <li>Go → Connect to Server (⌘K)</li>
-                                <li>Enter: <code>{{ webdavInfo.webdav_base }}</code></li>
-                                <li>Click Connect</li>
-                            </ol>
-                        </div>
-
-                        <div class="instruction-section">
-                            <h5>🐧 Linux</h5>
-                            <p>Use your file manager's "Connect to Server" feature:</p>
-                            <div class="code-box">
-                                <code>{{ webdavInfo.instructions.linux }}</code>
-                                <button @click="copyToClipboard(webdavInfo.instructions.linux)" class="copy-btn">
-                                    <i class="fas fa-copy"></i> Copy
-                                </button>
-                            </div>
-                        </div>
-
-                        <div class="benefits-section">
-                            <h5>✨ Benefits</h5>
-                            <ul>
-                                <li>✅ Drag files directly into PixInsight, DeepSkyStacker, etc.</li>
-                                <li>✅ Open files with double-click from Explorer</li>
-                                <li>✅ No need to download - work with files in place</li>
-                                <li>✅ Changes sync automatically</li>
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
     `,
     
     data() {
@@ -279,8 +206,8 @@ const ProcessingSessionDetailsModal = {
             allSessionIds: [],  
             currentSessionIndex: -1,
             webdavStatus: null,
-            showWebdavModal: false,
-            webdavInfo: null
+            webdavInfo: null,
+            nativeFilePath: null
         };
     },
 
@@ -302,11 +229,14 @@ const ProcessingSessionDetailsModal = {
             try {
                 this.sessionDetailsLoading = true;
                 this.showSessionDetailsModal = true;
-                this.allSessionIds = allSessionIds;  // ADD THIS
-                this.currentSessionIndex = allSessionIds.indexOf(sessionId);  // ADD THIS
+                this.allSessionIds = allSessionIds;
+                this.currentSessionIndex = allSessionIds.indexOf(sessionId);
                 
                 const response = await ApiService.processingSessions.getById(sessionId);
                 this.currentSessionDetails = response.data;
+                
+                // Load WebDAV info for the session
+                await this.loadWebDAVInfo(sessionId);
                 
             } catch (error) {
                 console.error('Error loading session details:', error);
@@ -316,6 +246,112 @@ const ProcessingSessionDetailsModal = {
                 this.sessionDetailsLoading = false;
             }
         },
+
+        async loadWebDAVInfo(sessionId) {
+            try {
+                const response = await fetch(`/api/webdav/session/${sessionId}`);
+                if (response.ok) {
+                    this.webdavInfo = await response.json();
+                    console.log('WebDAV Info:', this.webdavInfo);
+                    
+                    // Set native file path based on platform
+                    const platform = this.detectPlatform();
+                    if (platform === 'windows') {
+                        this.nativeFilePath = this.webdavInfo.instructions.windows_explorer;
+                    } else if (platform === 'mac') {
+                        this.nativeFilePath = this.webdavInfo.webdav_root;
+                    } else {
+                        // Linux
+                        this.nativeFilePath = this.webdavInfo.webdav_root.replace('http://', 'dav://');
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading WebDAV info:', error);
+            }
+        },
+
+        detectPlatform() {
+            const userAgent = window.navigator.userAgent.toLowerCase();
+            if (userAgent.indexOf('win') !== -1) return 'windows';
+            if (userAgent.indexOf('mac') !== -1) return 'mac';
+            return 'linux';
+        },
+
+        copyPathToClipboard() {
+            if (!this.nativeFilePath) return;
+            
+            // Check if Clipboard API is available (requires HTTPS or localhost)
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(this.nativeFilePath).then(() => {
+                    this.showCopyFeedback();
+                }).catch(err => {
+                    console.error('Clipboard API failed:', err);
+                    this.fallbackCopy(this.nativeFilePath);
+                });
+            } else {
+                // Fallback for non-HTTPS contexts
+                this.fallbackCopy(this.nativeFilePath);
+            }
+        },
+
+        fallbackCopy(text) {
+            // Create a temporary textarea element
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            
+            try {
+                document.execCommand('copy');
+                this.showCopyFeedback();
+            } catch (err) {
+                console.error('Fallback copy failed:', err);
+                alert('Failed to copy to clipboard. Please copy manually: ' + text);
+            } finally {
+                document.body.removeChild(textarea);
+            }
+        },
+
+        showCopyFeedback() {
+            // Visual feedback
+            if (event && event.target) {
+                const element = event.target;
+                const originalBg = element.style.background;
+                const originalColor = element.style.color;
+                
+                element.style.background = '#10b981';
+                element.style.color = 'white';
+                element.textContent = '✓ Copied!';
+                
+                setTimeout(() => {
+                    element.style.background = originalBg;
+                    element.style.color = originalColor;
+                    element.textContent = this.nativeFilePath;
+                }, 1500);
+            }
+        },
+
+        getFileUrl() {
+            if (!this.nativeFilePath) return '';
+            
+            const platform = this.detectPlatform();
+            
+            if (platform === 'windows') {
+                // Convert UNC path to file:// URL
+                // \\server@port\path becomes file:////server@port/path
+                const path = this.nativeFilePath.replace(/\\/g, '/');
+                return 'file://' + path;
+            } else if (platform === 'mac') {
+                // Mac uses the HTTP URL directly
+                return this.nativeFilePath;
+            } else {
+                // Linux uses dav:// URL
+                return this.nativeFilePath;
+            }
+        },
+
         async navigateToPrevSession() {
             if (this.hasPreviousSession) {
                 this.sessionDetailsLoading = true;
@@ -336,6 +372,8 @@ const ProcessingSessionDetailsModal = {
             this.showSessionDetailsModal = false;
             this.currentSessionDetails = null;
             this.sessionDetailsLoading = false;
+            this.webdavInfo = null;
+            this.nativeFilePath = null;
         },
         
         findCalibrationFromDetails() {
@@ -476,48 +514,6 @@ const ProcessingSessionDetailsModal = {
                 const url = `/file-browser?session_id=${encodeURIComponent(this.currentSessionDetails.id)}`;
                 window.open(url, '_blank');
             }
-        },
-
-        async showWebdavInstructions() {
-            try {
-                if (!this.currentSessionDetails || !this.currentSessionDetails.id) {
-                    alert('No session selected');
-                    return;
-                }
-                
-                const response = await fetch(`/api/webdav/session/${this.currentSessionDetails.id}`);
-                if (!response.ok) {
-                    throw new Error('Failed to load WebDAV information');
-                }
-                
-                this.webdavInfo = await response.json();
-                this.showWebdavModal = true;
-            } catch (error) {
-                console.error('Error loading WebDAV info:', error);
-                alert('Failed to load WebDAV information: ' + error.message);
-            }
-        },
-
-        closeWebdavModal() {
-            this.showWebdavModal = false;
-        },
-
-        copyToClipboard(text) {
-            navigator.clipboard.writeText(text).then(() => {
-                // Show brief success message - use a better visual feedback
-                const btn = event.target;
-                const originalText = btn.innerHTML;
-                btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
-                btn.style.background = '#4CAF50';
-                
-                setTimeout(() => {
-                    btn.innerHTML = originalText;
-                    btn.style.background = '';
-                }, 2000);
-            }).catch(err => {
-                console.error('Failed to copy:', err);
-                alert('Failed to copy to clipboard');
-            });
         }
     },
 

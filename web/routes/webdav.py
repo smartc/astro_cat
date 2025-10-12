@@ -36,10 +36,16 @@ async def get_session_webdav_info(session_id: str, request: Request):
         if not host_header:
             host_header = server.host if server.host != "0.0.0.0" else "localhost"
         
+        # Detect if main app is using HTTPS (check if request came via HTTPS)
+        scheme = "https" if request.url.scheme == "https" else "http"
+        
         # Construct WebDAV URLs
         webdav_port = server.port
-        base_url = f"http://{host_header}:{webdav_port}"
+        base_url = f"{scheme}://{host_header}:{webdav_port}"
         session_path = quote(session_id)
+        
+        # For Windows UNC path, use the hostname without http/https
+        windows_unc = f"\\\\{host_header}@{webdav_port}\\{session_id}"
         
         return {
             "session_id": session_id,
@@ -58,7 +64,7 @@ async def get_session_webdav_info(session_id: str, request: Request):
             "instructions": {
                 "windows_map": f"Map network drive: {base_url}",
                 "windows_cmd": f'net use Z: "{base_url}" /persistent:yes',
-                "windows_explorer": f"\\\\{host_header}@{webdav_port}\\{session_id}",
+                "windows_explorer": windows_unc,
                 "macos": f"Finder → Go → Connect to Server → {base_url}",
                 "linux": f"Mount with davfs2 or access via file manager: dav://{host_header}:{webdav_port}"
             }
