@@ -1,4 +1,7 @@
-"""S3 Backup Manager - Core backup operations for FITS Cataloger."""
+"""S3 Backup Manager - Core backup operations for FITS Cataloger.
+
+UPDATED: Added markdown backup functionality while maintaining full backwards compatibility.
+"""
 
 import os
 import json
@@ -8,7 +11,7 @@ import logging
 import hashlib
 import shutil
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
@@ -68,6 +71,20 @@ class SpaceCheckResult:
     session_size: int
     free_space: int
     temp_dir: Path
+    error: Optional[str] = None
+
+
+# NEW: Markdown backup result
+@dataclass
+class MarkdownBackupResult:
+    """Result of markdown file backup."""
+    success: bool
+    file_path: str
+    s3_key: Optional[str] = None
+    s3_etag: Optional[str] = None
+    file_size: int = 0
+    needs_backup: bool = True
+    reason: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -155,10 +172,15 @@ class S3BackupConfig:
         """Get S3 path for session notes."""
         base = self.config['s3_paths']['session_notes']
         return f"{base}/{year}"
+    
+    # NEW: Get processing notes path
+    def get_processing_note_path(self) -> str:
+        """Get S3 path for processing session notes."""
+        return self.config['s3_paths']['processing_notes']
 
 
 class S3BackupManager:
-    """Main S3 backup manager for session-based archives."""
+    """Main S3 backup manager for session-based archives and markdown files."""
 
     def __init__(self, db_service: DatabaseService, s3_config: S3BackupConfig,
                  base_dir: Optional[Path] = None, dry_run: bool = False, auto_cleanup=True):
@@ -303,7 +325,166 @@ class S3BackupManager:
     def _get_session_note_key(self, session_id: str, year: int) -> str:
         """Generate S3 key for session notes."""
         path = self.s3_config.get_session_note_path(year)
-        return f"{path}/{session_id}_notes.md"
+        return f"{path}/{session_id}_session_notes.md"
+    
+    # NEW: Get processing session note key
+    def _get_processing_note_key(self, session_name: str) -> str:
+        """Generate S3 key for processing session notes."""
+        path = self.s3_config.get_processing_note_path()
+        return f"{path}/{session_name}/session_info.md"
+    
+    # NEW: Check if markdown needs backup
+    def needs_markdown_backup(self, local_path: Path, s3_key: str) -> Tuple[bool, str]:
+        """
+        Check if a markdown file needs to be backed up to S3.
+        
+        Args:
+            local_path: Local path to markdown file
+            s3_key: S3 key (path) for the file
+            
+        Returns:
+            Tuple of (needs_backup: bool, reason: str)
+        """
+        if not local_path.exists():
+            return False, "Local file does not exist"
+        
+        try:
+            # Try to get S3 object metadata
+            response = self.s3_client.head_object(
+                Bucket=self.s3_config.bucket,
+                Key=s3_key
+            )
+            
+            # File exists in S3, check modification time
+            s3_last_modified = response['LastModified']
+            local_mtime = datetime.fromtimestamp(local_path.stat().st_mtime, tz=timezone.utc)
+            
+            if local_mtime > s3_last_modified:
+                return True, "Local file is newer than S3 version"
+            else:
+                return False, "S3 version is current"
+                
+        except ClientError as e:
+            if e.response['Error']['Code'] == '404':
+                # File doesn't exist in S3
+                return True, "File not yet backed up to S3"
+            else:
+                logger.error(f"Error checking S3 object: {e}")
+                return False, f"Error checking S3: {e}"
+        except Exception as e:
+            logger.error(f"Unexpected error checking backup status: {e}")
+            return False, f"Error: {e}"
+    
+    # NEW: Upload markdown file
+    def upload_markdown(
+        self,
+        local_path: Path,
+        s3_key: str,
+        rule_type: str,  # 'imaging_sessions' or 'processing_sessions'
+        metadata: Optional[Dict] = None,
+        force: bool = False
+    ) -> MarkdownBackupResult:
+        """
+        Upload a markdown file to S3 if needed (new or modified).
+        
+        Args:
+            local_path: Local path to markdown file
+            s3_key: S3 key (path) for the file
+            rule_type: Type of backup rule ('imaging_sessions' or 'processing_sessions')
+            metadata: Optional metadata dictionary to attach
+            force: If True, upload regardless of modification time
+            
+        Returns:
+            MarkdownBackupResult with operation details
+        """
+        try:
+            if not local_path.exists():
+                return MarkdownBackupResult(
+                    success=False,
+                    file_path=str(local_path),
+                    error="Local file not found"
+                )
+            
+            # Check if upload needed (unless forced)
+            if not force:
+                needs_upload, reason = self.needs_markdown_backup(local_path, s3_key)
+                
+                if not needs_upload:
+                    logger.debug(f"Skipping upload: {reason} - {local_path.name}")
+                    return MarkdownBackupResult(
+                        success=True,
+                        file_path=str(local_path),
+                        s3_key=s3_key,
+                        needs_backup=False,
+                        reason=reason
+                    )
+                else:
+                    logger.info(f"Upload needed: {reason} - {local_path.name}")
+            
+            # Get tags from backup rules
+            rules = self.s3_config.config.get('backup_rules', {}).get(rule_type, {})
+            archive_policy = rules.get('archive_policy', 'never')
+            backup_policy = rules.get('backup_policy', 'never')
+            tags = f"archive_policy={archive_policy}&backup_policy={backup_policy}"
+            
+            # Prepare extra args
+            extra_args = {
+                'ContentType': 'text/markdown',
+                'Tagging': tags
+            }
+            
+            # Add metadata if provided
+            if metadata:
+                extra_args['Metadata'] = {k: str(v) for k, v in metadata.items()}
+            
+            # Upload file
+            file_size = local_path.stat().st_size
+            
+            with open(local_path, 'rb') as f:
+                self.s3_client.upload_fileobj(
+                    f,
+                    self.s3_config.bucket,
+                    s3_key,
+                    ExtraArgs=extra_args
+                )
+            
+            # Get ETag
+            response = self.s3_client.head_object(
+                Bucket=self.s3_config.bucket,
+                Key=s3_key
+            )
+            etag = response['ETag'].strip('"')
+            
+            logger.info(f"Uploaded markdown to S3: {s3_key}")
+            
+            return MarkdownBackupResult(
+                success=True,
+                file_path=str(local_path),
+                s3_key=s3_key,
+                s3_etag=etag,
+                file_size=file_size,
+                needs_backup=True,
+                reason="Uploaded successfully"
+            )
+            
+        except ClientError as e:
+            logger.error(f"Failed to upload markdown to S3: {e}")
+            return MarkdownBackupResult(
+                success=False,
+                file_path=str(local_path),
+                error=f"S3 upload failed: {e}"
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error uploading markdown: {e}")
+            return MarkdownBackupResult(
+                success=False,
+                file_path=str(local_path),
+                error=str(e)
+            )
+
+    # ========================================================================
+    # EXISTING FITS ARCHIVE METHODS (UNCHANGED)
+    # ========================================================================
     
     def create_session_archive(
         self, 
@@ -592,6 +773,7 @@ class S3BackupManager:
 
     def get_largest_session_size(self) -> Tuple[Optional[str], int]:
         """Find largest session by querying database and calculating actual size."""
+        from sqlalchemy import func
         session_db = self.db_service.db_manager.get_session()
         try:
             # Find session with most LIGHT files (proxy for largest)
@@ -698,7 +880,7 @@ class S3BackupManager:
                     error="Already backed up (skipped)"
                 )
             
-            # PRE-FLIGHT SPACE CHECK - ADD THIS BLOCK:
+            # PRE-FLIGHT SPACE CHECK
             space_check = self.check_temp_space(session_id)
             if not space_check.has_space:
                 logger.error(f"Pre-flight check failed for {session_id}: {space_check.error}")
@@ -713,9 +895,6 @@ class S3BackupManager:
                 f"free {format_size(space_check.free_space)}"
             )
             
-            # Create archive (existing code continues here)
-            logger.info(f"Starting backup for session: {session_id}")
-
             # Create archive
             logger.info(f"Starting backup for session: {session_id}")
             
@@ -747,7 +926,6 @@ class S3BackupManager:
             compressed_size = archive_path.stat().st_size
             
             # Get archive policies from config - default to 'fast' / 'deep' for raw data
-            # Maps to backup_rules in s3_config.json
             archive_policy = self.s3_config.config.get('backup_rules', {}).get('raw_lights', {}).get('archive_policy', 'fast')
             backup_policy = self.s3_config.config.get('backup_rules', {}).get('raw_lights', {}).get('backup_policy', 'deep')
             

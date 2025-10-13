@@ -17,6 +17,7 @@ from config import load_config
 from models import DatabaseManager, DatabaseService, Session as SessionModel
 from s3_backup.manager import S3BackupManager, S3BackupConfig
 from s3_backup.models import Base as BackupBase, S3BackupArchive
+from s3_backup.models import S3BackupSessionNote, S3BackupProcessingSession
 
 logger = logging.getLogger(__name__)
 
@@ -577,6 +578,516 @@ def format_bytes(bytes_size: int) -> str:
             return f"{bytes_size:.2f} {unit}"
         bytes_size /= 1024.0
     return f"{bytes_size:.2f} PB"
+
+
+def _backup_imaging_markdown(backup_manager, config, session_db, dry_run, limit, force):
+    """Backup imaging session markdown files with database tracking."""
+    stats = {'uploaded': 0, 'skipped': 0, 'failed': 0, 'total': 0}
+    
+    base_dir = Path(config.paths.image_dir)
+    session_info_dir = base_dir / ".session_info"
+    
+    if not session_info_dir.exists():
+        click.echo("   No .session_info directory found")
+        return stats
+    
+    # Find all markdown files
+    markdown_files = sorted(session_info_dir.rglob("*_session_notes.md"))
+    stats['total'] = len(markdown_files)
+    
+    if stats['total'] == 0:
+        click.echo("   No imaging session notes found")
+        return stats
+    
+    for md_file in markdown_files:
+        # Check upload limit
+        if limit and stats['uploaded'] >= limit:
+            break
+        
+        try:
+            # Extract session info
+            session_id = md_file.stem.replace('_session_notes', '')
+            year = int(md_file.parent.name)
+            
+            # Build S3 key
+            s3_key = backup_manager._get_session_note_key(session_id, year)
+            
+            # Check if upload needed (unless forced)
+            if not force:
+                needs_upload, reason = backup_manager.needs_markdown_backup(md_file, s3_key)
+                
+                if not needs_upload:
+                    stats['skipped'] += 1
+                    if dry_run:
+                        click.echo(f"   ⊘ {md_file.name}: {reason}")
+                    continue
+                else:
+                    if dry_run or force:
+                        click.echo(f"   → {md_file.name}: {reason}")
+            
+            # In dry-run mode, don't actually upload
+            if dry_run:
+                stats['uploaded'] += 1
+                continue
+            
+            # Get session metadata from database
+            imaging_session = session_db.query(SessionModel).filter(
+                SessionModel.session_id == session_id
+            ).first()
+            
+            metadata = {
+                'session_id': session_id,
+                'session_date': imaging_session.session_date if imaging_session else '',
+                'type': 'imaging_session'
+            }
+            
+            # Upload to S3
+            result = backup_manager.upload_markdown(
+                md_file, s3_key, 'imaging_sessions', metadata, force=force
+            )
+            
+            if result.success and result.needs_backup:
+                stats['uploaded'] += 1
+                click.echo(f"   ✓ {md_file.name}")
+                
+                # NEW: Save to database
+                try:
+                    # Check if record exists
+                    existing = session_db.query(S3BackupSessionNote).filter(
+                        S3BackupSessionNote.session_id == session_id
+                    ).first()
+                    
+                    if existing:
+                        # Update existing record
+                        existing.s3_etag = result.s3_etag
+                        existing.uploaded_at = datetime.now()
+                        existing.file_size_bytes = result.file_size
+                        existing.verified = True
+                    else:
+                        # Create new record
+                        backup_note = S3BackupSessionNote(
+                            session_id=session_id,
+                            session_year=year,
+                            s3_bucket=backup_manager.s3_config.bucket,
+                            s3_key=s3_key,
+                            s3_region=backup_manager.s3_config.region,
+                            s3_etag=result.s3_etag,
+                            uploaded_at=datetime.now(),
+                            file_size_bytes=result.file_size,
+                            archive_policy='never',
+                            backup_policy='never',
+                            current_storage_class='STANDARD',
+                            verified=True
+                        )
+                        session_db.add(backup_note)
+                    
+                    session_db.commit()
+                    
+                except Exception as db_error:
+                    logger.warning(f"Failed to save database record for {session_id}: {db_error}")
+                    session_db.rollback()
+                    # Don't fail the whole operation if database save fails
+                
+            elif result.success and not result.needs_backup:
+                stats['skipped'] += 1
+            else:
+                stats['failed'] += 1
+                click.echo(f"   ✗ {md_file.name}: {result.error}")
+            
+        except Exception as e:
+            stats['failed'] += 1
+            click.echo(f"   ✗ {md_file.name}: {e}")
+            logger.error(f"Failed to backup {md_file}: {e}")
+    
+    return stats
+
+
+def _backup_processing_markdown(backup_manager, config, session_db, dry_run, limit, force):
+    """Backup processing session markdown files with database tracking."""
+    stats = {'uploaded': 0, 'skipped': 0, 'failed': 0, 'total': 0}
+    
+    processing_dir = Path(config.paths.processing_dir)
+    
+    if not processing_dir.exists():
+        click.echo("   No processing directory found")
+        return stats
+    
+    # Find all session_info.md files
+    markdown_files = sorted(processing_dir.rglob("session_info.md"))
+    stats['total'] = len(markdown_files)
+    
+    if stats['total'] == 0:
+        click.echo("   No processing session notes found")
+        return stats
+    
+    for md_file in markdown_files:
+        # Check upload limit
+        if limit and stats['uploaded'] >= limit:
+            break
+        
+        try:
+            # Session name is the parent directory
+            session_name = md_file.parent.name
+            
+            # Build S3 key
+            s3_key = backup_manager._get_processing_note_key(session_name)
+            
+            # Check if upload needed (unless forced)
+            if not force:
+                needs_upload, reason = backup_manager.needs_markdown_backup(md_file, s3_key)
+                
+                if not needs_upload:
+                    stats['skipped'] += 1
+                    if dry_run:
+                        click.echo(f"   ⊘ {session_name}/session_info.md: {reason}")
+                    continue
+                else:
+                    if dry_run or force:
+                        click.echo(f"   → {session_name}/session_info.md: {reason}")
+            
+            # In dry-run mode, don't actually upload
+            if dry_run:
+                stats['uploaded'] += 1
+                continue
+            
+            metadata = {
+                'session_name': session_name,
+                'type': 'processing_session'
+            }
+            
+            # Upload to S3
+            result = backup_manager.upload_markdown(
+                md_file, s3_key, 'processing_sessions', metadata, force=force
+            )
+            
+            if result.success and result.needs_backup:
+                stats['uploaded'] += 1
+                click.echo(f"   ✓ {session_name}/session_info.md")
+                
+                # NEW: Save to database
+                try:
+                    # Check if record exists
+                    existing = session_db.query(S3BackupProcessingSession).filter(
+                        S3BackupProcessingSession.processing_session_id == session_name
+                    ).first()
+                    
+                    if existing:
+                        # Update existing record
+                        existing.s3_etag = result.s3_etag
+                        existing.uploaded_at = datetime.now()
+                        existing.file_size_bytes = result.file_size
+                    else:
+                        # Create new record
+                        backup_proc = S3BackupProcessingSession(
+                            processing_session_id=session_name,
+                            s3_bucket=backup_manager.s3_config.bucket,
+                            s3_key=s3_key,
+                            s3_region=backup_manager.s3_config.region,
+                            s3_etag=result.s3_etag,
+                            uploaded_at=datetime.now(),
+                            file_size_bytes=result.file_size,
+                            archive_policy='never',
+                            backup_policy='never',
+                            current_storage_class='STANDARD'
+                        )
+                        session_db.add(backup_proc)
+                    
+                    session_db.commit()
+                    
+                except Exception as db_error:
+                    logger.warning(f"Failed to save database record for {session_name}: {db_error}")
+                    session_db.rollback()
+                    # Don't fail the whole operation if database save fails
+                
+            elif result.success and not result.needs_backup:
+                stats['skipped'] += 1
+            else:
+                stats['failed'] += 1
+                click.echo(f"   ✗ {session_name}/session_info.md: {result.error}")
+            
+        except Exception as e:
+            stats['failed'] += 1
+            click.echo(f"   ✗ {md_file.name}: {e}")
+            logger.error(f"Failed to backup {md_file}: {e}")
+    
+    return stats
+
+
+
+@cli.command('backup-markdown')
+@click.option('--dry-run', is_flag=True, help='Show what would be backed up without uploading')
+@click.option('--limit', type=int, default=None, help='Maximum number of files to upload')
+@click.option('--imaging/--no-imaging', default=True, help='Backup imaging session notes')
+@click.option('--processing/--no-processing', default=True, help='Backup processing session notes')
+@click.option('--force', is_flag=True, help='Upload all files regardless of modification time')
+@click.pass_context
+def backup_markdown(ctx, dry_run, limit, imaging, processing, force):
+    """
+    Upload session markdown files to S3 with smart-skip.
+    
+    Only uploads files that are new or have been modified since last backup.
+    Tracks uploads in the database.
+    """
+    backup_manager, db_manager, db_service = get_backup_manager(
+        ctx.obj['config'], ctx.obj['s3_config'], dry_run=dry_run
+    )
+    
+    session_db = db_manager.get_session()
+    
+    try:
+        click.echo("\n" + "=" * 80)
+        click.echo("SESSION MARKDOWN BACKUP TO S3")
+        click.echo("=" * 80)
+        
+        if dry_run:
+            click.echo("🔍 DRY RUN MODE - No files will be uploaded")
+        
+        if limit:
+            click.echo(f"📊 Upload limit: {limit} files")
+        
+        if force:
+            click.echo("⚠️  FORCE MODE - All files will be uploaded")
+        
+        click.echo()
+        
+        total_stats = {
+            'uploaded': 0,
+            'skipped': 0,
+            'failed': 0,
+            'total_checked': 0
+        }
+        
+        # Get main config for paths
+        from config import load_config
+        main_config, _, _, _ = load_config(ctx.obj['config'])
+        
+        # Backup imaging sessions
+        if imaging:
+            click.echo("📸 Checking imaging session notes...")
+            imaging_stats = _backup_imaging_markdown(
+                backup_manager, main_config, session_db, dry_run, limit, force
+            )
+            total_stats['uploaded'] += imaging_stats['uploaded']
+            total_stats['skipped'] += imaging_stats['skipped']
+            total_stats['failed'] += imaging_stats['failed']
+            total_stats['total_checked'] += imaging_stats['total']
+            
+            # Update limit
+            if limit:
+                limit -= imaging_stats['uploaded']
+                if limit <= 0:
+                    click.echo(f"\n✓ Upload limit reached")
+                    _print_markdown_summary(total_stats, dry_run)
+                    return
+        
+        # Backup processing sessions (NOW PASSES session_db)
+        if processing:
+            click.echo("\n🔧 Checking processing session notes...")
+            processing_stats = _backup_processing_markdown(
+                backup_manager, main_config, session_db, dry_run, limit, force
+            )
+            total_stats['uploaded'] += processing_stats['uploaded']
+            total_stats['skipped'] += processing_stats['skipped']
+            total_stats['failed'] += processing_stats['failed']
+            total_stats['total_checked'] += processing_stats['total']
+        
+        # Print summary
+        _print_markdown_summary(total_stats, dry_run)
+        
+    finally:
+        session_db.close()
+        db_manager.close()
+
+
+@cli.command('markdown-status')
+@click.option('--imaging/--no-imaging', default=True, help='Show imaging sessions')
+@click.option('--processing/--no-processing', default=True, help='Show processing sessions')
+@click.pass_context
+def markdown_status(ctx, imaging, processing):
+    """
+    Check backup status of session markdown files.
+    
+    Shows which files are backed up and which need backup.
+    """
+    backup_manager, db_manager, db_service = get_backup_manager(
+        ctx.obj['config'], ctx.obj['s3_config']
+    )
+    
+    session_db = db_manager.get_session()
+    
+    try:
+        click.echo("\n" + "=" * 80)
+        click.echo("SESSION MARKDOWN BACKUP STATUS")
+        click.echo("=" * 80)
+        
+        # Get main config for paths
+        from config import load_config
+        main_config, _, _, _ = load_config(ctx.obj['config'])
+        
+        if imaging:
+            click.echo("\n📸 Imaging Sessions:")
+            _check_imaging_markdown_status(backup_manager, main_config, session_db)
+        
+        if processing:
+            click.echo("\n🔧 Processing Sessions:")
+            _check_processing_markdown_status(backup_manager, main_config)
+        
+        click.echo()
+        
+    finally:
+        session_db.close()
+        db_manager.close()
+
+# ============================================================================
+# HELPER FUNCTIONS FOR MARKDOWN BACKUP
+# ============================================================================
+
+def _check_imaging_markdown_status(backup_manager, config, session_db):
+    """Check status of imaging session backups (checks both S3 and database)."""
+    base_dir = Path(config.paths.image_dir)
+    session_info_dir = base_dir / ".session_info"
+    
+    if not session_info_dir.exists():
+        click.echo("   No .session_info directory found")
+        return
+    
+    markdown_files = sorted(session_info_dir.rglob("*_session_notes.md"))
+    
+    if not markdown_files:
+        click.echo("   No imaging session notes found")
+        return
+    
+    needs_backup = []
+    backed_up = []
+    
+    for md_file in markdown_files:
+        try:
+            session_id = md_file.stem.replace('_session_notes', '')
+            year = int(md_file.parent.name)
+            
+            # Check database first
+            db_record = session_db.query(S3BackupSessionNote).filter(
+                S3BackupSessionNote.session_id == session_id
+            ).first()
+            
+            if db_record:
+                # In database, show when backed up
+                backed_up.append(f"{md_file.name} (backed up {db_record.uploaded_at.strftime('%Y-%m-%d')})")
+            else:
+                # Not in database, check S3 directly
+                s3_key = backup_manager._get_session_note_key(session_id, year)
+                needs, reason = backup_manager.needs_markdown_backup(md_file, s3_key)
+                
+                if needs:
+                    needs_backup.append((md_file.name, reason))
+                else:
+                    # In S3 but not database - show as backed up
+                    backed_up.append(f"{md_file.name} (in S3, not tracked)")
+        
+        except Exception as e:
+            click.echo(f"   ✗ Error checking {md_file.name}: {e}")
+    
+    # Display results
+    if backed_up:
+        click.echo(f"\n   ✓ Backed up ({len(backed_up)}):")
+        for name in backed_up[:5]:  # Show first 5
+            click.echo(f"      • {name}")
+        if len(backed_up) > 5:
+            click.echo(f"      ... and {len(backed_up) - 5} more")
+    
+    if needs_backup:
+        click.echo(f"\n   ⚠ Needs backup ({len(needs_backup)}):")
+        for name, reason in needs_backup[:10]:  # Show first 10
+            click.echo(f"      • {name}: {reason}")
+        if len(needs_backup) > 10:
+            click.echo(f"      ... and {len(needs_backup) - 10} more")
+
+
+def _check_processing_markdown_status(backup_manager, config, session_db):
+    """Check status of processing session backups (checks both S3 and database)."""
+    processing_dir = Path(config.paths.processing_dir)
+    
+    if not processing_dir.exists():
+        click.echo("   No processing directory found")
+        return
+    
+    markdown_files = sorted(processing_dir.rglob("session_info.md"))
+    
+    if not markdown_files:
+        click.echo("   No processing session notes found")
+        return
+    
+    needs_backup = []
+    backed_up = []
+    
+    for md_file in markdown_files:
+        try:
+            session_name = md_file.parent.name
+            
+            # Check database first
+            db_record = session_db.query(S3BackupProcessingSession).filter(
+                S3BackupProcessingSession.processing_session_id == session_name
+            ).first()
+            
+            if db_record:
+                # In database, show when backed up
+                backed_up.append(f"{session_name} (backed up {db_record.uploaded_at.strftime('%Y-%m-%d')})")
+            else:
+                # Not in database, check S3 directly
+                s3_key = backup_manager._get_processing_note_key(session_name)
+                needs, reason = backup_manager.needs_markdown_backup(md_file, s3_key)
+                
+                if needs:
+                    needs_backup.append((session_name, reason))
+                else:
+                    # In S3 but not database - show as backed up
+                    backed_up.append(f"{session_name} (in S3, not tracked)")
+        
+        except Exception as e:
+            click.echo(f"   ✗ Error checking {session_name}: {e}")
+    
+    # Display results
+    if backed_up:
+        click.echo(f"\n   ✓ Backed up ({len(backed_up)}):")
+        for name in backed_up[:5]:  # Show first 5
+            click.echo(f"      • {name}")
+        if len(backed_up) > 5:
+            click.echo(f"      ... and {len(backed_up) - 5} more")
+    
+    if needs_backup:
+        click.echo(f"\n   ⚠ Needs backup ({len(needs_backup)}):")
+        for name, reason in needs_backup[:10]:  # Show first 10
+            click.echo(f"      • {name}: {reason}")
+        if len(needs_backup) > 10:
+            click.echo(f"      ... and {len(needs_backup) - 10} more")
+
+def _print_markdown_summary(stats, dry_run):
+    """Print backup summary."""
+    click.echo("\n" + "=" * 80)
+    click.echo("SUMMARY")
+    click.echo("=" * 80)
+    click.echo(f"Total files checked: {stats['total_checked']}")
+    
+    if dry_run:
+        click.echo(f"Would upload:        {stats['uploaded']}")
+    else:
+        click.echo(f"Uploaded:            {stats['uploaded']}")
+    
+    click.echo(f"Skipped (current):   {stats['skipped']}")
+    
+    if stats['failed'] > 0:
+        click.echo(f"Failed:              {stats['failed']}")
+    
+    click.echo()
+    
+    if dry_run:
+        click.echo("💡 Run without --dry-run to perform actual upload")
+    elif stats['uploaded'] > 0:
+        click.echo("✓ Backup complete!")
+    elif stats['skipped'] > 0:
+        click.echo("✓ All files already backed up")
+    else:
+        click.echo("ℹ️  No markdown files found")
 
 
 if __name__ == '__main__':
