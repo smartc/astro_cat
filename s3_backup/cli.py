@@ -21,7 +21,7 @@ from s3_backup.models import Base as BackupBase, S3BackupArchive
 logger = logging.getLogger(__name__)
 
 
-def get_backup_manager(config_path: str = 'config.json', s3_config_path: str = 's3_config.json'):
+def get_backup_manager(config_path: str = 'config.json', s3_config_path: str = 's3_config.json', dry_run: bool  = False, auto_cleanup: bool = True):
     """Initialize backup manager with configuration."""
     config, cameras, telescopes, filter_mappings = load_config(config_path)
     db_manager = DatabaseManager(config.database.connection_string)
@@ -41,7 +41,7 @@ def get_backup_manager(config_path: str = 'config.json', s3_config_path: str = '
     # Use image_dir as the base (typically /mnt/phoebe/Astro)
     base_dir = Path(config.paths.image_dir).parent if hasattr(config.paths, 'image_dir') else None
     
-    backup_manager = S3BackupManager(db_service, s3_config, base_dir)
+    backup_manager = S3BackupManager(db_service, s3_config, base_dir, dry_run, auto_cleanup)
     
     return backup_manager, db_manager, db_service
 
@@ -66,52 +66,53 @@ def cli(ctx, config, s3_config, verbose):
 
 
 @cli.command()
+@click.option("--dry-run", is_flag=True, help="Show what would be deleted without actually removing files.")
 @click.pass_context
-def cleanup(ctx):
+def cleanup(ctx, dry_run):
     """Clean up temporary archive files."""
     backup_manager, db_manager, db_service = get_backup_manager(
-        ctx.obj['config'], ctx.obj['s3_config']
+        ctx.obj['config'], ctx.obj['s3_config'], dry_run=dry_run, auto_cleanup=False
     )
-    
+
+
     try:
         temp_dir = backup_manager.temp_dir
-        
+
         if not temp_dir.exists():
             click.echo(f"✓ Temp directory does not exist: {temp_dir}")
             return
-        
-        # Find all archive files
+
         archives = list(temp_dir.glob("*.tar*"))
-        
         if not archives:
             click.echo(f"✓ No orphaned archives found in: {temp_dir}")
             return
-        
-        # Calculate total size
+
         total_size = sum(f.stat().st_size for f in archives)
-        
         click.echo(f"\nFound {len(archives)} orphaned archive(s) in: {temp_dir}")
-        click.echo(f"Total size: {format_bytes(total_size)}")
-        click.echo("\nFiles:")
+        click.echo(f"Total size: {format_bytes(total_size)}\n")
+
         for archive in archives:
-            size = archive.stat().st_size
-            click.echo(f"  {archive.name}: {format_bytes(size)}")
-        
+            click.echo(f"  {archive.name}: {format_bytes(archive.stat().st_size)}")
+
         if not click.confirm("\nDelete these files?"):
             click.echo("Cancelled.")
             return
-        
-        # Delete
+
         deleted = 0
         for archive in archives:
-            try:
-                archive.unlink()
+            if dry_run:
+                click.echo(f"🧩 Would delete: {archive}")
+                continue
+            if backup_manager.safe_unlink(archive):
                 deleted += 1
-            except Exception as e:
-                click.echo(f"❌ Failed to delete {archive.name}: {e}")
-        
-        click.echo(f"\n✓ Deleted {deleted} file(s), freed {format_bytes(total_size)}")
-        
+            else:
+                click.echo(f"⚠️ Skipped or missing: {archive.name}")
+
+        if dry_run:
+            click.echo(f"\n✅ Dry run complete — {len(archives)} files would be deleted.")
+        else:
+            click.echo(f"\n✓ Deleted {deleted} file(s), freed {format_bytes(total_size)}")
+
     finally:
         db_manager.close()
 

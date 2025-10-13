@@ -159,33 +159,56 @@ class S3BackupConfig:
 
 class S3BackupManager:
     """Main S3 backup manager for session-based archives."""
-    
-    def __init__(self, db_service: DatabaseService, s3_config: S3BackupConfig, base_dir: Optional[Path] = None):
+
+    def __init__(self, db_service: DatabaseService, s3_config: S3BackupConfig,
+                 base_dir: Optional[Path] = None, dry_run: bool = False, auto_cleanup=True):
         self.db_service = db_service
         self.s3_config = s3_config
-        
+        self.dry_run = dry_run
+
         # Set base directory for resolving relative paths
         if base_dir:
             self.s3_config.set_base_dir(base_dir)
-        
+
         if not s3_config.enabled:
             raise RuntimeError("S3 backup is not enabled in s3_config.json")
-        
+
         # Initialize S3 client
         boto_config = BotoConfig(
             region_name=s3_config.region,
             retries={'max_attempts': 3, 'mode': 'adaptive'}
         )
         self.s3_client = boto3.client('s3', config=boto_config)
-        
-        # Verify bucket access
+
         self._verify_bucket_access()
-        
-        # Setup temp directory
         self._setup_temp_dir()
-        
+
+        if auto_cleanup:
+            self._cleanup_orphaned_archives()
+
         logger.info(f"S3 Backup Manager initialized for bucket: {s3_config.bucket}")
         logger.info(f"  Temp directory: {self.temp_dir}")
+
+    def safe_unlink(self, path: Optional[Path]) -> bool:
+        """Safely delete a file if it exists, respecting dry-run."""
+        if not path:
+            return False
+        try:
+            if not path.exists():
+                logger.debug(f"Already deleted or missing: {path}")
+                return False
+
+            if self.dry_run:
+                logger.info(f"🧩 [Dry Run] Would delete: {path}")
+                return True
+
+            path.unlink()
+            logger.debug(f"🧹 Deleted: {path}")
+            return True
+
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to delete {path}: {e}")
+            return False
     
     def _setup_temp_dir(self):
         """Setup and verify temp directory for archives."""
@@ -224,9 +247,7 @@ class S3BackupManager:
                 f"Please check permissions or specify different temp_dir"
             ) from e
         
-        # Clean up any orphaned archives from previous runs
-        self._cleanup_orphaned_archives()
-    
+   
     def _cleanup_orphaned_archives(self):
         """Remove any leftover archive files from failed previous runs."""
         if not self.temp_dir.exists():
@@ -236,11 +257,14 @@ class S3BackupManager:
         if orphaned:
             logger.info(f"Cleaning up {len(orphaned)} orphaned archive(s) from previous runs...")
             for archive in orphaned:
+                # Skip archives that may still be in use
                 try:
-                    archive.unlink()
-                    logger.debug(f"  Removed: {archive.name}")
+                    if archive.name.endswith(".part") or archive.stat().st_size == 0:
+                        continue
+                    self.safe_unlink(archive)
                 except Exception as e:
-                    logger.warning(f"  Failed to remove {archive.name}: {e}")
+                    logger.warning(f"Could not remove {archive}: {e}")
+
 
     
     def _verify_bucket_access(self):
@@ -753,10 +777,10 @@ class S3BackupManager:
                     error=f"Verification failed: {verify_result.error}"
                 )
             
-            # Cleanup if requested
-            if cleanup_archive:
-                archive_path.unlink()
-                logger.info(f"Cleaned up local archive: {archive_path}")
+            # Clean up temporary archive using safe unlink
+            if cleanup_archive and self.safe_unlink(archive_path):
+                logger.info(f"🧹 Deleted local archive: {archive_path}")
+
             
             # Get file count
             file_count = session_db.query(FitsFile).filter(
