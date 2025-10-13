@@ -64,6 +64,11 @@ const AppHeader = {
                             <span v-html="icons.database"></span>
                             Database Browser
                         </a>
+
+                        <a @click="navigateTo('/s3-backup-viewer')" class="menu-item">
+                            <span v-html="icons.upload"></span>
+                            S3 Backup
+                        </a>
                         
                         <a @click="navigateTo('/?tab=configuration')" class="menu-item">
                             <span v-html="icons.settings"></span>

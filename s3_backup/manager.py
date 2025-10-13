@@ -6,6 +6,7 @@ import tarfile
 import tempfile
 import logging
 import hashlib
+import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -19,6 +20,17 @@ from tqdm import tqdm
 from models import DatabaseService, FitsFile, Session as SessionModel
 
 logger = logging.getLogger(__name__)
+
+
+def format_size(bytes_size: int) -> str:
+    """Format bytes as human-readable size."""
+    if bytes_size == 0:
+        return "0 B"
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if bytes_size < 1024.0:
+            return f"{bytes_size:.2f} {unit}"
+        bytes_size /= 1024.0
+    return f"{bytes_size:.2f} PB"
 
 
 @dataclass
@@ -46,6 +58,16 @@ class VerifyResult:
     s3_size: int = 0
     local_size: int = 0
     etag_match: bool = False
+    error: Optional[str] = None
+
+
+@dataclass
+class SpaceCheckResult:
+    """Result of a pre-flight space check."""
+    has_space: bool
+    session_size: int
+    free_space: int
+    temp_dir: Path
     error: Optional[str] = None
 
 
@@ -497,7 +519,78 @@ class S3BackupManager:
         except Exception as e:
             logger.error(f"Upload error: {e}")
             return False, None, None
-    
+
+    def calculate_session_size(self, session_id: str) -> int:
+        """Calculate total size of all LIGHT files in a session."""
+        session_db = self.db_service.db_manager.get_session()
+        try:
+            files = session_db.query(FitsFile).filter(
+                FitsFile.session_id == session_id,
+                FitsFile.frame_type == 'LIGHT'
+            ).all()
+            
+            total = 0
+            for f in files:
+                p = Path(f.folder) / f.file
+                if p.exists():
+                    total += p.stat().st_size
+            return total
+        finally:
+            session_db.close()
+
+    def check_temp_space(self, session_id: str, required_bytes: Optional[int] = None) -> SpaceCheckResult:
+        """Check if temp directory has sufficient space for archive."""
+        try:
+            if required_bytes is None:
+                required_bytes = self.calculate_session_size(session_id)
+            
+            stat = shutil.disk_usage(self.temp_dir)
+            free_space = stat.free
+            
+            # Add 10% buffer
+            required_with_buffer = int(required_bytes * 1.1)
+            has_space = free_space >= required_with_buffer
+            
+            if not has_space:
+                error = (
+                    f"Insufficient space in {self.temp_dir}: "
+                    f"need {format_size(required_with_buffer)}, "
+                    f"have {format_size(free_space)}"
+                )
+                logger.warning(error)
+                return SpaceCheckResult(False, required_bytes, free_space, self.temp_dir, error)
+            
+            return SpaceCheckResult(True, required_bytes, free_space, self.temp_dir, None)
+        except Exception as e:
+            error = f"Error checking temp space: {e}"
+            logger.error(error)
+            return SpaceCheckResult(False, 0, 0, self.temp_dir, error)
+
+    def get_largest_session_size(self) -> Tuple[Optional[str], int]:
+        """Find largest session by querying database and calculating actual size."""
+        session_db = self.db_service.db_manager.get_session()
+        try:
+            # Find session with most LIGHT files (proxy for largest)
+            result = session_db.query(
+                FitsFile.session_id,
+                func.count(FitsFile.id)
+            ).filter(
+                FitsFile.session_id.isnot(None),
+                FitsFile.frame_type == 'LIGHT'
+            ).group_by(
+                FitsFile.session_id
+            ).order_by(
+                func.count(FitsFile.id).desc()
+            ).first()
+            
+            if result:
+                actual_size = self.calculate_session_size(result[0])
+                return result[0], actual_size
+            return None, 0
+        finally:
+            session_db.close()
+
+
     def verify_archive(self, session_id: str, year: int) -> VerifyResult:
         """Verify archive exists in S3 and matches expected size."""
         s3_key = self._get_archive_key(session_id, year)
@@ -581,6 +674,24 @@ class S3BackupManager:
                     error="Already backed up (skipped)"
                 )
             
+            # PRE-FLIGHT SPACE CHECK - ADD THIS BLOCK:
+            space_check = self.check_temp_space(session_id)
+            if not space_check.has_space:
+                logger.error(f"Pre-flight check failed for {session_id}: {space_check.error}")
+                return ArchiveResult(
+                    success=False,
+                    session_id=session_id,
+                    error=space_check.error
+                )
+            
+            logger.info(
+                f"Pre-flight check passed: session {format_size(space_check.session_size)}, "
+                f"free {format_size(space_check.free_space)}"
+            )
+            
+            # Create archive (existing code continues here)
+            logger.info(f"Starting backup for session: {session_id}")
+
             # Create archive
             logger.info(f"Starting backup for session: {session_id}")
             

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S3 Backup Manager</title>
+
+    <link rel="icon" type="image/png" href="/static/assets/favicon.png">
+    
+    <script src="/static/js/lib/vue.global.prod.js"></script>
+    <script src="/static/js/components/icons.js"></script>
+    <script src="/static/js/components/starfield-background.js"></script> 
+    <script src="/static/js/components/app-header.js"></script>
+    <script src="/static/js/components/app-footer.js"></script>
+    <script src="/static/js/lib/axios.min.js"></script>
+    
+    <link rel="stylesheet" href="/static/css/lib/tailwind.min.css">
+    <link rel="stylesheet" href="/static/css/menu.css">
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        
+        #backup-frame {
+            flex: 1;
+            border: none;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="app" style="display: flex; flex-direction: column; height: 100%;">
+        <app-header></app-header>
+
+        <iframe id="backup-frame" src=""></iframe>
+
+        <app-footer></app-footer>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+        
+        createApp({
+            components: {
+                'app-header': AppHeader,
+                'app-footer': AppFooter
+            },
+            mounted() {
+                const iframe = document.getElementById('backup-frame');
+                const protocol = window.location.protocol;
+                const mainOrigin = `${protocol}//${window.location.hostname}:8000`;
+                iframe.src = `${protocol}//${window.location.hostname}:8083?mainOrigin=${encodeURIComponent(mainOrigin)}`;
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

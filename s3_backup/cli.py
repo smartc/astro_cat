@@ -144,6 +144,30 @@ def temp_info(ctx):
             click.echo(f"  Free: {format_bytes(stat.free)}")
             click.echo(f"  Usage: {stat.used / stat.total * 100:.1f}%")
             
+            # DYNAMIC LARGEST SESSION CHECK
+            click.echo("\nCalculating largest session size...")
+            largest_session_id, largest_size = backup_manager.get_largest_session_size()
+            
+            if largest_session_id:
+                required_space = int(largest_size * 1.1)  # 10% buffer
+                click.echo(f"\nLargest session: {largest_session_id}")
+                click.echo(f"  Size: {format_bytes(largest_size)}")
+                click.echo(f"  With buffer: {format_bytes(required_space)}")
+                
+                if stat.free >= required_space:
+                    click.echo(f"\n✓ Sufficient space for largest session")
+                else:
+                    shortage = required_space - stat.free
+                    click.echo(f"\n⚠️  WARNING: Insufficient space!")
+                    click.echo(f"  Short by: {format_bytes(shortage)}")
+                    click.echo(f"\n  Consider using a different temp directory")
+                    click.echo(f"  Edit s3_config.json:")
+                    click.echo(f'    "archive_settings": {{')
+                    click.echo(f'      "temp_dir": "/path/to/larger/storage"')
+                    click.echo(f'    }}')
+            else:
+                click.echo("\nNo sessions found in database")
+            
             # Check for archives
             archives = list(temp_dir.glob("*.tar*"))
             if archives:
@@ -155,23 +179,10 @@ def temp_info(ctx):
             else:
                 click.echo(f"\n✓ No orphaned archives")
         
-        # Suggest larger temp dir if needed
-        if temp_dir.exists():
-            stat = shutil.disk_usage(temp_dir)
-            if stat.free < 15 * 1024 * 1024 * 1024:  # Less than 15 GB free
-                click.echo(f"\n⚠️  WARNING: Less than 15 GB free space")
-                click.echo(f"  Your largest session is 14.66 GB")
-                click.echo(f"  Consider using a different temp directory")
-                click.echo(f"\n  Edit s3_config.json:")
-                click.echo(f'    "archive_settings": {{')
-                click.echo(f'      "temp_dir": "/path/to/larger/storage"')
-                click.echo(f'    }}')
-        
         click.echo("\n" + "=" * 80)
         
     finally:
         db_manager.close()
-
 
 @cli.command()
 @click.pass_context
@@ -326,9 +337,9 @@ def upload(ctx, session_id, year, limit, skip_existing, no_cleanup):
         
         click.echo(f"\nFound {len(sessions)} session(s) to process")
         
-        if not click.confirm("Continue with upload?"):
-            click.echo("Cancelled.")
-            return
+        # if not click.confirm("Continue with upload?"):
+        #     click.echo("Cancelled.")
+        #     return
         
         # Track results
         results = {

@@ -77,3 +77,8 @@ async def database_viewer():
 async def file_browser():
     """File browser with WebDAV iframe."""
     return FileResponse("static/file-browser.html")
+
+@router.get("/s3-backup-viewer", response_class=HTMLResponse)
+async def s3_backup_viewer():
+    """S3 Backup interface with header."""
+    return FileResponse("static/s3-backup-viewer.html")

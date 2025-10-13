@@ -31,6 +31,7 @@ filter_mappings = {}
 processing_manager = None
 sqlite_web_process = None
 webdav_server = None
+s3_backup_process = None
 
 app = FastAPI(
     title="FITS Cataloger",
@@ -81,6 +82,37 @@ def start_sqlite_web(db_path: str, port: int = 8081):
     except Exception as e:
         logger.warning(f"Could not start sqlite_web: {e}")
         logger.warning("Install with: pip install sqlite-web")
+
+
+def start_s3_backup_web(port: int = 8083):
+    """Start S3 backup web interface."""
+    global s3_backup_process
+    try:
+        logger.info(f"Starting S3 backup web interface on port {port}...")
+        s3_backup_process = subprocess.Popen(
+            [sys.executable, "-m", "s3_backup.run_web"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        logger.info(f"✓ S3 backup interface at http://0.0.0.0:{port}")
+    except Exception as e:
+        logger.warning(f"Could not start S3 backup interface: {e}")
+
+
+def restart_s3_backup_web():
+    """Restart S3 backup web interface."""
+    global s3_backup_process
+    
+    # Stop existing
+    if s3_backup_process:
+        try:
+            s3_backup_process.terminate()
+            s3_backup_process.wait(timeout=3)
+        except:
+            pass
+    
+    # Restart
+    start_s3_backup_web(port=8083)
 
 
 @app.on_event("startup")
@@ -137,6 +169,11 @@ async def startup_event():
         db_path = Path(config.paths.database_path)
         if db_path.exists():
             start_sqlite_web(str(db_path), port=8081)
+
+
+        # Start S3 backup interface
+        start_s3_backup_web(port=8083)
+
         
         logger.info("=" * 60)
         logger.info("Web interface ready!")
@@ -167,6 +204,15 @@ async def shutdown_event():
             logger.info("✓ Database browser stopped")
         except Exception as e:
             logger.warning(f"Error stopping sqlite_web: {e}")
+
+    # Stop S3 backup interface
+    if s3_backup_process:
+        try:
+            s3_backup_process.terminate()
+            s3_backup_process.wait(timeout=5)
+            logger.info("✓ S3 backup interface stopped")
+        except Exception as e:
+            logger.warning(f"Error stopping S3 backup interface: {e}")
     
     if db_manager:
         db_manager.close()
