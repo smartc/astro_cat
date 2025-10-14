@@ -664,3 +664,46 @@ async def remove_object_from_session(
         logger.error(f"Error removing object from session: {e}", exc_info=True)
         session.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/{session_id}/files")
+async def get_processing_session_files(
+    session_id: str,
+    session: Session = Depends(get_db_session)
+):
+    """
+    Get all files in a processing session with their metadata.
+    
+    Returns:
+        List of files with id, session_id, frame_type, camera, telescope, obs_date, etc.
+    """
+    try:
+        # Query all files in this processing session
+        files = session.query(FitsFile).join(ProcessingSessionFile).filter(
+            ProcessingSessionFile.processing_session_id == session_id
+        ).all()
+        
+        if not files:
+            return []
+        
+        # Build response with relevant file metadata
+        files_data = []
+        for file in files:
+            files_data.append({
+                "id": file.id,
+                "file": file.file,
+                "folder": file.folder,
+                "session_id": file.session_id,
+                "frame_type": file.frame_type,
+                "camera": file.camera,
+                "telescope": file.telescope,
+                "filter": file.filter,
+                "exposure": file.exposure,
+                "obs_date": file.obs_date,
+                "object": file.object
+            })
+        
+        return files_data
+        
+    except Exception as e:
+        logger.error(f"Error fetching files for processing session {session_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

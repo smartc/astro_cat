@@ -16,13 +16,14 @@ const ApiService = {
     imagingSessions: {
         getAll: (params) => axios.get('/api/imaging-sessions', { params }),
         getDetails: (sessionId) => axios.get(`/api/imaging-sessions/${sessionId}/details`),
-        getIds: (params) => axios.get('/api/imaging-sessions/ids', { params }),  // NEW
+        getIds: (params) => axios.get('/api/imaging-sessions/ids', { params }),
     },
     
     processingSessions: {
         getAll: (params) => axios.get('/api/processing-sessions', { params }),
         getById: (sessionId) => axios.get(`/api/processing-sessions/${sessionId}`),
-        getIds: (params) => axios.get('/api/processing-sessions/ids', { params }),  // NEW
+        getIds: (params) => axios.get('/api/processing-sessions/ids', { params }),
+        getFiles: (sessionId) => axios.get(`/api/processing-sessions/${sessionId}/files`),
         create: (payload) => axios.post('/api/processing-sessions', payload),
         addFiles: (sessionId, fileIds) => 
             axios.post(`/api/processing-sessions/${sessionId}/add-files`, fileIds, {
@@ -35,7 +36,7 @@ const ApiService = {
         getCalibrationMatches: (sessionId) => 
             axios.get(`/api/processing-sessions/${sessionId}/calibration-matches`),
         removeObject: (sessionId, objectName) =>
-            axios.delete(`/api/processing-sessions/${sessionId}/objects/${encodeURIComponent(objectName)}`)
+            axios.delete(`/api/processing-sessions/${sessionId}/objects/${encodeURIComponent(objectName)}`),
     },
 
     operations: {

@@ -1,5 +1,6 @@
 /**
- * Processing Session Details Modal Component
+ * Processing Session Details Modal Component - MINIMAL CHANGES
+ * Only adds: 1) Session ID click-to-copy, 2) Imaging Sessions card
  */
 
 const ProcessingSessionDetailsModal = {
@@ -17,6 +18,15 @@ const ProcessingSessionDetailsModal = {
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                                 </svg>
                             </button>
+                        </div>
+                        <!-- NEW: Session ID (clickable to copy) -->
+                        <div v-if="currentSessionDetails" class="mt-2 text-sm">
+                            <span class="text-gray-200 mr-2">🆔 Session ID:</span>
+                            <code @click="copySessionIdToClipboard" 
+                                  class="bg-white bg-opacity-20 px-2 py-1 rounded cursor-pointer hover:bg-opacity-30 transition-colors"
+                                  title="Click to copy session ID">
+                                {{ currentSessionDetails.id }}
+                            </code>
                         </div>
                         <!-- WebDAV Path (clickable to copy) -->
                         <div v-if="webdavStatus && webdavStatus.running && nativeFilePath" class="mt-2 text-sm">
@@ -142,6 +152,106 @@ const ProcessingSessionDetailsModal = {
                             </div>
                         </div>
 
+                        <!-- NEW: Imaging Sessions Card -->
+                        <div class="bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-lg border border-purple-200">
+                            <h4 class="text-lg font-semibold text-gray-800 mb-4">📸 Imaging Sessions Used</h4>
+                            
+                            <!-- Loading State for Sessions -->
+                            <div v-if="imagingSessionsLoading" class="text-center py-4">
+                                <div class="spinner inline-block"></div>
+                                <span class="ml-2 text-gray-600 text-sm">Loading imaging sessions...</span>
+                            </div>
+                            
+                            <!-- Light Frames Section -->
+                            <div v-else-if="imagingSessions && (imagingSessions.lights.length > 0 || imagingSessions.calibration.length > 0)">
+                                <div v-if="imagingSessions.lights.length > 0" class="mb-6">
+                                    <h5 class="font-semibold text-purple-700 mb-2 flex items-center">
+                                        <span class="mr-2">🌟</span> Light Frames
+                                    </h5>
+                                    <div class="bg-white p-3 rounded border border-purple-200 overflow-x-auto">
+                                        <table class="w-full text-sm font-mono border-collapse">
+                                            <thead>
+                                                <tr class="border-b-2 border-purple-300">
+                                                    <th class="text-left py-2 px-3 font-semibold text-purple-900">Session ID</th>
+                                                    <th class="text-left py-2 px-3 font-semibold text-purple-900">Date</th>
+                                                    <th class="text-left py-2 px-3 font-semibold text-purple-900">Camera</th>
+                                                    <th class="text-left py-2 px-3 font-semibold text-purple-900">Telescope</th>
+                                                    <th class="text-right py-2 px-3 font-semibold text-purple-900">Lights</th>
+                                                    <th class="text-right py-2 px-3 font-semibold text-purple-900">Darks</th>
+                                                    <th class="text-right py-2 px-3 font-semibold text-purple-900">Flats</th>
+                                                    <th class="text-right py-2 px-3 font-semibold text-purple-900">Bias</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr v-for="session in imagingSessions.lights" :key="session.session_id" 
+                                                    class="border-b border-purple-100 hover:bg-purple-50">
+                                                    <td class="py-2 px-3">
+                                                        <a @click="viewImagingSession(session.session_id)" 
+                                                           class="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer">
+                                                            {{ session.session_id }}
+                                                        </a>
+                                                    </td>
+                                                    <td class="py-2 px-3">{{ session.obs_date }}</td>
+                                                    <td class="py-2 px-3">{{ session.camera }}</td>
+                                                    <td class="py-2 px-3">{{ session.telescope }}</td>
+                                                    <td class="py-2 px-3 text-right">{{ session.lights }}</td>
+                                                    <td class="py-2 px-3 text-right">{{ session.darks }}</td>
+                                                    <td class="py-2 px-3 text-right">{{ session.flats }}</td>
+                                                    <td class="py-2 px-3 text-right">{{ session.bias }}</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Calibration Frames Section -->
+                                <div v-if="imagingSessions.calibration.length > 0">
+                                    <h5 class="font-semibold text-purple-700 mb-2 flex items-center">
+                                        <span class="mr-2">⚙️</span> Calibration Frames
+                                    </h5>
+                                    <div class="bg-white p-3 rounded border border-purple-200 overflow-x-auto">
+                                        <table class="w-full text-sm font-mono border-collapse">
+                                            <thead>
+                                                <tr class="border-b-2 border-purple-300">
+                                                    <th class="text-left py-2 px-3 font-semibold text-purple-900">Session ID</th>
+                                                    <th class="text-left py-2 px-3 font-semibold text-purple-900">Date</th>
+                                                    <th class="text-left py-2 px-3 font-semibold text-purple-900">Camera</th>
+                                                    <th class="text-left py-2 px-3 font-semibold text-purple-900">Telescope</th>
+                                                    <th class="text-right py-2 px-3 font-semibold text-purple-900">Lights</th>
+                                                    <th class="text-right py-2 px-3 font-semibold text-purple-900">Darks</th>
+                                                    <th class="text-right py-2 px-3 font-semibold text-purple-900">Flats</th>
+                                                    <th class="text-right py-2 px-3 font-semibold text-purple-900">Bias</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr v-for="session in imagingSessions.calibration" :key="session.session_id" 
+                                                    class="border-b border-purple-100 hover:bg-purple-50">
+                                                    <td class="py-2 px-3">
+                                                        <a @click="viewImagingSession(session.session_id)" 
+                                                           class="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer">
+                                                            {{ session.session_id }}
+                                                        </a>
+                                                    </td>
+                                                    <td class="py-2 px-3">{{ session.obs_date }}</td>
+                                                    <td class="py-2 px-3">{{ session.camera }}</td>
+                                                    <td class="py-2 px-3">{{ session.telescope }}</td>
+                                                    <td class="py-2 px-3 text-right">{{ session.lights }}</td>
+                                                    <td class="py-2 px-3 text-right">{{ session.darks }}</td>
+                                                    <td class="py-2 px-3 text-right">{{ session.flats }}</td>
+                                                    <td class="py-2 px-3 text-right">{{ session.bias }}</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- No Sessions State -->
+                            <div v-else class="text-gray-500 text-sm italic">
+                                No imaging sessions found for this processing session.
+                            </div>
+                        </div>
+
                         <!-- Notes -->
                         <div v-if="currentSessionDetails.notes" class="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
                             <h4 class="font-semibold text-yellow-800 mb-2">Notes</h4>
@@ -207,7 +317,10 @@ const ProcessingSessionDetailsModal = {
             currentSessionIndex: -1,
             webdavStatus: null,
             webdavInfo: null,
-            nativeFilePath: null
+            nativeFilePath: null,
+            // NEW: Imaging sessions data
+            imagingSessions: null,
+            imagingSessionsLoading: false
         };
     },
 
@@ -238,12 +351,96 @@ const ProcessingSessionDetailsModal = {
                 // Load WebDAV info for the session
                 await this.loadWebDAVInfo(sessionId);
                 
+                // NEW: Load imaging sessions
+                await this.loadImagingSessions(sessionId);
+                
             } catch (error) {
                 console.error('Error loading session details:', error);
                 this.closeSessionDetailsModal();
                 alert(`Failed to load session details: ${error.response?.data?.detail || error.message}`);
             } finally {
                 this.sessionDetailsLoading = false;
+            }
+        },
+
+        // NEW: Load imaging sessions from files
+        async loadImagingSessions(sessionId) {
+            this.imagingSessionsLoading = true;
+            try {
+                const response = await ApiService.processingSessions.getFiles(sessionId);
+                const files = response.data;
+                
+                // Group by session_id and frame_type
+                const sessionMap = new Map();
+                
+                files.forEach(file => {
+                    if (!file.session_id) return;
+                    
+                    const key = file.session_id;
+                    if (!sessionMap.has(key)) {
+                        sessionMap.set(key, {
+                            session_id: file.session_id,
+                            camera: file.camera || 'N/A',
+                            telescope: file.telescope || 'N/A',
+                            obs_date: file.obs_date || 'N/A',
+                            lights: 0,
+                            darks: 0,
+                            flats: 0,
+                            bias: 0
+                        });
+                    }
+                    
+                    const session = sessionMap.get(key);
+                    const frameType = (file.frame_type || 'UNKNOWN').toLowerCase();
+                    
+                    if (frameType === 'light') session.lights++;
+                    else if (frameType === 'dark') session.darks++;
+                    else if (frameType === 'flat') session.flats++;
+                    else if (frameType === 'bias') session.bias++;
+                });
+                
+                // Convert to arrays and separate lights from calibration
+                const allSessions = Array.from(sessionMap.values());
+                
+                this.imagingSessions = {
+                    lights: allSessions.filter(s => s.lights > 0).sort((a, b) => b.obs_date.localeCompare(a.obs_date)),
+                    calibration: allSessions.filter(s => s.darks > 0 || s.flats > 0 || s.bias > 0).sort((a, b) => b.obs_date.localeCompare(a.obs_date))
+                };
+                
+            } catch (error) {
+                console.error('Error loading imaging sessions:', error);
+                this.imagingSessions = { lights: [], calibration: [] };
+            } finally {
+                this.imagingSessionsLoading = false;
+            }
+        },
+
+        // NEW: View imaging session details
+        async viewImagingSession(sessionId) {
+            const app = this.$root;
+            
+            try {
+                // Get all imaging session IDs for navigation
+                const response = await fetch('/api/imaging-sessions/ids');
+                const data = await response.json();
+                const allSessionIds = data.session_ids || [];
+                
+                // Close this modal first
+                this.closeSessionDetailsModal();
+                
+                // Small delay to ensure modal is closed before opening new one
+                setTimeout(() => {
+                    // Open the imaging session modal - ref is sessionDetailModal
+                    if (app.$refs.sessionDetailModal) {
+                        app.$refs.sessionDetailModal.viewSessionDetails(sessionId, allSessionIds);
+                    } else {
+                        console.error('Imaging session modal ref not found');
+                    }
+                }, 100);
+                
+            } catch (error) {
+                console.error('Error opening imaging session modal:', error);
+                alert('Failed to open imaging session details');
             }
         },
 
@@ -277,25 +474,40 @@ const ProcessingSessionDetailsModal = {
             return 'linux';
         },
 
+        // NEW: Copy session ID to clipboard
+        copySessionIdToClipboard() {
+            if (!this.currentSessionDetails) return;
+            
+            const sessionId = this.currentSessionDetails.id;
+            
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(sessionId).then(() => {
+                    this.showCopyFeedback(sessionId);
+                }).catch(err => {
+                    console.error('Clipboard API failed:', err);
+                    this.fallbackCopy(sessionId);
+                });
+            } else {
+                this.fallbackCopy(sessionId);
+            }
+        },
+
         copyPathToClipboard() {
             if (!this.nativeFilePath) return;
             
-            // Check if Clipboard API is available (requires HTTPS or localhost)
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 navigator.clipboard.writeText(this.nativeFilePath).then(() => {
-                    this.showCopyFeedback();
+                    this.showCopyFeedback(this.nativeFilePath);
                 }).catch(err => {
                     console.error('Clipboard API failed:', err);
                     this.fallbackCopy(this.nativeFilePath);
                 });
             } else {
-                // Fallback for non-HTTPS contexts
                 this.fallbackCopy(this.nativeFilePath);
             }
         },
 
         fallbackCopy(text) {
-            // Create a temporary textarea element
             const textarea = document.createElement('textarea');
             textarea.value = text;
             textarea.style.position = 'fixed';
@@ -305,7 +517,7 @@ const ProcessingSessionDetailsModal = {
             
             try {
                 document.execCommand('copy');
-                this.showCopyFeedback();
+                this.showCopyFeedback(text);
             } catch (err) {
                 console.error('Fallback copy failed:', err);
                 alert('Failed to copy to clipboard. Please copy manually: ' + text);
@@ -314,8 +526,7 @@ const ProcessingSessionDetailsModal = {
             }
         },
 
-        showCopyFeedback() {
-            // Visual feedback
+        showCopyFeedback(originalText) {
             if (event && event.target) {
                 const element = event.target;
                 const originalBg = element.style.background;
@@ -328,7 +539,7 @@ const ProcessingSessionDetailsModal = {
                 setTimeout(() => {
                     element.style.background = originalBg;
                     element.style.color = originalColor;
-                    element.textContent = this.nativeFilePath;
+                    element.textContent = originalText;
                 }, 1500);
             }
         },
@@ -339,15 +550,11 @@ const ProcessingSessionDetailsModal = {
             const platform = this.detectPlatform();
             
             if (platform === 'windows') {
-                // Convert UNC path to file:// URL
-                // \\server@port\path becomes file:////server@port/path
                 const path = this.nativeFilePath.replace(/\\/g, '/');
                 return 'file://' + path;
             } else if (platform === 'mac') {
-                // Mac uses the HTTP URL directly
                 return this.nativeFilePath;
             } else {
-                // Linux uses dav:// URL
                 return this.nativeFilePath;
             }
         },
@@ -374,6 +581,8 @@ const ProcessingSessionDetailsModal = {
             this.sessionDetailsLoading = false;
             this.webdavInfo = null;
             this.nativeFilePath = null;
+            this.imagingSessions = null;
+            this.imagingSessionsLoading = false;
         },
         
         findCalibrationFromDetails() {
@@ -387,10 +596,7 @@ const ProcessingSessionDetailsModal = {
             const sessionId = this.currentSessionDetails.id;
             await app.updateProcessingSessionStatus(sessionId);
             
-            // Reload the session details to show updated status
-            await this.viewProcessingSession(sessionId);
-            
-            // REFRESH STATS AFTER STATUS UPDATE
+            await this.viewProcessingSession(sessionId, this.allSessionIds);
             await window.refreshStats();
         },
         
@@ -453,13 +659,11 @@ const ProcessingSessionDetailsModal = {
                 
                 const result = response.data;
                 
-                // Show summary of what was removed
                 let message = `Removed ${result.removed_light_frames} light frames`;
                 if (result.removed_calibration_frames > 0) {
                     message += ` and ${result.removed_calibration_frames} orphaned calibration frames`;
                 }
                 
-                // If session is now empty, offer to delete it
                 if (result.session_empty) {
                     const deleteSession = confirm(
                         `${message}.\n\nNo objects remain in this session. Delete the entire processing session?`
@@ -474,10 +678,7 @@ const ProcessingSessionDetailsModal = {
                     alert(message);
                 }
                 
-                // Reload session details
-                await this.viewProcessingSession(this.currentSessionDetails.id);
-                
-                // Refresh stats
+                await this.viewProcessingSession(this.currentSessionDetails.id, this.allSessionIds);
                 await window.refreshStats();
                 
             } catch (error) {
@@ -510,7 +711,6 @@ const ProcessingSessionDetailsModal = {
 
         openFileBrowser() {
             if (this.currentSessionDetails && this.currentSessionDetails.id) {
-                // Open file browser in new tab
                 const url = `/file-browser?session_id=${encodeURIComponent(this.currentSessionDetails.id)}`;
                 window.open(url, '_blank');
             }
@@ -518,7 +718,6 @@ const ProcessingSessionDetailsModal = {
     },
 
     async mounted() {
-        // Add keyboard event listener for arrow navigation
         this.handleKeypress = (e) => {
             if (!this.showSessionDetailsModal) return;
             
@@ -531,14 +730,12 @@ const ProcessingSessionDetailsModal = {
             }
         };
 
-        // Check WebDAV status
         await this.checkWebdavStatus();
         
         window.addEventListener('keydown', this.handleKeypress);
     },
 
     beforeDestroy() {
-        // Clean up event listener
         if (this.handleKeypress) {
             window.removeEventListener('keydown', this.handleKeypress);
         }
