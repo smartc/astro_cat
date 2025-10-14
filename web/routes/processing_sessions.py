@@ -392,7 +392,8 @@ async def get_calibration_matches(
 @router.get("/{session_id}/session-info")
 async def get_processing_session_info(
     session_id: str,
-    processing_manager = Depends(get_processing_manager)
+    processing_manager = Depends(get_processing_manager),
+    config = Depends(get_config)
 ):
     """Get session_info.md file for processing session."""
     try:
@@ -400,13 +401,38 @@ async def get_processing_session_info(
         if not session_info:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        info_file = Path(session_info.folder_path) / "session_info.md"
+        # Read from centralized Session_Notes folder
+        # Extract year from session_id (format: YYYYMMDD_...)
+        try:
+            year = int(session_id[:4])
+        except (ValueError, IndexError):
+            # Fallback: try to get from created_at if available
+            from models import ProcessingSession
+            db_session = processing_manager.db_service.db_manager.get_session()
+            try:
+                ps = db_session.query(ProcessingSession).filter(
+                    ProcessingSession.id == session_id
+                ).first()
+                year = ps.created_at.year if ps and ps.created_at else datetime.now().year
+            finally:
+                db_session.close()
+        
+        notes_dir = Path(config.paths.notes_dir) / "Processing_Sessions" / str(year)
+        info_file = notes_dir / f"{session_id}.md"
         
         if info_file.exists():
             return {"content": info_file.read_text(encoding='utf-8')}
         else:
+            # Fallback: check old location in session folder for backwards compatibility
+            old_location = Path(session_info.folder_path) / "session_info.md"
+            if old_location.exists():
+                logger.warning(f"Found markdown at old location for {session_id}, consider migrating")
+                return {"content": old_location.read_text(encoding='utf-8')}
+            
             raise HTTPException(status_code=404, detail="Session info file not found")
             
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error reading session info: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -416,7 +442,8 @@ async def get_processing_session_info(
 async def save_processing_session_info(
     session_id: str,
     content: str = Body(...),
-    processing_manager = Depends(get_processing_manager)
+    processing_manager = Depends(get_processing_manager),
+    config = Depends(get_config)
 ):
     """Save session_info.md file for processing session."""
     try:
@@ -424,14 +451,34 @@ async def save_processing_session_info(
         if not session_info:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        info_file = Path(session_info.folder_path) / "session_info.md"
-        info_file.parent.mkdir(parents=True, exist_ok=True)
+        # Save to centralized Session_Notes folder
+        # Extract year from session_id (format: YYYYMMDD_...)
+        try:
+            year = int(session_id[:4])
+        except (ValueError, IndexError):
+            # Fallback: try to get from created_at if available
+            from models import ProcessingSession
+            db_session = processing_manager.db_service.db_manager.get_session()
+            try:
+                ps = db_session.query(ProcessingSession).filter(
+                    ProcessingSession.id == session_id
+                ).first()
+                year = ps.created_at.year if ps and ps.created_at else datetime.now().year
+            finally:
+                db_session.close()
+        
+        notes_dir = Path(config.paths.notes_dir) / "Processing_Sessions" / str(year)
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        
+        info_file = notes_dir / f"{session_id}.md"
         info_file.write_text(content, encoding='utf-8')
         
         logger.info(f"Saved session info for {session_id}: {len(content)} characters")
         
         return {"message": "Session info saved successfully", "file_path": str(info_file)}
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error saving session info: {e}")
         raise HTTPException(status_code=500, detail=str(e))

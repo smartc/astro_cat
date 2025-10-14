@@ -16,6 +16,7 @@ class PathConfig(BaseModel):
     database_path: str
     restore_folder: str
     processing_dir: str
+    notes_dir: str
 
     @validator('*', pre=True)
     def expand_paths(cls, v):
@@ -71,6 +72,7 @@ def create_directories_if_needed(config: Config) -> None:
         config.paths.image_dir,
         config.paths.restore_folder,
         config.paths.processing_dir,
+        config.paths.notes_dir,
         str(Path(config.paths.database_path).parent)
     ]
     
@@ -120,7 +122,9 @@ def create_default_config(config_path: str = "config.json") -> None:
             "quarantine_dir": "~/astro/quarantine",
             "image_dir": "~/astro/images",
             "database_path": "~/astro/fits_catalog.db",
-            "restore_folder": "~/astro/restore"
+            "restore_folder": "~/astro/restore",
+            "processing_dir": "~/astro/processing",
+            "notes_dir": "~/astro/Session_Notes"  # NEW: Default notes directory
         },
         "database": {
             "type": "sqlite",
@@ -161,7 +165,7 @@ def create_default_config(config_path: str = "config.json") -> None:
     
     print(f"Created default configuration file: {config_path}")
     print("Created default equipment files: cameras.json, telescopes.json, filters.json")
-
+    
 
 if __name__ == "__main__":
     # Example usage

@@ -323,16 +323,15 @@ class S3BackupManager:
         return f"{path}/{session_id}{ext}"
     
     def _get_session_note_key(self, session_id: str, year: int) -> str:
-        """Generate S3 key for session notes."""
+        """Generate S3 key for session notes - updated for new naming."""
         path = self.s3_config.get_session_note_path(year)
-        return f"{path}/{session_id}_session_notes.md"
+        return f"{path}/{session_id}.md"
     
-    # NEW: Get processing session note key
-    def _get_processing_note_key(self, session_name: str) -> str:
-        """Generate S3 key for processing session notes."""
+    def _get_processing_note_key(self, session_id: str) -> str:
+        """Generate S3 key for processing session notes - updated for new structure."""
         path = self.s3_config.get_processing_note_path()
-        return f"{path}/{session_name}/session_info.md"
-    
+        return f"{path}/{session_id}.md"
+
     # NEW: Check if markdown needs backup
     def needs_markdown_backup(self, local_path: Path, s3_key: str) -> Tuple[bool, str]:
         """

@@ -23,6 +23,7 @@ class PathsConfig(BaseModel):
     processing_dir: str = ""
     database_path: str
     restore_folder: str
+    notes_dir: str
 
 
 class FileMonitoringConfig(BaseModel):
@@ -114,7 +115,8 @@ async def get_paths_config(config=Depends(get_config)):
         "image_dir": config.paths.image_dir,
         "processing_dir": getattr(config.paths, 'processing_dir', ''),
         "database_path": config.paths.database_path,
-        "restore_folder": config.paths.restore_folder
+        "restore_folder": config.paths.restore_folder,
+        "notes_dir": config.paths.notes_dir
     }
 
 

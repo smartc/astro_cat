@@ -244,6 +244,7 @@ async def get_imaging_session_details(
     except Exception as e:
         logger.error(f"Error fetching imaging session details: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+        
 
 @router.get("/{session_id}/session-info")
 async def get_imaging_session_info(
@@ -261,17 +262,14 @@ async def get_imaging_session_info(
         if not imaging_session:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        # Get image directory from config
-        base_dir = Path(config.paths.image_dir)
-        
-        # Create session_info folder structure
+        # Use centralized Session_Notes folder from config
         session_date = datetime.strptime(imaging_session.session_date, '%Y-%m-%d')
         year = session_date.year
-        session_info_dir = base_dir / ".session_info" / str(year)
-        session_info_dir.mkdir(parents=True, exist_ok=True)
+        session_notes_dir = Path(config.paths.notes_dir) / "Imaging_Sessions" / str(year)
+        session_notes_dir.mkdir(parents=True, exist_ok=True)
         
-        # Session info file path
-        info_file = session_info_dir / f"{session_id}_session_notes.md"
+        # Session info file path - no _session_notes suffix
+        info_file = session_notes_dir / f"{session_id}.md"
         
         if info_file.exists():
             return {"content": info_file.read_text(encoding='utf-8')}
@@ -303,17 +301,14 @@ async def save_imaging_session_info(
         if not imaging_session:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        # Get image directory from config
-        base_dir = Path(config.paths.image_dir)
-        
-        # Create session_info folder structure
+        # Use centralized Session_Notes folder from config
         session_date = datetime.strptime(imaging_session.session_date, '%Y-%m-%d')
         year = session_date.year
-        session_info_dir = base_dir / ".session_info" / str(year)
-        session_info_dir.mkdir(parents=True, exist_ok=True)
+        session_notes_dir = Path(config.paths.notes_dir) / "Imaging_Sessions" / str(year)
+        session_notes_dir.mkdir(parents=True, exist_ok=True)
         
-        # Session info file path
-        info_file = session_info_dir / f"{session_id}_session_notes.md"
+        # Session info file path - no _session_notes suffix
+        info_file = session_notes_dir / f"{session_id}.md"
         info_file.write_text(content, encoding='utf-8')
         
         logger.info(f"Saved imaging session info for {session_id}: {len(content)} characters")
@@ -324,6 +319,7 @@ async def save_imaging_session_info(
         logger.error(f"Error saving imaging session info: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/ids")
 async def get_imaging_session_ids(

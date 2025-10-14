@@ -1,10 +1,11 @@
 {
   "paths": {
-    "quarantine_dir": "/mnt/phoebe/Astro/Quarantine",
-    "image_dir": "/mnt/phoebe/Astro/Images",
-    "processing_dir": "/mnt/phoebe/Astro/Processing",
-    "database_path": "/mnt/phoebe/Astro/fits_catalog.db",
-    "restore_folder": "/mnt/phoebe/Astro/.tmp/restore"
+    "quarantine_dir": "/mnt/ganymede/Astro/Quarantine",
+    "image_dir": "/mnt/ganymede/Astro/Images",
+    "processing_dir": "/mnt/ganymede/Astro/Processing",
+    "database_path": "/mnt/ganymede/Astro/fits_catalog.db",
+    "restore_folder": "/mnt/ganymede/Astro/.tmp/restore",
+    "notes_dir": "/mnt/ganymede/Astro/Session_Notes"
   },
   "database": {
     "type": "sqlite", 
