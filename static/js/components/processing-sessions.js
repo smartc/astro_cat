@@ -48,48 +48,48 @@ const ProcessingSessionsComponent = {
         // CRUD Operations
         // ==================
         
-        async updateProcessingSessionStatus(sessionId) {
-            try {
-                const statuses = ['not_started', 'in_progress', 'complete'];
-                const statusLabels = ['Not Started', 'In Progress', 'Complete'];
+        // async updateProcessingSessionStatus(sessionId) {
+        //     try {
+        //         const statuses = ['not_started', 'in_progress', 'complete'];
+        //         const statusLabels = ['Not Started', 'In Progress', 'Complete'];
                 
-                const choice = prompt(
-                    'Select new status:\n\n' +
-                    '1. Not Started\n' + 
-                    '2. In Progress\n' + 
-                    '3. Complete\n\n' +
-                    'Enter number (1-3):'
-                );
+        //         const choice = prompt(
+        //             'Select new status:\n\n' +
+        //             '1. Not Started\n' + 
+        //             '2. In Progress\n' + 
+        //             '3. Complete\n\n' +
+        //             'Enter number (1-3):'
+        //         );
                 
-                if (!choice) return;
+        //         if (!choice) return;
                 
-                const index = parseInt(choice) - 1;
-                if (index < 0 || index >= statuses.length) {
-                    this.errorMessage = 'Invalid status selection';
-                    return;
-                }
+        //         const index = parseInt(choice) - 1;
+        //         if (index < 0 || index >= statuses.length) {
+        //             this.errorMessage = 'Invalid status selection';
+        //             return;
+        //         }
                 
-                const newStatus = statuses[index];
-                const notes = prompt('Add notes (optional):');
+        //         const newStatus = statuses[index];
+        //         const notes = prompt('Add notes (optional):');
                 
-                const payload = {
-                    status: newStatus,
-                    notes: notes || null
-                };
+        //         const payload = {
+        //             status: newStatus,
+        //             notes: notes || null
+        //         };
                 
-                await ApiService.processingSessions.updateStatus(sessionId, payload);
+        //         await ApiService.processingSessions.updateStatus(sessionId, payload);
                 
-                this.loadProcessingSessions();
-                alert(`Status updated to: ${statusLabels[index]}`);
+        //         this.loadProcessingSessions();
+        //         alert(`Status updated to: ${statusLabels[index]}`);
                 
-                // REFRESH STATS AFTER STATUS UPDATE
-                await window.refreshStats();
+        //         // REFRESH STATS AFTER STATUS UPDATE
+        //         await window.refreshStats();
 
-            } catch (error) {
-                console.error('Error updating processing session status:', error);
-                this.errorMessage = `Failed to update status: ${error.response?.data?.detail || error.message}`;
-            }
-        },
+        //     } catch (error) {
+        //         console.error('Error updating processing session status:', error);
+        //         this.errorMessage = `Failed to update status: ${error.response?.data?.detail || error.message}`;
+        //     }
+        // },
         
         async deleteProcessingSession(sessionId) {
             try {

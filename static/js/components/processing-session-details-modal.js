@@ -45,55 +45,58 @@ const ProcessingSessionDetailsModal = {
                     <div v-if="sessionDetailsLoading" class="flex justify-center items-center py-12">
                         <div class="spinner"></div>
                         <span class="ml-3 text-gray-600">Loading session details...</span>
-                    </div>
-                    
-                    <!-- Session Details -->
-                    <div v-else-if="currentSessionDetails" class="space-y-6">
+                    </div>            
                         <!-- Session-Level Summary -->
-                        <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
-                            <h3 class="text-xl font-bold text-blue-900 mb-4">Session Summary</h3>
-                            
-                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-                                <div>
-                                    <p class="text-xs text-gray-600 uppercase tracking-wide">Name</p>
-                                    <p class="text-lg font-semibold text-gray-900">{{ currentSessionDetails.name }}</p>
-                                </div>
-                                <div>
-                                    <p class="text-xs text-gray-600 uppercase tracking-wide">Status</p>
-                                    <span :class="getProcessingStatusClass(currentSessionDetails.status)" class="inline-block px-3 py-1 rounded-full text-sm font-semibold">
-                                        {{ formatProcessingStatus(currentSessionDetails.status) }}
-                                    </span>
-                                </div>
-                                <div>
-                                    <p class="text-xs text-gray-600 uppercase tracking-wide">Created</p>
-                                    <p class="text-lg font-semibold text-gray-900">{{ formatDate(currentSessionDetails.created_at) }}</p>
+                        <div v-if="currentSessionDetails" class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
+                            <div class="flex justify-between items-start mb-4">
+                                <h3 class="text-xl font-bold text-blue-900">Session Summary</h3>
+                                <div class="flex flex-col space-y-2">
+                                    <button @click="openMarkdownEditor" class="btn btn-green text-sm">
+                                        📝 Edit Notes
+                                    </button>
+                                    <button @click="findCalibrationFromDetails" class="btn btn-green text-sm">
+                                        🔍 Find Calibration
+                                    </button>
                                 </div>
                             </div>
 
-                            <!-- Statistics Cards -->
-                            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
-                                <div class="bg-white rounded-lg p-3 text-center shadow-sm">
-                                    <div class="text-2xl font-bold text-blue-600">{{ currentSessionDetails.total_files }}</div>
-                                    <div class="text-xs text-gray-600">Total Files</div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                                <div>
+                                    <p class="text-xs text-gray-600 uppercase tracking-wide">Name</p>
+                                    <p class="text-lg font-semibold text-gray-900">
+                                        {{ currentSessionDetails?.name || 'N/A' }}
+                                    </p>
                                 </div>
-                                <div class="bg-white rounded-lg p-3 text-center shadow-sm">
-                                    <div class="text-2xl font-bold text-blue-500">{{ currentSessionDetails.lights }}</div>
-                                    <div class="text-xs text-gray-600">Light Frames</div>
+                                <div>
+                                    <p class="text-xs text-gray-600 uppercase tracking-wide">Status</p>
+
+                                    <div class="relative inline-block">
+                                        <select
+                                            v-model="currentSessionDetails.status"
+                                            @change="updateStatusDropdown"
+                                            class="appearance-none pl-3 pr-8 py-1 rounded-full text-sm font-semibold border cursor-pointer focus:ring-2 focus:ring-blue-400 focus:outline-none"
+                                            :class="getProcessingStatusClass(currentSessionDetails.status)"
+                                        >
+                                            <option value="not_started">Not Started</option>
+                                            <option value="in_progress">In Progress</option>
+                                            <option value="complete">Complete</option>
+                                        </select>
+
+                                        <!-- Dropdown arrow -->
+                                        <svg class="w-4 h-4 absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none text-gray-500"
+                                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                  d="M19 9l-7 7-7-7"/>
+                                        </svg>
+                                    </div>
                                 </div>
-                                <div class="bg-white rounded-lg p-3 text-center shadow-sm">
-                                    <div class="text-2xl font-bold text-gray-600">{{ currentSessionDetails.darks }}</div>
-                                    <div class="text-xs text-gray-600">Dark Frames</div>
-                                </div>
-                                <div class="bg-white rounded-lg p-3 text-center shadow-sm">
-                                    <div class="text-2xl font-bold text-yellow-600">{{ currentSessionDetails.flats }}</div>
-                                    <div class="text-xs text-gray-600">Flat Frames</div>
-                                </div>
-                                <div class="bg-white rounded-lg p-3 text-center shadow-sm">
-                                    <div class="text-2xl font-bold text-purple-600">{{ currentSessionDetails.bias }}</div>
-                                    <div class="text-xs text-gray-600">Bias Frames</div>
+                                <div>
+                                    <p class="text-xs text-gray-600 uppercase tracking-wide">Created</p>
+                                    <p class="text-lg font-semibold text-gray-900">
+                                        {{ formatDate(currentSessionDetails?.created_at) }}
+                                    </p>
                                 </div>
                             </div>
-                        </div>
 
                         <!-- Objects Section -->
                         <div v-if="currentSessionDetails.objects_detail && currentSessionDetails.objects_detail.length > 0">
@@ -281,25 +284,6 @@ const ProcessingSessionDetailsModal = {
 
                         <!-- Action Buttons -->
                         <div class="flex space-x-3">
-                            <button @click="openMarkdownEditor" class="btn btn-green text-sm">
-                                📝 Edit Notes
-                            </button>
-
-                            <button @click="findCalibrationFromDetails" class="btn btn-purple text-sm">
-                                🔍 Find Calibration
-                            </button>
-
-                            <!-- WebDAV File Access Button -->
-                            <button v-if="webdavStatus && webdavStatus.running" 
-                                    @click="openFileBrowser" 
-                                    class="btn btn-success">
-                                <i class="fas fa-folder-open"></i> Browse Files
-                            </button>
-
-                            <button @click="updateStatusFromDetails" class="btn btn-yellow text-sm">
-                                Update Status
-                            </button>
-
                             <button @click="closeSessionDetailsModal" class="btn btn-gray text-sm">Close</button>
                         </div>
                     </div>
@@ -320,7 +304,8 @@ const ProcessingSessionDetailsModal = {
             nativeFilePath: null,
             // NEW: Imaging sessions data
             imagingSessions: null,
-            imagingSessionsLoading: false
+            imagingSessionsLoading: false,
+            statusEditing: false
         };
     },
 
@@ -338,6 +323,27 @@ const ProcessingSessionDetailsModal = {
     },
     
     methods: {
+        async updateStatusDropdown() {
+            try {
+                const sessionId = this.currentSessionDetails.id;
+                const newStatus = this.currentSessionDetails.status;
+
+                // Optional: add notes logic later if you like
+                const payload = { status: newStatus };
+
+                // Direct backend call – same endpoint used by the parent method
+                await ApiService.processingSessions.updateStatus(sessionId, payload);
+
+                // Optionally refresh UI (depending on how your app caches)
+                await window.refreshStats();
+                this.$toast?.success?.(`Status updated to ${this.formatProcessingStatus(newStatus)}.`);
+            } catch (error) {
+                console.error('Error updating session status:', error);
+                this.$toast?.error?.('Failed to update session status.');
+            }
+            this.$parent.loadProcessingSessions();
+        },
+
         async viewProcessingSession(sessionId, allSessionIds = []) {
             try {
                 this.sessionDetailsLoading = true;
@@ -459,7 +465,7 @@ const ProcessingSessionDetailsModal = {
                         this.nativeFilePath = this.webdavInfo.webdav_root;
                     } else {
                         // Linux
-                        this.nativeFilePath = this.webdavInfo.webdav_root.replace('http://', 'dav://');
+                        this.nativeFilePath = this.webdavInfo.webdav_root;
                     }
                 }
             } catch (error) {

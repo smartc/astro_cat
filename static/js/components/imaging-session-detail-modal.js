@@ -46,7 +46,12 @@ window.ImagingSessionDetailModal = {
                     <div v-else-if="sessionDetails" class="space-y-6">
                         <!-- Session-Level Summary -->
                         <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
-                            <h3 class="text-xl font-bold text-blue-900 mb-4">Session Summary</h3>
+                            <div class="flex justify-between items-start mb-4">
+                                <h3 class="text-xl font-bold text-blue-900">Session Summary</h3>
+                                <button @click="openMarkdownEditor" class="btn btn-green text-sm">
+                                    📝 Edit Notes
+                                </button>
+                            </div>
                             
                             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
                                 <div>
@@ -62,7 +67,7 @@ window.ImagingSessionDetailModal = {
                                     <p class="text-lg font-semibold text-gray-900">{{ sessionDetails.session.telescope || 'N/A' }}</p>
                                 </div>
                             </div>
-
+        
                             <!-- Statistics Cards -->
                             <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
                                 <div class="bg-white rounded-lg p-3 text-center shadow-sm">
@@ -234,12 +239,6 @@ window.ImagingSessionDetailModal = {
 
                         <!-- Action Buttons -->
                         <div class="flex space-x-3">
-                            <button @click="openMarkdownEditor" class="btn btn-green text-sm">
-                                📝 Edit Notes
-                            </button>
-                            <button @click="viewSessionFiles" class="btn btn-blue text-sm">
-                                View All Files
-                            </button>
                             <button @click="closeSessionDetails" class="btn btn-gray text-sm">Close</button>
                         </div>
                     </div>
