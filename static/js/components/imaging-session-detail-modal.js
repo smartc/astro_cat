@@ -1,20 +1,31 @@
 // Imaging Session Detail Modal Component - Enhanced
-// Full modal with inline template
+// MINIMAL CHANGES: Added Session ID click-to-copy and Processing Sessions section
 
 window.ImagingSessionDetailModal = {
     template: `
         <div v-if="showDetailModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4" style="z-index: 250;">
             <div class="bg-white rounded-lg w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
                 <!-- Modal Header with Starfield -->
-                <div class="relative text-white p-4" style="height: 80px;">
+                <div class="relative text-white p-4" style="min-height: 100px;">
                     <starfield-background :num-stars="30" :min-size="0.3" :max-size="0.7"></starfield-background>
-                    <div class="relative z-10 flex justify-between items-center h-full">
-                        <h2 class="text-xl font-bold">Imaging Session Details</h2>
-                        <button @click="closeSessionDetails" class="text-white hover:text-gray-200">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                            </svg>
-                        </button>
+                    <div class="relative z-10">
+                        <div class="flex justify-between items-center">
+                            <h2 class="text-xl font-bold">Imaging Session Details</h2>
+                            <button @click="closeSessionDetails" class="text-white hover:text-gray-200">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <!-- NEW: Session ID (clickable to copy) -->
+                        <div v-if="selectedSessionId" class="mt-2 text-sm">
+                            <span class="text-gray-200 mr-2">🆔 Session ID:</span>
+                            <code @click="copySessionIdToClipboard" 
+                                  class="bg-white bg-opacity-20 px-2 py-1 rounded cursor-pointer hover:bg-opacity-30 transition-colors"
+                                  title="Click to copy session ID">
+                                {{ selectedSessionId }}
+                            </code>
+                        </div>
                     </div>
                 </div>
 
@@ -142,6 +153,63 @@ window.ImagingSessionDetailModal = {
                                 </div>
                             </div>
                         </div>
+
+                        <!-- NEW: Processing Sessions Card -->
+                        <div class="bg-gradient-to-br from-green-50 to-teal-50 p-6 rounded-lg border border-green-200">
+                            <h4 class="text-lg font-semibold text-gray-800 mb-4">🎯 Used in Processing Sessions</h4>
+                            
+                            <!-- Loading State -->
+                            <div v-if="processingSessionsLoading" class="text-center py-4">
+                                <div class="spinner inline-block"></div>
+                                <span class="ml-2 text-gray-600 text-sm">Loading processing sessions...</span>
+                            </div>
+                            
+                            <!-- Processing Sessions Table -->
+                            <div v-else-if="processingSessions && processingSessions.length > 0">
+                                <div class="bg-white p-3 rounded border border-green-200 overflow-x-auto">
+                                    <table class="w-full text-sm font-mono border-collapse">
+                                        <thead>
+                                            <tr class="border-b-2 border-green-300">
+                                                <th class="text-left py-2 px-3 font-semibold text-green-900">Processing Session</th>
+                                                <th class="text-left py-2 px-3 font-semibold text-green-900">Status</th>
+                                                <th class="text-left py-2 px-3 font-semibold text-green-900">Objects</th>
+                                                <th class="text-right py-2 px-3 font-semibold text-green-900">Lights</th>
+                                                <th class="text-right py-2 px-3 font-semibold text-green-900">Darks</th>
+                                                <th class="text-right py-2 px-3 font-semibold text-green-900">Flats</th>
+                                                <th class="text-right py-2 px-3 font-semibold text-green-900">Bias</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr v-for="ps in processingSessions" :key="ps.session_id" 
+                                                class="border-b border-green-100 hover:bg-green-50">
+                                                <td class="py-2 px-3">
+                                                    <a @click="viewProcessingSession(ps.session_id)" 
+                                                       class="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer">
+                                                        {{ ps.name }}
+                                                    </a>
+                                                </td>
+                                                <td class="py-2 px-3">
+                                                    <span :class="getStatusBadgeClass(ps.status)" 
+                                                          class="inline-block px-2 py-0.5 rounded text-xs">
+                                                        {{ formatStatus(ps.status) }}
+                                                    </span>
+                                                </td>
+                                                <td class="py-2 px-3">{{ ps.objects }}</td>
+                                                <td class="py-2 px-3 text-right">{{ ps.lights }}</td>
+                                                <td class="py-2 px-3 text-right">{{ ps.darks }}</td>
+                                                <td class="py-2 px-3 text-right">{{ ps.flats }}</td>
+                                                <td class="py-2 px-3 text-right">{{ ps.bias }}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <!-- No Processing Sessions State -->
+                            <div v-else class="text-gray-500 text-sm italic">
+                                Files from this imaging session are not used in any processing sessions yet.
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -187,8 +255,11 @@ window.ImagingSessionDetailModal = {
             detailsError: null,
             sessionDetails: null,
             selectedSessionId: null,
-            allSessionIds: [],  // List of all session IDs for navigation
-            currentSessionIndex: -1
+            allSessionIds: [],
+            currentSessionIndex: -1,
+            // NEW: Processing sessions data
+            processingSessions: null,
+            processingSessionsLoading: false
         };
     },
 
@@ -223,6 +294,16 @@ window.ImagingSessionDetailModal = {
                 }
                 
                 this.sessionDetails = await response.json();
+                
+                // NEW: Load processing sessions that use files from this imaging session
+                // Don't let this fail the whole modal if it errors
+                try {
+                    await this.loadProcessingSessions(sessionId);
+                } catch (psError) {
+                    console.error('Error loading processing sessions (non-fatal):', psError);
+                    this.processingSessions = [];
+                }
+                
             } catch (error) {
                 console.error('Error loading session details:', error);
                 this.detailsError = error.message || 'Failed to load session details';
@@ -231,10 +312,131 @@ window.ImagingSessionDetailModal = {
             }
         },
         
+        // NEW: Load processing sessions
+        async loadProcessingSessions(sessionId) {
+            this.processingSessionsLoading = true;
+            try {
+                const response = await fetch(`/api/imaging-sessions/${sessionId}/processing-sessions`);
+                if (response.ok) {
+                    this.processingSessions = await response.json();
+                } else {
+                    this.processingSessions = [];
+                }
+            } catch (error) {
+                console.error('Error loading processing sessions:', error);
+                this.processingSessions = [];
+            } finally {
+                this.processingSessionsLoading = false;
+            }
+        },
+        
+        // NEW: Copy session ID to clipboard
+        copySessionIdToClipboard() {
+            if (!this.selectedSessionId) return;
+            
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(this.selectedSessionId).then(() => {
+                    this.showCopyFeedback(this.selectedSessionId);
+                }).catch(err => {
+                    console.error('Clipboard API failed:', err);
+                    this.fallbackCopy(this.selectedSessionId);
+                });
+            } else {
+                this.fallbackCopy(this.selectedSessionId);
+            }
+        },
+        
+        // NEW: Fallback copy method
+        fallbackCopy(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            
+            try {
+                document.execCommand('copy');
+                this.showCopyFeedback(text);
+            } catch (err) {
+                console.error('Fallback copy failed:', err);
+                alert('Failed to copy to clipboard. Please copy manually: ' + text);
+            } finally {
+                document.body.removeChild(textarea);
+            }
+        },
+        
+        // NEW: Show copy feedback
+        showCopyFeedback(originalText) {
+            if (event && event.target) {
+                const element = event.target;
+                const originalBg = element.style.background;
+                const originalColor = element.style.color;
+                
+                element.style.background = '#10b981';
+                element.style.color = 'white';
+                element.textContent = '✓ Copied!';
+                
+                setTimeout(() => {
+                    element.style.background = originalBg;
+                    element.style.color = originalColor;
+                    element.textContent = originalText;
+                }, 1500);
+            }
+        },
+        
+        // NEW: View processing session
+        async viewProcessingSession(sessionId) {
+            const app = this.$root;
+            
+            try {
+                // Get all processing session IDs for navigation
+                const response = await fetch('/api/processing-sessions/ids');
+                const data = await response.json();
+                const allSessionIds = data.session_ids || [];
+                
+                // Close this modal first
+                this.closeSessionDetails();
+                
+                // Small delay to ensure modal is closed
+                setTimeout(() => {
+                    if (app.$refs.processingDetailsModal) {
+                        app.$refs.processingDetailsModal.viewProcessingSession(sessionId, allSessionIds);
+                    }
+                }, 100);
+                
+            } catch (error) {
+                console.error('Error opening processing session modal:', error);
+                alert('Failed to open processing session details');
+            }
+        },
+        
+        // NEW: Format status badge
+        getStatusBadgeClass(status) {
+            const classes = {
+                'not_started': 'bg-gray-100 text-gray-700',
+                'in_progress': 'bg-blue-100 text-blue-700',
+                'complete': 'bg-green-100 text-green-700'
+            };
+            return classes[status] || 'bg-gray-100 text-gray-700';
+        },
+        
+        // NEW: Format status text
+        formatStatus(status) {
+            const labels = {
+                'not_started': 'Not Started',
+                'in_progress': 'In Progress',
+                'complete': 'Complete'
+            };
+            return labels[status] || status;
+        },
+        
         closeSessionDetails() {
             this.showDetailModal = false;
             this.sessionDetails = null;
             this.selectedSessionId = null;
+            this.processingSessions = null;
+            this.processingSessionsLoading = false;
         },
         
         openMarkdownEditor() {
@@ -252,10 +454,9 @@ window.ImagingSessionDetailModal = {
             }
         },
         
-        // Navigation methods
         async navigateToPrevSession() {
             if (this.hasPreviousSession) {
-                this.loadingDetails = true;  // Show loading
+                this.loadingDetails = true;
                 const prevSessionId = this.allSessionIds[this.currentSessionIndex - 1];
                 await this.viewSessionDetails(prevSessionId, this.allSessionIds);
             }
@@ -263,25 +464,20 @@ window.ImagingSessionDetailModal = {
 
         async navigateToNextSession() {
             if (this.hasNextSession) {
-                this.loadingDetails = true;  // Show loading
+                this.loadingDetails = true;
                 const nextSessionId = this.allSessionIds[this.currentSessionIndex + 1];
                 await this.viewSessionDetails(nextSessionId, this.allSessionIds);
             }
         },
         
-        // Add to processing session methods
         async addObjectToNewSession(obj) {
-            // Get all file IDs for this object in this session
             const fileIds = await this.getObjectFileIds(obj.name);
             if (fileIds.length === 0) {
                 alert('No files found for this object');
                 return;
             }
             
-            // Pre-populate the selected files FIRST
             this.$root.selectedFiles = fileIds;
-            
-            // Now open the modal and set the session name
             this.$root.$refs.processingModals.newSessionFromFiles = { 
                 name: obj.name, 
                 notes: '' 
@@ -290,17 +486,13 @@ window.ImagingSessionDetailModal = {
         },
 
         async addObjectToExistingSession(obj) {
-            // Get all file IDs for this object in this session
             const fileIds = await this.getObjectFileIds(obj.name);
             if (fileIds.length === 0) {
                 alert('No files found for this object');
                 return;
             }
             
-            // Pre-populate the selected files FIRST
             this.$root.selectedFiles = fileIds;
-            
-            // Load existing sessions and open the modal
             await this.$root.$refs.processingModals.loadExistingSessions();
             this.$root.$refs.processingModals.selectedExistingSession = '';
             this.$root.$refs.processingModals.showAddToExistingSessionModal = true;
@@ -335,7 +527,6 @@ window.ImagingSessionDetailModal = {
             return this.formatExposureTime(totalSeconds);
         },
         
-        // Utility methods
         getTotalImagingTime() {
             if (!this.sessionDetails || !this.sessionDetails.summary) return '0h 0m';
             
@@ -357,7 +548,6 @@ window.ImagingSessionDetailModal = {
     },
 
     mounted() {
-        // Add keyboard event listener for arrow navigation
         this.handleKeypress = (e) => {
             if (!this.showDetailModal) return;
             
@@ -374,7 +564,6 @@ window.ImagingSessionDetailModal = {
     },
 
     beforeDestroy() {
-        // Clean up event listener
         if (this.handleKeypress) {
             window.removeEventListener('keydown', this.handleKeypress);
         }

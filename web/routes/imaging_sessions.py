@@ -362,3 +362,81 @@ async def get_imaging_session_ids(
     except Exception as e:
         logger.error(f"Error fetching imaging session IDs: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+"""
+Add this endpoint to web/routes/imaging_sessions.py
+Place it after the get_imaging_session_details endpoint
+"""
+
+@router.get("/{session_id}/processing-sessions")
+async def get_processing_sessions_for_imaging_session(
+    session_id: str,
+    session: Session = Depends(get_db_session)
+):
+    """
+    Get all processing sessions that use files from this imaging session.
+    Returns processing session details including frame counts.
+    """
+    try:
+        from models import ProcessingSession, ProcessingSessionFile
+        from sqlalchemy import func, distinct
+        import json
+        
+        # Find all processing sessions that contain files from this imaging session
+        # We need to join: ProcessingSession -> ProcessingSessionFile -> FitsFile
+        # and filter where FitsFile.session_id matches our imaging session_id
+        
+        processing_sessions_query = session.query(ProcessingSession).join(
+            ProcessingSessionFile, ProcessingSession.id == ProcessingSessionFile.processing_session_id
+        ).join(
+            FitsFile, ProcessingSessionFile.fits_file_id == FitsFile.id
+        ).filter(
+            FitsFile.session_id == session_id
+        ).distinct()
+        
+        processing_sessions = processing_sessions_query.all()
+        
+        if not processing_sessions:
+            return []
+        
+        # Build response with file counts for each processing session
+        result = []
+        for ps in processing_sessions:
+            # Get file counts by frame type for files from THIS imaging session
+            file_counts = session.query(
+                FitsFile.frame_type,
+                func.count(FitsFile.id)
+            ).join(ProcessingSessionFile, ProcessingSessionFile.fits_file_id == FitsFile.id).filter(
+                ProcessingSessionFile.processing_session_id == ps.id,
+                FitsFile.session_id == session_id  # Only count files from this imaging session
+            ).group_by(FitsFile.frame_type).all()
+            
+            frame_counts = {'LIGHT': 0, 'DARK': 0, 'FLAT': 0, 'BIAS': 0}
+            for frame_type, count in file_counts:
+                if frame_type in frame_counts:
+                    frame_counts[frame_type] = count
+            
+            # Parse objects from JSON
+            objects = json.loads(ps.objects) if ps.objects else []
+            objects_str = ', '.join(objects) if objects else 'N/A'
+            
+            result.append({
+                'session_id': ps.id,
+                'name': ps.name,
+                'status': ps.status,
+                'objects': objects_str,
+                'lights': frame_counts['LIGHT'],
+                'darks': frame_counts['DARK'],
+                'flats': frame_counts['FLAT'],
+                'bias': frame_counts['BIAS'],
+                'created_at': ps.created_at.isoformat() if ps.created_at else None
+            })
+        
+        # Sort by creation date (newest first)
+        result.sort(key=lambda x: x['created_at'] or '', reverse=True)
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error fetching processing sessions for imaging session {session_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

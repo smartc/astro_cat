@@ -1094,5 +1094,426 @@ def _print_markdown_summary(stats, dry_run):
         click.echo("ℹ️  No markdown files found")
 
 
+"""
+S3 Database Sync Command - Add to s3_backup/cli.py
+
+Polls S3 for all backup files and syncs database records.
+Detects drift between S3 and local database.
+"""
+
+@cli.command('sync-database')
+@click.option('--dry-run', is_flag=True, help='Show what would be synced without making changes')
+@click.option('--archives/--no-archives', default=True, help='Sync FITS archive records')
+@click.option('--markdown/--no-markdown', default=True, help='Sync markdown file records')
+@click.pass_context
+def sync_database(ctx, dry_run, archives, markdown):
+    """
+    Sync database with S3 - detect and fix drift.
+    
+    Polls S3 for all backup files and creates missing database records.
+    Useful for detecting drift after database issues.
+    
+    Examples:
+        # Dry-run to see what's missing
+        python -m s3_backup.cli sync-database --dry-run
+        
+        # Sync only markdown files
+        python -m s3_backup.cli sync-database --no-archives
+        
+        # Sync everything
+        python -m s3_backup.cli sync-database
+    """
+    backup_manager, db_manager, db_service = get_backup_manager(
+        ctx.obj['config'], ctx.obj['s3_config']
+    )
+    
+    session_db = db_manager.get_session()
+    
+    try:
+        click.echo("\n" + "=" * 80)
+        click.echo("S3 DATABASE SYNC")
+        click.echo("=" * 80)
+        
+        if dry_run:
+            click.echo("🔍 DRY RUN MODE - No database changes will be made")
+        
+        click.echo(f"\nScanning S3 bucket: {backup_manager.s3_config.bucket}")
+        click.echo()
+        
+        total_stats = {
+            'archives_in_s3': 0,
+            'archives_in_db': 0,
+            'archives_added': 0,
+            'markdown_in_s3': 0,
+            'markdown_in_db': 0,
+            'markdown_added': 0,
+            'errors': 0
+        }
+        
+        # Sync FITS archives
+        if archives:
+            click.echo("📦 Syncing FITS archive records...")
+            archive_stats = _sync_fits_archives(
+                backup_manager, session_db, dry_run
+            )
+            total_stats['archives_in_s3'] = archive_stats['in_s3']
+            total_stats['archives_in_db'] = archive_stats['in_db']
+            total_stats['archives_added'] = archive_stats['added']
+            total_stats['errors'] += archive_stats['errors']
+        
+        # Sync markdown files
+        if markdown:
+            click.echo("\n📝 Syncing markdown file records...")
+            markdown_stats = _sync_markdown_files(
+                backup_manager, session_db, dry_run
+            )
+            total_stats['markdown_in_s3'] = markdown_stats['in_s3']
+            total_stats['markdown_in_db'] = markdown_stats['in_db']
+            total_stats['markdown_added'] = markdown_stats['added']
+            total_stats['errors'] += markdown_stats['errors']
+        
+        # Print summary
+        _print_sync_summary(total_stats, dry_run)
+        
+    finally:
+        session_db.close()
+        db_manager.close()
+
+
+def _sync_fits_archives(backup_manager, session_db, dry_run):
+    """Sync FITS archive records from S3."""
+    stats = {'in_s3': 0, 'in_db': 0, 'added': 0, 'errors': 0}
+    
+    try:
+        # Get all archives from S3
+        click.echo("   Listing archives in S3...")
+        
+        s3_archives = {}
+        paginator = backup_manager.s3_client.get_paginator('list_objects_v2')
+        
+        # Scan the raw_archives path
+        raw_path = backup_manager.s3_config.config['s3_paths']['raw_archives']
+        
+        for page in paginator.paginate(
+            Bucket=backup_manager.s3_config.bucket,
+            Prefix=raw_path
+        ):
+            if 'Contents' not in page:
+                continue
+            
+            for obj in page['Contents']:
+                key = obj['Key']
+                
+                # Parse session_id from key (e.g., "backups/raw/2024/SESSION_ID.tar.gz")
+                if key.endswith('.tar') or key.endswith('.tar.gz'):
+                    filename = Path(key).stem
+                    if filename.endswith('.tar'):
+                        filename = filename[:-4]  # Remove .tar from .tar.gz
+                    
+                    session_id = filename
+                    
+                    # Extract year from path
+                    parts = key.split('/')
+                    try:
+                        year_idx = parts.index('raw') + 1
+                        year = int(parts[year_idx])
+                    except:
+                        year = None
+                    
+                    s3_archives[session_id] = {
+                        's3_key': key,
+                        'year': year,
+                        'size': obj['Size'],
+                        'etag': obj['ETag'].strip('"'),
+                        'last_modified': obj['LastModified']
+                    }
+        
+        stats['in_s3'] = len(s3_archives)
+        click.echo(f"   Found {stats['in_s3']} archives in S3")
+        
+        # Get all archives from database
+        db_archives = {}
+        for record in session_db.query(S3BackupArchive).all():
+            db_archives[record.session_id] = record
+        
+        stats['in_db'] = len(db_archives)
+        click.echo(f"   Found {stats['in_db']} archives in database")
+        
+        # Find missing records
+        missing = set(s3_archives.keys()) - set(db_archives.keys())
+        
+        if not missing:
+            click.echo("   ✓ All S3 archives are tracked in database")
+            return stats
+        
+        click.echo(f"\n   ⚠ Found {len(missing)} archives in S3 not tracked in database:")
+        
+        # Add missing records
+        for session_id in sorted(missing):
+            s3_info = s3_archives[session_id]
+            
+            try:
+                click.echo(f"      • {session_id} ({format_bytes(s3_info['size'])})")
+                
+                if dry_run:
+                    stats['added'] += 1
+                    continue
+                
+                # Get session info from main database if available
+                from models import Session as SessionModel
+                imaging_session = session_db.query(SessionModel).filter(
+                    SessionModel.session_id == session_id
+                ).first()
+                
+                # Create database record
+                archive_record = S3BackupArchive(
+                    session_id=session_id,
+                    session_date=imaging_session.session_date if imaging_session else None,
+                    session_year=s3_info['year'],
+                    s3_bucket=backup_manager.s3_config.bucket,
+                    s3_key=s3_info['s3_key'],
+                    s3_region=backup_manager.s3_config.region,
+                    s3_etag=s3_info['etag'],
+                    compressed_size_bytes=s3_info['size'],
+                    uploaded_at=s3_info['last_modified'],
+                    verified=True,
+                    verification_method='sync_from_s3',
+                    current_storage_class='STANDARD',
+                    camera_name=imaging_session.camera if imaging_session else None,
+                    telescope_name=imaging_session.telescope if imaging_session else None
+                )
+                
+                session_db.add(archive_record)
+                session_db.commit()
+                stats['added'] += 1
+                
+            except Exception as e:
+                stats['errors'] += 1
+                click.echo(f"         ✗ Error: {e}")
+                session_db.rollback()
+        
+        return stats
+        
+    except Exception as e:
+        click.echo(f"   ✗ Error syncing archives: {e}")
+        stats['errors'] += 1
+        return stats
+
+
+def _sync_markdown_files(backup_manager, session_db, dry_run):
+    """Sync markdown file records from S3."""
+    stats = {'in_s3': 0, 'in_db': 0, 'added': 0, 'errors': 0}
+    
+    try:
+        # Get all markdown files from S3
+        click.echo("   Listing markdown files in S3...")
+        
+        s3_imaging = {}
+        s3_processing = {}
+        paginator = backup_manager.s3_client.get_paginator('list_objects_v2')
+        
+        # Scan imaging session notes
+        session_path = backup_manager.s3_config.config['s3_paths']['session_notes']
+        
+        for page in paginator.paginate(
+            Bucket=backup_manager.s3_config.bucket,
+            Prefix=session_path
+        ):
+            if 'Contents' not in page:
+                continue
+            
+            for obj in page['Contents']:
+                key = obj['Key']
+                
+                # FIXED: Look for .md files (no suffix)
+                if key.endswith('.md'):
+                    # Extract session_id from filename
+                    filename = Path(key).stem  # Just the session_id
+                    session_id = filename
+                    
+                    # Extract year from path
+                    parts = key.split('/')
+                    try:
+                        year = int(parts[-2])  # Year is parent directory
+                    except:
+                        year = None
+                    
+                    s3_imaging[session_id] = {
+                        's3_key': key,
+                        'year': year,
+                        'size': obj['Size'],
+                        'etag': obj['ETag'].strip('"'),
+                        'last_modified': obj['LastModified']
+                    }
+
+        # Scan processing session notes
+        processing_path = backup_manager.s3_config.config['s3_paths']['processing_notes']
+        
+        for page in paginator.paginate(
+            Bucket=backup_manager.s3_config.bucket,
+            Prefix=processing_path
+        ):
+            if 'Contents' not in page:
+                continue
+            
+            for obj in page['Contents']:
+                key = obj['Key']
+                
+                # FIXED: Look for .md files (no suffix, not in subfolders)
+                if key.endswith('.md'):
+                    # Extract session_id from filename
+                    filename = Path(key).stem
+                    session_id = filename
+                    
+                    s3_processing[session_id] = {
+                        's3_key': key,
+                        'size': obj['Size'],
+                        'etag': obj['ETag'].strip('"'),
+                        'last_modified': obj['LastModified']
+                    }
+                    
+        stats['in_s3'] = len(s3_imaging) + len(s3_processing)
+        click.echo(f"   Found {len(s3_imaging)} imaging + {len(s3_processing)} processing = {stats['in_s3']} markdown files in S3")
+        
+        # Get database records
+        db_imaging = {}
+        for record in session_db.query(S3BackupSessionNote).all():
+            db_imaging[record.session_id] = record
+        
+        db_processing = {}
+        for record in session_db.query(S3BackupProcessingSession).all():
+            db_processing[record.processing_session_id] = record
+        
+        stats['in_db'] = len(db_imaging) + len(db_processing)
+        click.echo(f"   Found {len(db_imaging)} imaging + {len(db_processing)} processing = {stats['in_db']} markdown files in database")
+        
+        # Find missing imaging sessions
+        missing_imaging = set(s3_imaging.keys()) - set(db_imaging.keys())
+        
+        if missing_imaging:
+            click.echo(f"\n   ⚠ Found {len(missing_imaging)} imaging session notes in S3 not tracked:")
+            
+            for session_id in sorted(missing_imaging):
+                s3_info = s3_imaging[session_id]
+                
+                try:
+                    click.echo(f"      • {session_id}")
+                    
+                    if dry_run:
+                        stats['added'] += 1
+                        continue
+                    
+                    # Create database record
+                    note_record = S3BackupSessionNote(
+                        session_id=session_id,
+                        session_year=s3_info['year'],
+                        s3_bucket=backup_manager.s3_config.bucket,
+                        s3_key=s3_info['s3_key'],
+                        s3_region=backup_manager.s3_config.region,
+                        s3_etag=s3_info['etag'],
+                        uploaded_at=s3_info['last_modified'],
+                        file_size_bytes=s3_info['size'],
+                        archive_policy='never',
+                        backup_policy='never',
+                        current_storage_class='STANDARD',
+                        verified=True
+                    )
+                    
+                    session_db.add(note_record)
+                    session_db.commit()
+                    stats['added'] += 1
+                    
+                except Exception as e:
+                    stats['errors'] += 1
+                    click.echo(f"         ✗ Error: {e}")
+                    session_db.rollback()
+        
+        # Find missing processing sessions
+        missing_processing = set(s3_processing.keys()) - set(db_processing.keys())
+        
+        if missing_processing:
+            click.echo(f"\n   ⚠ Found {len(missing_processing)} processing session notes in S3 not tracked:")
+            
+            for session_name in sorted(missing_processing):
+                s3_info = s3_processing[session_name]
+                
+                try:
+                    click.echo(f"      • {session_name}")
+                    
+                    if dry_run:
+                        stats['added'] += 1
+                        continue
+                    
+                    # Create database record
+                    proc_record = S3BackupProcessingSession(
+                        processing_session_id=session_name,
+                        s3_bucket=backup_manager.s3_config.bucket,
+                        s3_key=s3_info['s3_key'],
+                        s3_region=backup_manager.s3_config.region,
+                        s3_etag=s3_info['etag'],
+                        uploaded_at=s3_info['last_modified'],
+                        file_size_bytes=s3_info['size'],
+                        archive_policy='never',
+                        backup_policy='never',
+                        current_storage_class='STANDARD'
+                    )
+                    
+                    session_db.add(proc_record)
+                    session_db.commit()
+                    stats['added'] += 1
+                    
+                except Exception as e:
+                    stats['errors'] += 1
+                    click.echo(f"         ✗ Error: {e}")
+                    session_db.rollback()
+        
+        if not missing_imaging and not missing_processing:
+            click.echo("   ✓ All S3 markdown files are tracked in database")
+        
+        return stats
+        
+    except Exception as e:
+        click.echo(f"   ✗ Error syncing markdown: {e}")
+        stats['errors'] += 1
+        return stats
+
+
+def _print_sync_summary(stats, dry_run):
+    """Print sync summary."""
+    click.echo("\n" + "=" * 80)
+    click.echo("SYNC SUMMARY")
+    click.echo("=" * 80)
+    
+    if stats['archives_in_s3'] > 0:
+        click.echo(f"\nFITS Archives:")
+        click.echo(f"  In S3:            {stats['archives_in_s3']}")
+        click.echo(f"  In database:      {stats['archives_in_db']}")
+        if dry_run:
+            click.echo(f"  Would add:        {stats['archives_added']}")
+        else:
+            click.echo(f"  Added:            {stats['archives_added']}")
+    
+    if stats['markdown_in_s3'] > 0:
+        click.echo(f"\nMarkdown Files:")
+        click.echo(f"  In S3:            {stats['markdown_in_s3']}")
+        click.echo(f"  In database:      {stats['markdown_in_db']}")
+        if dry_run:
+            click.echo(f"  Would add:        {stats['markdown_added']}")
+        else:
+            click.echo(f"  Added:            {stats['markdown_added']}")
+    
+    if stats['errors'] > 0:
+        click.echo(f"\nErrors:             {stats['errors']}")
+    
+    click.echo()
+    
+    if dry_run:
+        click.echo("💡 Run without --dry-run to add missing records to database")
+    elif stats['archives_added'] + stats['markdown_added'] > 0:
+        click.echo("✓ Database sync complete!")
+    else:
+        click.echo("✓ Database already in sync with S3")
+
+
 if __name__ == '__main__':
     cli()
