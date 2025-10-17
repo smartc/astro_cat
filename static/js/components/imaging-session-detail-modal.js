@@ -1,5 +1,5 @@
-// Imaging Session Detail Modal Component - Enhanced
-// MINIMAL CHANGES: Added Session ID click-to-copy and Processing Sessions section
+// Imaging Session Detail Modal Component - Enhanced with S3 Backup Status
+// CHANGES: Added S3 backup status badge/button in Session Summary card
 
 window.ImagingSessionDetailModal = {
     template: `
@@ -17,7 +17,7 @@ window.ImagingSessionDetailModal = {
                                 </svg>
                             </button>
                         </div>
-                        <!-- NEW: Session ID (clickable to copy) -->
+                        <!-- Session ID (clickable to copy) -->
                         <div v-if="selectedSessionId" class="mt-2 text-sm">
                             <span class="text-gray-200 mr-2">🆔 Session ID:</span>
                             <code @click="copySessionIdToClipboard" 
@@ -48,9 +48,54 @@ window.ImagingSessionDetailModal = {
                         <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
                             <div class="flex justify-between items-start mb-4">
                                 <h3 class="text-xl font-bold text-blue-900">Session Summary</h3>
-                                <button @click="openMarkdownEditor" class="btn btn-green text-sm">
-                                    📝 Edit Notes
-                                </button>
+                                <div class="flex items-center space-x-2">
+                                    <!-- S3 Backup Status Badge/Button -->
+                                    <div v-if="s3BackupError" 
+                                         class="px-3 py-1 bg-red-50 text-red-600 rounded-lg flex items-center space-x-2" 
+                                         title="Error checking backup status">
+                                        <svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                        </svg>
+                                        <span class="text-sm font-medium">Backup Error</span>
+                                    </div>
+                                    <div v-else-if="s3BackupEnabled === false" 
+                                         class="px-3 py-1 bg-gray-100 text-gray-500 rounded-lg flex items-center space-x-2 cursor-not-allowed" 
+                                         title="S3 Backup is disabled">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                                        </svg>
+                                        <span class="text-sm font-medium">Backup Disabled</span>
+                                    </div>
+                                    <div v-else-if="loadingBackupStatus" 
+                                         class="px-3 py-1 bg-gray-100 rounded-lg flex items-center space-x-2">
+                                        <div class="spinner-small"></div>
+                                        <span class="text-sm text-gray-600">Checking...</span>
+                                    </div>
+                                    <div v-else-if="isBackedUp" 
+                                         class="px-3 py-1 bg-green-100 text-green-800 rounded-lg flex items-center space-x-2" 
+                                         title="Session is backed up to S3">
+                                        <svg class="w-4 h-4 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                                        </svg>
+                                        <span class="text-sm font-medium">Backed Up</span>
+                                    </div>
+                                    <button v-else 
+                                            @click="backupSession" 
+                                            :disabled="backingUp"
+                                            class="px-3 py-1 bg-yellow-50 hover:bg-yellow-100 text-yellow-800 rounded-lg flex items-center space-x-2 transition-colors"
+                                            title="Back up this session to S3">
+                                        <svg class="w-4 h-4 text-yellow-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                                        </svg>
+                                        <span v-if="backingUp" class="text-sm font-medium">Backing up...</span>
+                                        <span v-else class="text-sm font-medium">Backup</span>
+                                    </button>
+                                    
+                                    <!-- Edit Notes Button -->
+                                    <button @click="openMarkdownEditor" class="btn btn-green text-sm">
+                                        📝 Edit Notes
+                                    </button>
+                                </div>
                             </div>
                             
                             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
@@ -103,7 +148,7 @@ window.ImagingSessionDetailModal = {
                         <div v-for="obj in sessionDetails.summary.objects" :key="obj.name" class="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
                             <div class="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b border-gray-200">
                                 <div class="flex justify-between items-center">
-                                    <h4 class="text-lg font-bold text-gray-900">📷 {{ obj.name }}</h4>
+                                    <h4 class="text-lg font-bold text-gray-900">🔭 {{ obj.name }}</h4>
                                     <div class="flex space-x-2">
                                         <button @click="addObjectToNewSession(obj)" 
                                                 class="px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-sm rounded transition">
@@ -159,7 +204,7 @@ window.ImagingSessionDetailModal = {
                             </div>
                         </div>
 
-                        <!-- NEW: Processing Sessions Card -->
+                        <!-- Processing Sessions Card -->
                         <div class="bg-gradient-to-br from-green-50 to-teal-50 p-6 rounded-lg border border-green-200">
                             <h4 class="text-lg font-semibold text-gray-800 mb-4">🎯 Used in Processing Sessions</h4>
                             
@@ -256,9 +301,15 @@ window.ImagingSessionDetailModal = {
             selectedSessionId: null,
             allSessionIds: [],
             currentSessionIndex: -1,
-            // NEW: Processing sessions data
+            // Processing sessions data
             processingSessions: null,
-            processingSessionsLoading: false
+            processingSessionsLoading: false,
+            // S3 Backup status
+            isBackedUp: false,
+            loadingBackupStatus: false,
+            backingUp: false,
+            s3BackupEnabled: null,
+            s3BackupError: false
         };
     },
 
@@ -294,7 +345,7 @@ window.ImagingSessionDetailModal = {
                 
                 this.sessionDetails = await response.json();
                 
-                // NEW: Load processing sessions that use files from this imaging session
+                // Load processing sessions that use files from this imaging session
                 // Don't let this fail the whole modal if it errors
                 try {
                     await this.loadProcessingSessions(sessionId);
@@ -302,6 +353,9 @@ window.ImagingSessionDetailModal = {
                     console.error('Error loading processing sessions (non-fatal):', psError);
                     this.processingSessions = [];
                 }
+                
+                // NEW: Check S3 backup status
+                await this.checkBackupStatus(sessionId);
                 
             } catch (error) {
                 console.error('Error loading session details:', error);
@@ -311,7 +365,76 @@ window.ImagingSessionDetailModal = {
             }
         },
         
-        // NEW: Load processing sessions
+        // NEW: Check S3 backup status
+        async checkBackupStatus(sessionId) {
+            this.loadingBackupStatus = true;
+            this.s3BackupError = false;
+            try {
+                // First check if S3 backup service is running and get its status
+                const statusResponse = await fetch(`http://${window.location.hostname}:8083/api/status`);
+                if (!statusResponse.ok) {
+                    // S3 backup service not available
+                    this.s3BackupEnabled = false;
+                    this.loadingBackupStatus = false;
+                    return;
+                }
+                
+                const statusData = await statusResponse.json();
+                this.s3BackupEnabled = statusData.enabled || false;
+                
+                if (!this.s3BackupEnabled) {
+                    this.loadingBackupStatus = false;
+                    return;
+                }
+                
+                // Get all sessions to check if this one is backed up
+                const sessionsResponse = await fetch(`http://${window.location.hostname}:8083/api/sessions?limit=1000`);
+                if (sessionsResponse.ok) {
+                    const sessions = await sessionsResponse.json();
+                    const session = sessions.find(s => s.session_id === sessionId);
+                    this.isBackedUp = session ? session.backed_up : false;
+                } else {
+                    // Error getting sessions
+                    this.s3BackupError = true;
+                }
+            } catch (error) {
+                console.error('Error checking backup status:', error);
+                // If we can't reach the S3 backup service, show error state
+                this.s3BackupError = true;
+            } finally {
+                this.loadingBackupStatus = false;
+            }
+        },
+        
+        // NEW: Backup session to S3
+        async backupSession() {
+            if (this.backingUp || this.isBackedUp) return;
+            
+            this.backingUp = true;
+            try {
+                const response = await fetch(`http://${window.location.hostname}:8083/api/backup/session/${this.selectedSessionId}`, {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    this.isBackedUp = true;
+                    // Show success message
+                    console.log('Session backed up successfully');
+                    // Optionally refresh the backup status
+                    setTimeout(() => this.checkBackupStatus(this.selectedSessionId), 2000);
+                } else {
+                    const error = await response.text();
+                    throw new Error(error || 'Failed to backup session');
+                }
+            } catch (error) {
+                console.error('Error backing up session:', error);
+                alert(`Failed to backup session: ${error.message}`);
+            } finally {
+                this.backingUp = false;
+            }
+        },
+        
+        // Load processing sessions
         async loadProcessingSessions(sessionId) {
             this.processingSessionsLoading = true;
             try {
@@ -329,7 +452,7 @@ window.ImagingSessionDetailModal = {
             }
         },
         
-        // NEW: Copy session ID to clipboard
+        // Copy session ID to clipboard
         copySessionIdToClipboard() {
             if (!this.selectedSessionId) return;
             
@@ -345,7 +468,7 @@ window.ImagingSessionDetailModal = {
             }
         },
         
-        // NEW: Fallback copy method
+        // Fallback copy method
         fallbackCopy(text) {
             const textarea = document.createElement('textarea');
             textarea.value = text;
@@ -365,7 +488,7 @@ window.ImagingSessionDetailModal = {
             }
         },
         
-        // NEW: Show copy feedback
+        // Show copy feedback
         showCopyFeedback(originalText) {
             if (event && event.target) {
                 const element = event.target;
@@ -384,7 +507,7 @@ window.ImagingSessionDetailModal = {
             }
         },
         
-        // NEW: View processing session
+        // View processing session
         async viewProcessingSession(sessionId) {
             const app = this.$root;
             
@@ -410,7 +533,7 @@ window.ImagingSessionDetailModal = {
             }
         },
         
-        // NEW: Format status badge
+        // Format status badge
         getStatusBadgeClass(status) {
             const classes = {
                 'not_started': 'bg-gray-100 text-gray-700',
@@ -420,7 +543,7 @@ window.ImagingSessionDetailModal = {
             return classes[status] || 'bg-gray-100 text-gray-700';
         },
         
-        // NEW: Format status text
+        // Format status text
         formatStatus(status) {
             const labels = {
                 'not_started': 'Not Started',
@@ -436,6 +559,12 @@ window.ImagingSessionDetailModal = {
             this.selectedSessionId = null;
             this.processingSessions = null;
             this.processingSessionsLoading = false;
+            // Reset S3 backup status
+            this.isBackedUp = false;
+            this.loadingBackupStatus = false;
+            this.backingUp = false;
+            this.s3BackupEnabled = null;
+            this.s3BackupError = false;
         },
         
         openMarkdownEditor() {
