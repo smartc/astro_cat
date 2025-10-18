@@ -1515,5 +1515,120 @@ def _print_sync_summary(stats, dry_run):
         click.echo("✓ Database already in sync with S3")
 
 
+@cli.command('backup-database')
+@click.option('--db-path', type=click.Path(exists=True), help='Path to SQLite database file (default: from config)')
+@click.option('--description', help='Optional description for this backup version')
+@click.pass_context
+def backup_database(ctx, db_path, description):
+    """
+    Backup the database file to S3 with versioning.
+    
+    Creates a timestamped backup of the SQLite database in S3.
+    S3 bucket versioning keeps all previous versions automatically.
+    """
+    backup_manager, db_manager, db_service = get_backup_manager(
+        ctx.obj['config'], ctx.obj['s3_config']
+    )
+    
+    try:
+        # Get database path from config if not specified
+        if not db_path:
+            from config import load_config
+            main_config, _, _, _ = load_config(ctx.obj['config'])
+            db_path = Path(main_config.paths.database_path)
+        else:
+            db_path = Path(db_path)
+        
+        if not db_path.exists():
+            click.echo(f"❌ Database file not found: {db_path}")
+            return
+        
+        click.echo(f"\n💾 Backing up database: {db_path.name}")
+        
+        result = backup_manager.backup_database(db_path, description)
+        
+        if result['success']:
+            click.echo(f"✅ Database backup successful!")
+            click.echo(f"   S3 Key: {result['s3_key']}")
+            click.echo(f"   Size: {format_bytes(result['size'])}")
+            if result.get('version_id'):
+                click.echo(f"   Version ID: {result['version_id']}")
+            if description:
+                click.echo(f"   Description: {description}")
+        else:
+            click.echo(f"❌ Backup failed: {result.get('error')}")
+            
+    finally:
+        db_manager.close()
+
+
+@cli.command('list-database-backups')
+@click.pass_context
+def list_database_backups(ctx):
+    """List all database backup versions in S3."""
+    backup_manager, db_manager, db_service = get_backup_manager(
+        ctx.obj['config'], ctx.obj['s3_config']
+    )
+    
+    try:
+        click.echo("\n📋 Database Backup Versions:\n")
+        
+        versions = backup_manager.list_database_versions()
+        
+        if not versions:
+            click.echo("No database backups found in S3.")
+            return
+        
+        # Prepare table data
+        table_data = []
+        for v in versions:
+            table_data.append([
+                v['timestamp'],
+                format_bytes(v['size']),
+                v.get('description', '-')[:40],
+                v.get('version_id', '-')[:20]
+            ])
+        
+        headers = ['Timestamp', 'Size', 'Description', 'Version ID']
+        click.echo(tabulate(table_data, headers=headers, tablefmt='grid'))
+        click.echo(f"\nTotal: {len(versions)} backup(s)\n")
+        
+    finally:
+        db_manager.close()
+
+
+@cli.command('restore-database')
+@click.option('--version-id', required=True, help='S3 version ID to restore')
+@click.option('--output', type=click.Path(), required=True, help='Output path for restored database')
+@click.pass_context
+def restore_database(ctx, version_id, output):
+    """Restore a specific database version from S3."""
+    backup_manager, db_manager, db_service = get_backup_manager(
+        ctx.obj['config'], ctx.obj['s3_config']
+    )
+    
+    try:
+        output_path = Path(output)
+        
+        if output_path.exists():
+            if not click.confirm(f"⚠️  File {output} already exists. Overwrite?"):
+                click.echo("Restore cancelled.")
+                return
+        
+        click.echo(f"\n📥 Restoring database version: {version_id}")
+        
+        result = backup_manager.restore_database(version_id, output_path)
+        
+        if result['success']:
+            click.echo(f"✅ Database restored successfully!")
+            click.echo(f"   Output: {output_path}")
+            click.echo(f"   Size: {format_bytes(result['size'])}")
+        else:
+            click.echo(f"❌ Restore failed: {result.get('error')}")
+            
+    finally:
+        db_manager.close()
+
+
 if __name__ == '__main__':
     cli()

@@ -986,6 +986,219 @@ class S3BackupManager:
         finally:
             session_db.close()
     
+# ========================================================================
+    # DATABASE BACKUP METHODS WITH VERSIONING
+    # Add these 3 methods to the end of your S3BackupManager class
+    # ========================================================================
+    
+    def backup_database(self, db_path: Path, description: str = None) -> Dict:
+        """
+        Backup database file to S3 with versioning.
+        
+        Args:
+            db_path: Path to the database file
+            description: Optional description for this backup version
+            
+        Returns:
+            Dict with backup results including version info
+        """
+        if not db_path.exists():
+            return {'success': False, 'error': f'Database file not found: {db_path}'}
+        
+        try:
+            # S3 key for database backups
+            s3_key = f"backups/database/{db_path.name}"
+            
+            # Prepare metadata
+
+            # Get archive policies from config - default to 'fast' / 'deep' for database files
+            archive_policy = self.s3_config.config.get('backup_rules', {}).get('database_files', {}).get('archive_policy', 'standard')
+            backup_policy = self.s3_config.config.get('backup_rules', {}).get('database_files', {}).get('backup_policy', 'flexible')
+            
+            # Prepare tags - use correct key names for AWS lifecycle rules
+            tags = f"archive_policy={archive_policy}&backup_policy={backup_policy}"
+                       
+            metadata = {
+                'original_filename': db_path.name,
+                'backup_timestamp': datetime.now(timezone.utc).isoformat(),
+                'file_size': str(db_path.stat().st_size)
+            }
+            
+            if description:
+                metadata['description'] = description[:255]  # S3 metadata limit
+            
+            logger.info(f"Uploading database backup to S3...")
+            logger.info(f"  Source: {db_path}")
+            logger.info(f"  Destination: s3://{self.s3_config.bucket}/{s3_key}")
+            
+            # Upload to S3
+            file_size = db_path.stat().st_size
+            
+            with open(db_path, 'rb') as f:
+                self.s3_client.upload_fileobj(
+                    f,
+                    self.s3_config.bucket,
+                    s3_key,
+                    ExtraArgs={
+                        'StorageClass': 'STANDARD',
+                        'Tagging': tags,
+                        'Metadata': metadata,
+                        'ContentType': 'application/x-sqlite3'
+                    }
+                )
+            
+            # Get version ID if versioning is enabled
+            response = self.s3_client.head_object(
+                Bucket=self.s3_config.bucket,
+                Key=s3_key
+            )
+            
+            version_id = response.get('VersionId')
+            
+            logger.info(f"✅ Database backup uploaded successfully")
+            if version_id:
+                logger.info(f"  Version ID: {version_id}")
+            else:
+                logger.warning(f"  No version ID (bucket versioning may not be enabled)")
+            
+            return {
+                'success': True,
+                's3_key': s3_key,
+                'version_id': version_id,
+                'size': file_size,
+                'description': description
+            }
+            
+        except Exception as e:
+            logger.error(f"Error backing up database: {e}")
+            return {'success': False, 'error': str(e)}
+    
+    def list_database_versions(self) -> List[dict]:
+        """
+        List all database backup versions from S3.
+        
+        Returns:
+            List of version dictionaries with metadata
+        """
+        try:
+            versions = []
+            
+            # Try to list versions - will work if bucket versioning is enabled
+            try:
+                paginator = self.s3_client.get_paginator('list_object_versions')
+                
+                for page in paginator.paginate(
+                    Bucket=self.s3_config.bucket,
+                    Prefix='backups/database/'
+                ):
+                    for version_obj in page.get('Versions', []):
+                        # Get metadata for each version
+                        try:
+                            head_response = self.s3_client.head_object(
+                                Bucket=self.s3_config.bucket,
+                                Key=version_obj['Key'],
+                                VersionId=version_obj['VersionId']
+                            )
+                            
+                            metadata = head_response.get('Metadata', {})
+                            
+                            versions.append({
+                                'version_id': version_obj['VersionId'],
+                                's3_key': version_obj['Key'],
+                                'timestamp': version_obj['LastModified'].isoformat(),
+                                'size': version_obj['Size'],
+                                'description': metadata.get('description', ''),
+                                'original_filename': metadata.get('original_filename', ''),
+                                'is_latest': version_obj.get('IsLatest', False)
+                            })
+                        except Exception as e:
+                            logger.warning(f"Error reading version metadata: {e}")
+                            continue
+            
+            except Exception as e:
+                # Versioning might not be enabled - fall back to listing current objects
+                logger.warning(f"Could not list versions (bucket versioning may not be enabled): {e}")
+                
+                response = self.s3_client.list_objects_v2(
+                    Bucket=self.s3_config.bucket,
+                    Prefix='backups/database/'
+                )
+                
+                for obj in response.get('Contents', []):
+                    head_response = self.s3_client.head_object(
+                        Bucket=self.s3_config.bucket,
+                        Key=obj['Key']
+                    )
+                    
+                    metadata = head_response.get('Metadata', {})
+                    
+                    versions.append({
+                        'version_id': None,
+                        's3_key': obj['Key'],
+                        'timestamp': obj['LastModified'].isoformat(),
+                        'size': obj['Size'],
+                        'description': metadata.get('description', ''),
+                        'original_filename': metadata.get('original_filename', ''),
+                        'is_latest': True
+                    })
+            
+            # Sort by timestamp (newest first)
+            versions.sort(key=lambda x: x['timestamp'], reverse=True)
+            
+            return versions
+            
+        except Exception as e:
+            logger.error(f"Error listing database versions: {e}")
+            return []
+    
+    def restore_database(self, version_id: str, output_path: Path) -> Dict:
+        """
+        Restore a specific database version from S3.
+        
+        Args:
+            version_id: S3 version ID to restore
+            output_path: Where to save the restored database
+            
+        Returns:
+            Dict with restore results
+        """
+        try:
+            # Find the version
+            versions = self.list_database_versions()
+            target_version = next((v for v in versions if v['version_id'] == version_id), None)
+            
+            if not target_version:
+                return {'success': False, 'error': f'Version {version_id} not found'}
+            
+            logger.info(f"Restoring database version {version_id}...")
+            
+            # Download from S3
+            download_kwargs = {
+                'Bucket': self.s3_config.bucket,
+                'Key': target_version['s3_key'],
+                'Filename': str(output_path)
+            }
+            
+            # Only add VersionId if it exists (versioning might not be enabled)
+            if version_id:
+                download_kwargs['ExtraArgs'] = {'VersionId': version_id}
+            
+            self.s3_client.download_file(**download_kwargs)
+            
+            logger.info(f"✅ Database restored to {output_path}")
+            
+            return {
+                'success': True,
+                'version_id': version_id,
+                'output_path': str(output_path),
+                'size': output_path.stat().st_size
+            }
+            
+        except Exception as e:
+            logger.error(f"Error restoring database version {version_id}: {e}")
+            return {'success': False, 'error': str(e)}
+
+
     @staticmethod
     def _format_bytes(bytes_size: int) -> str:
         """Format bytes to human readable string."""
