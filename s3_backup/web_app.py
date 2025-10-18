@@ -3,11 +3,13 @@ Standalone FastAPI web application for S3 backup management.
 Runs on port 8083, designed to be embedded in main app via iframe.
 """
 
+import asyncio
 import logging
 import sys
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
+import json
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
@@ -43,6 +45,228 @@ db_manager: Optional[DatabaseManager] = None
 db_service: Optional[DatabaseService] = None
 
 
+# Global cache
+storage_cache = {
+    "data": None,
+    "last_updated": None
+}
+CACHE_FILE = Path("storage_categories_cache.json")
+
+def load_cache():
+    """Load cache from disk on startup."""
+    global storage_cache
+    try:
+        if CACHE_FILE.exists():
+            with open(CACHE_FILE, 'r') as f:
+                storage_cache = json.load(f)
+                storage_cache["last_updated"] = datetime.fromisoformat(storage_cache["last_updated"])
+    except Exception as e:
+        logger.error(f"Error loading cache: {e}")
+
+def save_cache():
+    """Save cache to disk."""
+    try:
+        cache_data = {
+            "data": storage_cache["data"],
+            "last_updated": storage_cache["last_updated"].isoformat() if storage_cache["last_updated"] else None
+        }
+        with open(CACHE_FILE, 'w') as f:
+            json.dump(cache_data, f)
+    except Exception as e:
+        logger.error(f"Error saving cache: {e}")
+
+async def update_storage_cache():
+    """Background task to update cache daily."""
+    while True:
+        try:
+            # Check if update needed
+            if storage_cache["last_updated"]:
+                next_update = storage_cache["last_updated"] + timedelta(days=1)
+                if datetime.now() < next_update:
+                    # Sleep until next update time
+                    sleep_seconds = (next_update - datetime.now()).total_seconds()
+                    await asyncio.sleep(sleep_seconds)
+                    continue
+            
+            # Update cache
+            logger.info("Updating storage categories cache...")
+            session_db = db_service.db_manager.get_session()
+            try:
+                result = await _get_storage_categories_internal(session_db)
+                storage_cache["data"] = result
+                storage_cache["last_updated"] = datetime.now()
+                save_cache()
+                logger.info("Storage cache updated successfully")
+            finally:
+                session_db.close()
+            
+            # Sleep for 24 hours
+            await asyncio.sleep(86400)
+            
+        except Exception as e:
+            logger.error(f"Error in cache update task: {e}")
+            await asyncio.sleep(3600)  # Retry in 1 hour on error
+
+
+async def _get_storage_categories_internal(session_db):
+    """Internal function with all the logic from get_storage_categories."""
+    if not db_service:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+        
+    try:
+        from models import FitsFile
+        from s3_backup.models import S3BackupSessionNote, S3BackupProcessingSession
+        from pathlib import Path
+        
+        categories = []
+        using_fallback_pricing = False
+        
+        def get_s3_stats(prefix):
+            file_count = 0
+            total_size = 0
+            paginator = backup_manager.s3_client.get_paginator('list_objects_v2')
+            
+            for page in paginator.paginate(Bucket=backup_manager.s3_config.bucket, Prefix=prefix):
+                if 'Contents' not in page:
+                    continue
+                for obj in page['Contents']:
+                    if not obj['Key'].endswith('/'):
+                        file_count += 1
+                        total_size += obj['Size']
+            return file_count, total_size
+        
+        # Category 1: Imaging Sessions
+        all_fits = session_db.query(FitsFile).all()
+        backed_up_sessions = {a.session_id for a in session_db.query(S3BackupArchive).all()}
+        
+        total_local_size = 0
+        backed_up_size = 0
+        local_not_backed_count = 0
+        
+        for f in all_fits:
+            file_path = Path(f.folder) / f.file
+            if file_path.exists():
+                size = file_path.stat().st_size
+                total_local_size += size
+                if f.session_id in backed_up_sessions:
+                    backed_up_size += size
+                else:
+                    local_not_backed_count += 1
+        
+        raw_path = backup_manager.s3_config.config['s3_paths']['raw_archives']
+        s3_files_raw, s3_size_raw = get_s3_stats(raw_path)
+        
+        annual_cost, is_fallback = calculate_s3_cost(s3_size_raw, "DEEP_ARCHIVE")
+        using_fallback_pricing = using_fallback_pricing or is_fallback
+        
+        categories.append({
+            "name": "Imaging Sessions",
+            "local_files": len(all_fits),
+            "s3_files": s3_files_raw,
+            "local_not_in_s3": local_not_backed_count,
+            "local_storage": total_local_size,
+            "s3_storage": s3_size_raw,
+            "backed_up_size": backed_up_size,
+            "storage_class": "Deep Archive",
+            "backup_pct": (backed_up_size / total_local_size * 100) if total_local_size > 0 else 0,
+            "annual_cost": annual_cost
+        })
+        
+        # Category 2: Imaging Session Notes
+        from config import load_config
+        main_config, _, _, _ = load_config()
+        
+        imaging_notes_dir = Path(main_config.paths.notes_dir) / "Imaging_Sessions"
+        local_imaging_files = {}
+        if imaging_notes_dir.exists():
+            for md in imaging_notes_dir.rglob("*.md"):
+                session_id = md.stem
+                local_imaging_files[session_id] = md.stat().st_size
+        
+        s3_imaging_notes = {n.session_id for n in session_db.query(S3BackupSessionNote).all()}
+        
+        imaging_backed_up_size = sum(size for sid, size in local_imaging_files.items() if sid in s3_imaging_notes)
+        imaging_not_in_s3 = len([sid for sid in local_imaging_files.keys() if sid not in s3_imaging_notes])
+        
+        notes_path = backup_manager.s3_config.config['s3_paths']['session_notes']
+        s3_notes_count, s3_notes_size = get_s3_stats(notes_path)
+        
+        annual_cost, is_fallback = calculate_s3_cost(s3_notes_size, "STANDARD_IA")
+        using_fallback_pricing = using_fallback_pricing or is_fallback
+        
+        categories.append({
+            "name": "Imaging Session Notes",
+            "local_files": len(local_imaging_files),
+            "s3_files": s3_notes_count,
+            "local_not_in_s3": imaging_not_in_s3,
+            "local_storage": sum(local_imaging_files.values()),
+            "s3_storage": s3_notes_size,
+            "backed_up_size": imaging_backed_up_size,
+            "storage_class": "Standard",
+            "backup_pct": (imaging_backed_up_size / sum(local_imaging_files.values()) * 100) if local_imaging_files else 0,
+            "annual_cost": annual_cost
+        })
+        
+        # Category 3: Processing Session Notes
+        proc_notes_dir = Path(main_config.paths.notes_dir) / "Processing_Sessions"
+        local_proc_files = {}
+        if proc_notes_dir.exists():
+            for md in proc_notes_dir.rglob("*.md"):
+                session_id = md.stem
+                local_proc_files[session_id] = md.stat().st_size
+        
+        s3_proc_notes = {n.processing_session_id for n in session_db.query(S3BackupProcessingSession).all()}
+        
+        proc_backed_up_size = sum(size for sid, size in local_proc_files.items() if sid in s3_proc_notes)
+        proc_not_in_s3 = len([sid for sid in local_proc_files.keys() if sid not in s3_proc_notes])
+        
+        proc_path = backup_manager.s3_config.config['s3_paths']['processing_notes']
+        s3_proc_count, s3_proc_size = get_s3_stats(proc_path)
+        
+        annual_cost, is_fallback = calculate_s3_cost(s3_proc_size, "STANDARD_IA")
+        using_fallback_pricing = using_fallback_pricing or is_fallback
+        
+        categories.append({
+            "name": "Processing Session Notes",
+            "local_files": len(local_proc_files),
+            "s3_files": s3_proc_count,
+            "local_not_in_s3": proc_not_in_s3,
+            "local_storage": sum(local_proc_files.values()),
+            "s3_storage": s3_proc_size,
+            "backed_up_size": proc_backed_up_size,
+            "storage_class": "Standard",
+            "backup_pct": (proc_backed_up_size / sum(local_proc_files.values()) * 100) if local_proc_files else 0,
+            "annual_cost": annual_cost
+        })
+        
+        # Category 4: Processing Sessions
+        annual_cost, is_fallback = calculate_s3_cost(0, "GLACIER")
+        using_fallback_pricing = using_fallback_pricing or is_fallback
+        
+        categories.append({
+            "name": "Processing Sessions",
+            "local_files": 0,
+            "s3_files": 0,
+            "local_not_in_s3": 0,
+            "local_storage": 0,
+            "s3_storage": 0,
+            "backed_up_size": 0,
+            "storage_class": "Flexible",
+            "backup_pct": 0,
+            "annual_cost": annual_cost
+        })
+        
+        return {
+            "categories": categories,
+            "using_fallback_pricing": using_fallback_pricing
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting storage categories: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    pass
+
 @app.post("/api/toggle-enabled")
 async def toggle_enabled():
     """Toggle S3 backup enabled status and update config."""
@@ -77,6 +301,12 @@ async def startup_event():
         base_dir = Path(config.paths.image_dir).parent if hasattr(config.paths, 'image_dir') else None
         backup_manager = S3BackupManager(db_service, s3_config, base_dir)
         
+        # load S3 data cache
+        load_cache()
+        
+        # Start background cache update task
+        asyncio.create_task(update_storage_cache())
+
         logger.info("S3 Backup web app initialized successfully")
         
     except Exception as e:
@@ -293,6 +523,59 @@ def format_bytes(size: int) -> str:
             return f"{size:.2f} {unit}"
         size /= 1024.0
     return f"{size:.2f} PB"
+
+
+@app.get("/api/storage-categories")
+async def get_storage_categories(force_refresh: bool = False):
+    """Get storage summary by category from cache or refresh."""
+    # Force refresh if requested or cache empty
+    if force_refresh or storage_cache["data"] is None:
+        session_db = db_service.db_manager.get_session()
+        try:
+            result = await _get_storage_categories_internal(session_db)
+            storage_cache["data"] = result
+            storage_cache["last_updated"] = datetime.now()
+            save_cache()
+        finally:
+            session_db.close()
+    
+    return {
+        **storage_cache["data"],
+        "last_updated": storage_cache["last_updated"].isoformat() if storage_cache["last_updated"] else None
+    }
+                       
+
+def calculate_s3_cost(bytes_size, storage_class):
+    """Calculate estimated annual S3 storage cost using config rates.
+    
+    Returns:
+        Tuple of (annual_cost, using_fallback)
+    """
+    gb = bytes_size / (1024**3)
+    
+    try:
+        config = backup_manager.s3_config.config
+        rates = config.get('cost_tracking', {}).get('storage_cost_per_gb_per_month', {})
+        
+        rate_map = {
+            "STANDARD": "STANDARD",
+            "STANDARD_IA": "STANDARD_IA", 
+            "GLACIER": "GLACIER_FLEXIBLE",
+            "DEEP_ARCHIVE": "DEEP_ARCHIVE"
+        }
+        
+        monthly_rate = rates.get(rate_map.get(storage_class, "STANDARD"))
+        if monthly_rate is None:
+            raise KeyError("Rate not found in config")
+        using_fallback = False
+    except Exception as e:
+        logger.warning(f"Using fallback pricing: {e}")
+        monthly_rate = 0.023
+        using_fallback = True
+    
+    monthly_cost = gb * monthly_rate
+    return monthly_cost * 12, using_fallback
+
 
 
 if __name__ == "__main__":

@@ -24,40 +24,73 @@
                 </div>
             </div>
             
-            <!-- Stats Grid -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-                <div class="stats-card">
-                    <h3 class="text-lg font-semibold text-gray-700 mb-2">Backed Up</h3>
-                    <p class="text-3xl font-bold text-blue-600">{{ status.backed_up }}</p>
-                    <p class="text-sm text-gray-500">Sessions</p>
-                </div>
-                <div class="stats-card">
-                    <h3 class="text-lg font-semibold text-gray-700 mb-2">Remaining</h3>
-                    <p class="text-3xl font-bold text-orange-600">{{ status.remaining }}</p>
-                    <p class="text-sm text-gray-500">Sessions</p>
-                </div>
-                <div class="stats-card">
-                    <h3 class="text-lg font-semibold text-gray-700 mb-2">Total Files</h3>
-                    <p class="text-3xl font-bold text-purple-600">{{ status.total_files }}</p>
-                    <p class="text-sm text-gray-500">Backed up</p>
-                </div>
-                <div class="stats-card">
-                    <h3 class="text-lg font-semibold text-gray-700 mb-2">Storage Used</h3>
-                    <p class="text-3xl font-bold text-green-600">{{ formatBytes(status.total_compressed_size) }}</p>
-                    <p class="text-sm text-gray-500">{{ (status.avg_compression * 100).toFixed(0) }}% compression</p>
-                </div>
-            </div>
-            
-            <!-- Progress Card -->
+
+            <!-- Storage Summary Table -->
             <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-                <h2 class="text-xl font-bold text-gray-800 mb-4">Overall Progress</h2>
-                <div class="w-full bg-gray-200 rounded-full h-8 mb-2">
-                    <div class="bg-gradient-to-r from-blue-500 to-purple-600 h-8 rounded-full flex items-center justify-center text-white font-semibold transition-all duration-300" 
-                         :style="{width: status.progress_percentage + '%'}">
-                        {{ status.progress_percentage.toFixed(1) }}%
-                    </div>
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold text-gray-800">Storage Summary</h2>
+                    <button class="px-4 py-2 rounded font-medium transition bg-blue-500 hover:bg-blue-600 text-white text-sm" @click="refreshData(true)">🔄 Refresh</button>
                 </div>
-                <p class="text-sm text-gray-600">{{ status.backed_up }} of {{ status.total_sessions }} sessions backed up</p>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"># Local Files</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"># S3 Files</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"># Not in S3</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Local Storage</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Backed Up Size</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">S3 Storage</th>
+                                <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Storage Class</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">% Backed Up</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Est. Annual Cost</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <tr v-for="cat in storageCategories" :key="cat.name" class="hover:bg-gray-50">
+                                <td class="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{{ cat.name }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700 text-right">{{ cat.local_files.toLocaleString() }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700 text-right">{{ cat.s3_files.toLocaleString() }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700 text-right">{{ cat.local_not_in_s3.toLocaleString() }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700 text-right">{{ formatBytes(cat.local_storage) }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700 text-right">{{ formatBytes(cat.backed_up_size) }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700 text-right">{{ formatBytes(cat.s3_storage) }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-600 text-center">{{ cat.storage_class }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-right">
+                                    <span :class="cat.backup_pct >= 100 ? 'text-green-600 font-semibold' : cat.backup_pct >= 50 ? 'text-yellow-600' : 'text-red-600'">
+                                        {{ cat.backup_pct.toFixed(1) }}%
+                                    </span>
+                                </td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700 text-right">${{ cat.annual_cost.toFixed(2) }}</td>
+                            </tr>
+                        </tbody>
+                        <tfoot class="bg-gray-100 font-semibold">
+                            <tr>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900">Total</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-right">{{ totalStats.local_files.toLocaleString() }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-right">{{ totalStats.s3_files.toLocaleString() }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-right">{{ totalStats.local_not_in_s3.toLocaleString() }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-right">{{ formatBytes(totalStats.local_storage) }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-right">{{ formatBytes(totalStats.backed_up_size) }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-right">{{ formatBytes(totalStats.s3_storage) }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-600 text-center">—</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-right">
+                                    <span :class="totalStats.backup_pct >= 100 ? 'text-green-600' : totalStats.backup_pct >= 50 ? 'text-yellow-600' : 'text-red-600'">
+                                        {{ totalStats.backup_pct.toFixed(1) }}%
+                                    </span>
+                                </td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-right">${{ totalStats.annual_cost.toFixed(2) }}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                <div class="text-xs text-gray-500 mt-2 space-y-1">
+                    <p v-if="lastUpdated">Last updated: {{ formatTimestamp(lastUpdated) }}</p>
+                    <p v-if="usingFallbackPricing" class="text-yellow-600">
+                        ⚠️ Using fallback pricing rates. Check cost_tracking configuration in s3_config.json for accurate estimates.
+                    </p>
+                </div>
             </div>
             
             <!-- Temp Directory Card -->
@@ -112,47 +145,6 @@
                     <button class="px-4 py-2 rounded font-medium transition bg-gray-600 hover:bg-gray-700 text-white text-sm" @click="cleanupOrphans">Clean Up</button>
                 </div>
             </div>
-            
-            <!-- Sessions List Card -->
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-xl font-bold text-gray-800">Recent Sessions</h2>
-                    <div class="space-x-2">
-                        <button class="px-4 py-2 rounded font-medium transition bg-blue-500 hover:bg-blue-600 text-white" @click="refreshData">🔄 Refresh</button>
-                        <button class="px-4 py-2 rounded font-medium transition text-white" 
-                                :class="status.enabled ? 'bg-purple-500 hover:bg-purple-600' : 'bg-gray-400 cursor-not-allowed'"
-                                :disabled="!status.enabled"
-                                @click="uploadNext">⬆️ Upload Next 10</button>
-                    </div>
-                </div>
-                
-                <div class="space-y-2">
-                    <div v-for="session in sessions" :key="session.session_id" 
-                         class="border border-gray-200 rounded p-3 hover:bg-gray-50 transition">
-                        <div class="flex justify-between items-center">
-                            <div class="flex-grow">
-                                <div class="font-mono text-sm font-medium text-gray-900">{{ session.session_id }}</div>
-                                <div class="text-xs text-gray-600 mt-1">
-                                    {{ session.session_date }} • {{ session.camera }} • {{ session.telescope }}
-                                </div>
-                            </div>
-                            <div class="flex items-center space-x-3">
-                                <span v-if="session.backed_up" 
-                                      class="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                    ✓ Backed Up
-                                </span>
-                                <span v-else 
-                                      class="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                    Pending
-                                </span>
-                                <span v-if="session.backed_up" class="text-sm text-gray-600 font-medium">
-                                    {{ formatBytes(session.archive_size) }}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
     </div>
 
@@ -192,15 +184,53 @@
                         return {
                             status: {
                                 total_sessions: 0, backed_up: 0, remaining: 0, progress_percentage: 0,
-                                total_files: 0, total_compressed_size: 0, bucket: '', region: '', enabled: false
+                                total_files: 0, total_compressed_size: 0, bucket: '', region: '', enabled: false,
+                                avg_compression: 0,
+                                imaging_notes_total: 0, imaging_notes_backed_up: 0,
+                                processing_notes_total: 0, processing_notes_backed_up: 0,
+                                processing_sessions_total: 0, processing_sessions_backed_up: 0,
+                                processing_files_backed_up: 0
                             },
                             tempInfo: {
                                 path: '', total: 0, free: 0, usage_percent: 0,
                                 largest_session_id: null, largest_session_size: 0,
                                 required_with_buffer: 0, has_space: true, orphaned_archives: 0, orphaned_size: 0
                             },
-                            sessions: []
+                            storageCategories: [],
+                            usingFallbackPricing: false,
+                            lastUpdated: null
                         };
+                    },
+                    computed: {
+                        totalStats() {
+                            const total = {
+                                local_files: 0,
+                                s3_files: 0,
+                                local_not_in_s3: 0,
+                                local_storage: 0,
+                                s3_storage: 0,
+                                backed_up_size: 0,
+                                annual_cost: 0,
+                                backup_pct: 0
+                            };
+                            
+                            this.storageCategories.forEach(cat => {
+                                total.local_files += cat.local_files;
+                                total.s3_files += cat.s3_files;
+                                total.local_not_in_s3 += cat.local_not_in_s3;
+                                total.local_storage += cat.local_storage;
+                                total.s3_storage += cat.s3_storage;
+                                total.backed_up_size += cat.backed_up_size;
+                                total.annual_cost += cat.annual_cost;
+                            });
+                            
+                            // Recalculate percentage based on aggregate backed up size
+                            total.backup_pct = total.local_storage > 0 
+                                ? (total.backed_up_size / total.local_storage) * 100 
+                                : 0;
+                            
+                            return total;
+                        }
                     },
                     methods: {
                         async loadStatus() {
@@ -211,12 +241,19 @@
                             const res = await axios.get('/api/temp-info');
                             this.tempInfo = res.data;
                         },
-                        async loadSessions() {
-                            const res = await axios.get('/api/sessions?limit=50');
-                            this.sessions = res.data;
+                        async loadStorageCategories(forceRefresh = false) {
+                            const url = forceRefresh ? '/api/storage-categories?force_refresh=true' : '/api/storage-categories';
+                            const res = await axios.get(url);
+                            this.storageCategories = res.data.categories || res.data;
+                            this.usingFallbackPricing = res.data.using_fallback_pricing || false;
+                            this.lastUpdated = res.data.last_updated;
                         },
-                        async refreshData() {
-                            await Promise.all([this.loadStatus(), this.loadTempInfo(), this.loadSessions()]);
+                        async refreshData(forceStorageRefresh = false) {
+                            await Promise.all([
+                                this.loadStatus(), 
+                                this.loadTempInfo(), 
+                                this.loadStorageCategories(forceStorageRefresh)
+                            ]);
                         },
                         async toggleEnabled() {
                             try {
@@ -236,6 +273,21 @@
                             }
                             return `${size.toFixed(2)} ${units[i]}`;
                         },
+                        formatTimestamp(isoString) {
+                            if (!isoString) return '';
+                            const date = new Date(isoString);
+                            const now = new Date();
+                            const diffMs = now - date;
+                            const diffMins = Math.floor(diffMs / 60000);
+                            const diffHours = Math.floor(diffMs / 3600000);
+                            const diffDays = Math.floor(diffMs / 86400000);
+                            
+                            if (diffMins < 1) return 'just now';
+                            if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+                            if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+                            if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+                            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+                        },
                         async uploadNext() {
                             alert('Upload will be implemented next');
                         },
@@ -247,7 +299,6 @@
                     },
                     mounted() {
                         this.refreshData();
-                        setInterval(() => this.refreshData(), 30000);
                     }
                 }).mount('#app');
             });
