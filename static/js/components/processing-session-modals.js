@@ -113,24 +113,18 @@ const ProcessingSessionModals = {
                     return;
                 }
                 
-                if (!this.newProcessingSession.fileIds.trim()) {
-                    alert('File IDs are required');
-                    return;
-                }
-                
-                const fileIds = this.newProcessingSession.fileIds
-                    .split(',')
-                    .map(id => parseInt(id.trim()))
-                    .filter(id => !isNaN(id));
-                
-                if (fileIds.length === 0) {
-                    alert('No valid file IDs provided');
-                    return;
+                // File IDs are now optional - allow empty sessions
+                let fileIds = [];
+                if (this.newProcessingSession.fileIds && this.newProcessingSession.fileIds.trim()) {
+                    fileIds = this.newProcessingSession.fileIds
+                        .split(',')
+                        .map(id => parseInt(id.trim()))
+                        .filter(id => !isNaN(id));
                 }
                 
                 const payload = {
                     name: this.newProcessingSession.name.trim(),
-                    file_ids: fileIds,
+                    file_ids: fileIds,  // Can be empty array
                     notes: this.newProcessingSession.notes.trim() || null
                 };
                 
@@ -139,8 +133,13 @@ const ProcessingSessionModals = {
                 this.showCreateModal = false;
                 const app = this.$root;
                 await app.loadProcessingSessions();
-                alert(`Processing session "${this.newProcessingSession.name}" created successfully with ${fileIds.length} files!`);
-        
+                
+                if (fileIds.length === 0) {
+                    alert(`Empty processing session "${this.newProcessingSession.name}" created successfully! You can now add files to it.`);
+                } else {
+                    alert(`Processing session "${this.newProcessingSession.name}" created successfully with ${fileIds.length} files!`);
+                }
+
                 // REFRESH STATS AFTER CREATING SESSION
                 await window.refreshStats();
             } catch (error) {

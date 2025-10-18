@@ -127,18 +127,45 @@ class ProcessingSessionManager:
         finally:
             session.close()
 
-    def create_processing_session(self, name: str, file_ids: List[int], 
+    def create_processing_session(self, name: str, file_ids: Optional[List[int]] = None, 
                                 notes: Optional[str] = None) -> ProcessingSessionInfo:
-        """Create a new processing session with selected files."""
+        """Create a new processing session with selected files.
         
-        # Validate files
-        files, warnings = self.validate_file_selection(file_ids)
+        Args:
+            name: Name of the processing session
+            file_ids: Optional list of file IDs to include. If None or empty, creates an empty session.
+            notes: Optional notes for the session
+        """
+        # Handle empty or None file_ids
+        if file_ids is None:
+            file_ids = []
         
-        if warnings:
-            warning_msg = "; ".join(warnings.values())
-            logger.warning(f"Processing session creation warnings: {warning_msg}")
-            if 'missing_files' in warnings or 'missing_on_disk' in warnings:
-                raise ValueError(f"Cannot create session: {warning_msg}")
+        files = []
+        frame_counts = {'LIGHT': 0, 'DARK': 0, 'FLAT': 0, 'BIAS': 0}
+        objects = []
+        
+        # Only validate and process files if file_ids is not empty
+        if file_ids:
+            # Validate files
+            files, warnings = self.validate_file_selection(file_ids)
+            
+            if warnings:
+                warning_msg = "; ".join(warnings.values())
+                logger.warning(f"Processing session creation warnings: {warning_msg}")
+                if 'missing_files' in warnings or 'missing_on_disk' in warnings:
+                    raise ValueError(f"Cannot create session: {warning_msg}")
+            
+            # Determine objects in this session
+            for f in files:
+                if f.object and f.object != 'CALIBRATION':
+                    if f.object not in objects:
+                        objects.append(f.object)
+            
+            # Count frame types
+            for file_obj in files:
+                frame_type = file_obj.frame_type or 'UNKNOWN'
+                if frame_type in frame_counts:
+                    frame_counts[frame_type] += 1
         
         # Generate session ID and create folder structure
         session_id = self.generate_session_id(name)
@@ -146,20 +173,6 @@ class ProcessingSessionManager:
         
         # Create folder structure
         self._create_folder_structure(session_folder)
-        
-        # Determine objects in this session - FIX: ensure all objects are captured
-        objects = []
-        for f in files:
-            if f.object and f.object != 'CALIBRATION':
-                if f.object not in objects:  # Avoid duplicates but preserve order
-                    objects.append(f.object)
-        
-        # Count frame types
-        frame_counts = {'LIGHT': 0, 'DARK': 0, 'FLAT': 0, 'BIAS': 0}
-        for file_obj in files:
-            frame_type = file_obj.frame_type or 'UNKNOWN'
-            if frame_type in frame_counts:
-                frame_counts[frame_type] += 1
         
         session = self.db_service.db_manager.get_session()
         
@@ -176,23 +189,25 @@ class ProcessingSessionManager:
             )
             session.add(processing_session)
             
-            # Stage files and create symbolic links
-            staged_files = self._stage_files(session_folder, files, session_id)
-            
-            # Create processing session file records
-            for staged_file in staged_files:
-                ps_file = ProcessingSessionFile(
-                    processing_session_id=session_id,
-                    fits_file_id=staged_file['fits_file_id'],
-                    original_path=staged_file['original_path'],
-                    original_filename=staged_file['original_filename'],
-                    staged_path=staged_file['staged_path'],
-                    staged_filename=staged_file['staged_filename'],
-                    subfolder=staged_file['subfolder'],
-                    file_size=staged_file['file_size'],
-                    frame_type=staged_file['frame_type']
-                )
-                session.add(ps_file)
+            # Only stage files if we have any
+            if files:
+                # Stage files and create symbolic links
+                staged_files = self._stage_files(session_folder, files, session_id)
+                
+                # Create processing session file records
+                for staged_file in staged_files:
+                    ps_file = ProcessingSessionFile(
+                        processing_session_id=session_id,
+                        fits_file_id=staged_file['fits_file_id'],
+                        original_path=staged_file['original_path'],
+                        original_filename=staged_file['original_filename'],
+                        staged_path=staged_file['staged_path'],
+                        staged_filename=staged_file['staged_filename'],
+                        subfolder=staged_file['subfolder'],
+                        file_size=staged_file['file_size'],
+                        frame_type=staged_file['frame_type']
+                    )
+                    session.add(ps_file)
             
             # Create session info file
             self._create_session_info_file(session_folder, session_id, name, objects, 
@@ -200,7 +215,10 @@ class ProcessingSessionManager:
             
             session.commit()
             
-            logger.info(f"Created processing session {session_id} with {len(files)} files")
+            if files:
+                logger.info(f"Created processing session {session_id} with {len(files)} files")
+            else:
+                logger.info(f"Created empty processing session {session_id}")
             
             return ProcessingSessionInfo(
                 id=session_id,
@@ -741,11 +759,7 @@ class ProcessingSessionManager:
             session_folder / "raw" / "calibration" / "darks",
             session_folder / "raw" / "calibration" / "flats", 
             session_folder / "raw" / "calibration" / "bias",
-            session_folder / "intermediate" / "stacked",
-            session_folder / "intermediate" / "calibrated",
-            session_folder / "intermediate" / "registered",
-            session_folder / "intermediate" / "aligned",
-            session_folder / "intermediate" / "mono_channels",
+            session_folder / "intermediate",
             session_folder / "final",
             session_folder / "final" / "drafts",
             session_folder / "final" / "published"
@@ -928,11 +942,6 @@ class ProcessingSessionManager:
 │       ├── flats/
 │       └── bias/
 ├── intermediate/         # Intermediate processing files
-│   ├── stacked/         # Stacked images
-│   ├── calibrated/      # Calibrated frames
-│   ├── registered/      # Registered/aligned frames
-│   ├── aligned/         # Additional alignment work
-│   └── mono_channels/   # Individual channel images
 └── final/               # Final processed images
     ├── drafts/          # Draft versions
     └── published/       # Published versions

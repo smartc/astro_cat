@@ -58,7 +58,6 @@ async def get_session_webdav_info(session_id: str, request: Request):
                 "flats": f"{base_url}/{session_path}/raw/calibration/flats",
                 "bias": f"{base_url}/{session_path}/raw/calibration/bias",
                 "intermediate": f"{base_url}/{session_path}/intermediate",
-                "stacked": f"{base_url}/{session_path}/intermediate/stacked",
                 "final": f"{base_url}/{session_path}/final"
             },
             "instructions": {

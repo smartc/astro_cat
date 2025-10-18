@@ -566,7 +566,7 @@ def processing(ctx):
 
 @processing.command()
 @click.argument('name')
-@click.option('--file-ids', '-f', required=True, help='Comma-separated list of FITS file IDs')
+@click.option('--file-ids', '-f', help='Comma-separated list of FITS file IDs (optional - can create empty session)')
 @click.option('--notes', '-n', help='Processing notes (markdown format)')
 @click.option('--dry-run', is_flag=True, help='Show what would be created without actually creating')
 @click.pass_context
@@ -575,101 +575,60 @@ def create(ctx, name, file_ids, notes, dry_run):
     
     NAME: Name for the processing session
     
-    Example:
+    Examples:
+        # Create session with files
         python main.py processing create "NGC7000 LRGB" --file-ids "123,124,125,126" --notes "First attempt"
+        
+        # Create empty session (for manually adding old images later)
+        python main.py processing create "M31 Archive Session" --notes "For importing old data"
     """
     config_path = ctx.obj['config_path']
     verbose = ctx.obj['verbose']
     
     try:
-        # Parse comma-separated file IDs
-        try:
-            file_ids_list = [int(x.strip()) for x in file_ids.split(',')]
-        except ValueError as e:
-            click.echo(f"Error: Invalid file IDs format. Use comma-separated integers: {e}")
-            return
-        
-        if not file_ids_list:
-            click.echo("Error: No file IDs provided")
-            return
+        # Parse comma-separated file IDs if provided
+        file_ids_list = []
+        if file_ids:
+            try:
+                file_ids_list = [int(x.strip()) for x in file_ids.split(',')]
+            except ValueError as e:
+                click.echo(f"Error: Invalid file IDs format. Use comma-separated integers.")
+                click.echo(f"Example: --file-ids '123,124,125'")
+                sys.exit(1)
         
         config, cameras, telescopes, filter_mappings = load_config(config_path)
         setup_logging(config, verbose)
         
-        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
-        processing_manager = ProcessingSessionManager(config, cataloger.db_service)
-        
-        click.echo(f"Creating processing session: {name}")
-        click.echo(f"Files to include: {len(file_ids_list)} ({file_ids_list})")
+        db_service = DatabaseService(config)
+        processing_manager = ProcessingSessionManager(config, db_service)
         
         if dry_run:
-            files, warnings = processing_manager.validate_file_selection(file_ids_list)
-            
-            if warnings:
-                click.echo("Warnings:")
-                for warning_type, message in warnings.items():
-                    click.echo(f"  - {warning_type}: {message}")
-            
-            if not files:
-                click.echo("Error: No valid files found")
-                return
-            
-            frame_counts = {'LIGHT': 0, 'DARK': 0, 'FLAT': 0, 'BIAS': 0, 'OTHER': 0}
-            objects = set()
-            
-            for file_obj in files:
-                frame_type = (file_obj.frame_type or 'OTHER').upper()
-                if frame_type in frame_counts:
-                    frame_counts[frame_type] += 1
-                else:
-                    frame_counts['OTHER'] += 1
-                
-                if file_obj.object and file_obj.object != 'CALIBRATION':
-                    objects.add(file_obj.object)
-            
-            click.echo(f"\nSession would include:")
-            click.echo(f"  - Light frames: {frame_counts['LIGHT']}")
-            click.echo(f"  - Dark frames: {frame_counts['DARK']}")
-            click.echo(f"  - Flat frames: {frame_counts['FLAT']}")
-            click.echo(f"  - Bias frames: {frame_counts['BIAS']}")
-            if frame_counts['OTHER'] > 0:
-                click.echo(f"  - Other frames: {frame_counts['OTHER']}")
-            
-            if objects:
-                click.echo(f"  - Objects: {', '.join(sorted(objects))}")
-            
-            session_id = processing_manager.generate_session_id(name)
-            folder_path = config.paths.processing_dir + "/" + session_id
-            click.echo(f"  - Folder: {folder_path}")
-            
-            if notes:
-                click.echo(f"  - Notes: {notes}")
-            
-            click.echo("\nDry run completed successfully!")
-        else:
-            if not click.confirm(f"Create processing session '{name}' with {len(file_ids_list)} files?"):
-                return
-            
-            session_info = processing_manager.create_processing_session(name, file_ids_list, notes)
-            
-            click.echo("✓ Processing session created successfully!")
-            click.echo(f"  Session ID: {session_info.id}")
-            click.echo(f"  Folder: {session_info.folder_path}")
-            click.echo(f"  Files staged: {session_info.total_files}")
-            click.echo(f"    - Lights: {session_info.lights}")
-            click.echo(f"    - Darks: {session_info.darks}")
-            click.echo(f"    - Flats: {session_info.flats}")
-            click.echo(f"    - Bias: {session_info.bias}")
-            
-            if session_info.objects:
-                click.echo(f"  Objects: {', '.join(session_info.objects)}")
+            click.echo(f"Would create processing session:")
+            click.echo(f"  Name: {name}")
+            click.echo(f"  File IDs: {file_ids_list if file_ids_list else 'None (empty session)'}")
+            click.echo(f"  Notes: {notes if notes else 'None'}")
+            return
         
-        cataloger.cleanup()
+        session_info = processing_manager.create_processing_session(
+            name=name,
+            file_ids=file_ids_list,  # Can be empty list
+            notes=notes
+        )
+        
+        click.echo(f"✓ Created processing session: {session_info.id}")
+        click.echo(f"  Name: {session_info.name}")
+        click.echo(f"  Folder: {session_info.folder_path}")
+        click.echo(f"  Files: {session_info.total_files}")
+        
+        if session_info.total_files == 0:
+            click.echo(f"\n  Note: Empty session created. Add files using:")
+            click.echo(f"    python main.py processing add-files {session_info.id} --file-ids '<ids>'")
         
     except Exception as e:
         click.echo(f"Error creating processing session: {e}")
         import traceback
-        traceback.print_exc()
+        if verbose:
+            traceback.print_exc()
         sys.exit(1)
         
 

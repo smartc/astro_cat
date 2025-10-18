@@ -240,17 +240,24 @@ async def get_processing_session(
 @router.post("")
 async def create_processing_session(
     name: str = Body(...),
-    file_ids: List[int] = Body(...),
+    file_ids: Optional[List[int]] = Body(default=[]),  # Changed: now optional with empty list default
     notes: Optional[str] = Body(None),
     processing_manager = Depends(get_processing_manager)
 ):
-    """Create a new processing session."""
+    """Create a new processing session.
+    
+    Args:
+        name: Name of the processing session
+        file_ids: Optional list of file IDs to include. Can be empty to create an empty session.
+        notes: Optional notes for the session
+    """
     try:
         if processing_manager is None:
             logger.error("Processing manager is None")
             raise HTTPException(status_code=500, detail="Processing manager not initialized")
         
-        logger.info(f"Creating processing session: name={name}, file_ids={file_ids[:5]}... ({len(file_ids)} total)")
+        file_count = len(file_ids) if file_ids else 0
+        logger.info(f"Creating processing session: name={name}, file_ids count={file_count}")
         
         session_info = processing_manager.create_processing_session(name, file_ids, notes)
         
