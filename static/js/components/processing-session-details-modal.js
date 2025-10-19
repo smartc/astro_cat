@@ -1,6 +1,7 @@
 /**
- * Processing Session Details Modal Component - MINIMAL CHANGES
- * Only adds: 1) Session ID click-to-copy, 2) Imaging Sessions card
+ * Processing Session Details Modal Component
+ * ONLY CHANGED: Updated processed files stats tables to match imaging sessions table style
+ * and added formatBytes() function for smart file size formatting
  */
 
 const ProcessingSessionDetailsModal = {
@@ -19,7 +20,7 @@ const ProcessingSessionDetailsModal = {
                                 </svg>
                             </button>
                         </div>
-                        <!-- NEW: Session ID (clickable to copy) -->
+                        <!-- Session ID (clickable to copy) -->
                         <div v-if="currentSessionDetails" class="mt-2 text-sm">
                             <span class="text-gray-200 mr-2">🆔 Session ID:</span>
                             <code @click="copySessionIdToClipboard" 
@@ -39,15 +40,18 @@ const ProcessingSessionDetailsModal = {
                         </div>
                     </div>
                 </div>
+                
                 <!-- Modal Body -->
                 <div class="flex-1 overflow-y-auto p-6" style="max-height: calc(90vh - 200px);">
                     <!-- Loading State -->
                     <div v-if="sessionDetailsLoading" class="flex justify-center items-center py-12">
                         <div class="spinner"></div>
                         <span class="ml-3 text-gray-600">Loading session details...</span>
-                    </div>            
+                    </div>
+                    
+                    <div v-else-if="currentSessionDetails">
                         <!-- Session-Level Summary -->
-                        <div v-if="currentSessionDetails" class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
+                        <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200 mb-6">
                             <div class="flex justify-between items-start mb-4">
                                 <h3 class="text-xl font-bold text-blue-900">Session Summary</h3>
                                 <div class="flex flex-col space-y-2">
@@ -69,7 +73,6 @@ const ProcessingSessionDetailsModal = {
                                 </div>
                                 <div>
                                     <p class="text-xs text-gray-600 uppercase tracking-wide">Status</p>
-
                                     <div class="relative inline-block">
                                         <select
                                             v-model="currentSessionDetails.status"
@@ -81,12 +84,9 @@ const ProcessingSessionDetailsModal = {
                                             <option value="in_progress">In Progress</option>
                                             <option value="complete">Complete</option>
                                         </select>
-
-                                        <!-- Dropdown arrow -->
                                         <svg class="w-4 h-4 absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none text-gray-500"
                                              fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                  d="M19 9l-7 7-7-7"/>
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                                         </svg>
                                     </div>
                                 </div>
@@ -97,6 +97,33 @@ const ProcessingSessionDetailsModal = {
                                     </p>
                                 </div>
                             </div>
+
+                            <!-- Statistics Cards -->
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                <div class="bg-white rounded-lg p-3 text-center shadow-sm">
+                                    <div class="text-2xl font-bold text-blue-600">{{ currentSessionDetails.lights || 0 }}</div>
+                                    <div class="text-xs text-gray-600">Light Frames</div>
+                                </div>
+                                <div class="bg-white rounded-lg p-3 text-center shadow-sm">
+                                    <div class="text-2xl font-bold text-gray-600">{{ currentSessionDetails.darks || 0 }}</div>
+                                    <div class="text-xs text-gray-600">Dark Frames</div>
+                                </div>
+                                <div class="bg-white rounded-lg p-3 text-center shadow-sm">
+                                    <div class="text-2xl font-bold text-yellow-600">{{ currentSessionDetails.flats || 0 }}</div>
+                                    <div class="text-xs text-gray-600">Flat Frames</div>
+                                </div>
+                                <div class="bg-white rounded-lg p-3 text-center shadow-sm">
+                                    <div class="text-2xl font-bold text-purple-600">{{ currentSessionDetails.bias || 0 }}</div>
+                                    <div class="text-xs text-gray-600">Bias Frames</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Notes -->
+                        <div v-if="currentSessionDetails.notes" class="bg-yellow-50 p-4 rounded-lg border border-yellow-200 mb-6">
+                            <h4 class="font-semibold text-yellow-800 mb-2">Notes</h4>
+                            <p class="text-sm text-yellow-700 whitespace-pre-wrap">{{ currentSessionDetails.notes }}</p>
+                        </div>
 
                         <!-- Objects Section -->
                         <div v-if="currentSessionDetails.objects_detail && currentSessionDetails.objects_detail.length > 0">
@@ -140,7 +167,7 @@ const ProcessingSessionDetailsModal = {
                                             </div>
                                         </div>
                                     </div>
-                                    
+
                                     <!-- Total for Object -->
                                     <div class="mt-4 pt-3 border-t-2 border-gray-400 font-mono text-sm">
                                         <div class="flex justify-between items-center">
@@ -155,230 +182,237 @@ const ProcessingSessionDetailsModal = {
                             </div>
                         </div>
 
-                        <!-- NEW: Imaging Sessions Card -->
-                        <div class="bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-lg border border-purple-200">
-                            <h4 class="text-lg font-semibold text-gray-800 mb-4">📸 Imaging Sessions Used</h4>
-                            
-                            <!-- Loading State for Sessions -->
-                            <div v-if="imagingSessionsLoading" class="text-center py-4">
-                                <div class="spinner inline-block"></div>
-                                <span class="ml-2 text-gray-600 text-sm">Loading imaging sessions...</span>
+                        <!-- Imaging Sessions Card -->
+                        <div class="bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-lg border border-purple-200 mb-6">
+                            <!-- Collapsible Header -->
+                            <div @click="imagingSessionsCollapsed = !imagingSessionsCollapsed" 
+                                 class="flex justify-between items-center cursor-pointer mb-4 hover:opacity-80 transition-opacity">
+                                <h4 class="text-lg font-semibold text-gray-800">📸 Source Imaging Sessions</h4>
+                                <svg :class="{'rotate-180': imagingSessionsCollapsed}" 
+                                     class="w-6 h-6 text-gray-600 transition-transform duration-200" 
+                                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                </svg>
                             </div>
                             
-                            <!-- Light Frames Section -->
-                            <div v-else-if="imagingSessions && (imagingSessions.lights.length > 0 || imagingSessions.calibration.length > 0)">
-                                <div v-if="imagingSessions.lights.length > 0" class="mb-6">
-                                    <h5 class="font-semibold text-purple-700 mb-2 flex items-center">
-                                        <span class="mr-2">🌟</span> Light Frames
-                                    </h5>
-                                    <div class="bg-white p-3 rounded border border-purple-200 overflow-x-auto">
+                            <!-- Collapsible Content -->
+                            <div v-show="!imagingSessionsCollapsed">
+                                <!-- Loading State -->
+                                <div v-if="imagingSessionsLoading" class="text-center py-4">
+                                    <div class="spinner inline-block"></div>
+                                    <span class="ml-2 text-gray-600 text-sm">Loading imaging sessions...</span>
+                                </div>
+                                
+                                <!-- Light Frame Sessions -->
+                                <div v-else-if="imagingSessions && (imagingSessions.light.length > 0 || imagingSessions.calibration.length > 0)">
+                                    <div v-if="imagingSessions.light.length > 0" class="mb-6">
+                                        <h5 class="font-semibold text-purple-700 mb-2 flex items-center">
+                                            <span class="mr-2">🌟</span> Light Frames
+                                        </h5>
+                                        <div class="bg-white p-3 rounded border border-purple-200 overflow-x-auto">
+                                            <table class="w-full text-sm font-mono border-collapse">
+                                                <thead>
+                                                    <tr class="border-b-2 border-purple-300">
+                                                        <th class="text-left py-2 px-3 font-semibold text-purple-900">Session ID</th>
+                                                        <th class="text-left py-2 px-3 font-semibold text-purple-900">Date</th>
+                                                        <th class="text-left py-2 px-3 font-semibold text-purple-900">Camera</th>
+                                                        <th class="text-left py-2 px-3 font-semibold text-purple-900">Telescope</th>
+                                                        <th class="text-left py-2 px-3 font-semibold text-purple-900">Objects</th>
+                                                        <th class="text-right py-2 px-3 font-semibold text-purple-900">Lights</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="session in imagingSessions.light" :key="session.session_id" 
+                                                        class="border-b border-purple-100 hover:bg-purple-50">
+                                                        <td class="py-2 px-3">
+                                                            <a @click="viewImagingSession(session.session_id)" 
+                                                               class="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer">
+                                                                {{ session.session_id }}
+                                                            </a>
+                                                        </td>
+                                                        <td class="py-2 px-3">{{ session.obs_date }}</td>
+                                                        <td class="py-2 px-3">{{ session.camera }}</td>
+                                                        <td class="py-2 px-3">{{ session.telescope }}</td>
+                                                        <td class="py-2 px-3">{{ session.objects }}</td>
+                                                        <td class="py-2 px-3 text-right">{{ session.lights }}</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <!-- Calibration Frames Section -->
+                                    <div v-if="imagingSessions.calibration.length > 0">
+                                        <h5 class="font-semibold text-purple-700 mb-2 flex items-center">
+                                            <span class="mr-2">⚙️</span> Calibration Frames
+                                        </h5>
+                                        <div class="bg-white p-3 rounded border border-purple-200 overflow-x-auto">
+                                            <table class="w-full text-sm font-mono border-collapse">
+                                                <thead>
+                                                    <tr class="border-b-2 border-purple-300">
+                                                        <th class="text-left py-2 px-3 font-semibold text-purple-900">Session ID</th>
+                                                        <th class="text-left py-2 px-3 font-semibold text-purple-900">Date</th>
+                                                        <th class="text-left py-2 px-3 font-semibold text-purple-900">Camera</th>
+                                                        <th class="text-left py-2 px-3 font-semibold text-purple-900">Telescope</th>
+                                                        <th class="text-right py-2 px-3 font-semibold text-purple-900">Lights</th>
+                                                        <th class="text-right py-2 px-3 font-semibold text-purple-900">Darks</th>
+                                                        <th class="text-right py-2 px-3 font-semibold text-purple-900">Flats</th>
+                                                        <th class="text-right py-2 px-3 font-semibold text-purple-900">Bias</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="session in imagingSessions.calibration" :key="session.session_id" 
+                                                        class="border-b border-purple-100 hover:bg-purple-50">
+                                                        <td class="py-2 px-3">
+                                                            <a @click="viewImagingSession(session.session_id)" 
+                                                               class="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer">
+                                                                {{ session.session_id }}
+                                                            </a>
+                                                        </td>
+                                                        <td class="py-2 px-3">{{ session.obs_date }}</td>
+                                                        <td class="py-2 px-3">{{ session.camera }}</td>
+                                                        <td class="py-2 px-3">{{ session.telescope }}</td>
+                                                        <td class="py-2 px-3 text-right">{{ session.lights }}</td>
+                                                        <td class="py-2 px-3 text-right">{{ session.darks }}</td>
+                                                        <td class="py-2 px-3 text-right">{{ session.flats }}</td>
+                                                        <td class="py-2 px-3 text-right">{{ session.bias }}</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- No Sessions State -->
+                                <div v-else class="text-gray-500 text-sm italic">
+                                    No imaging sessions found for this processing session.
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Processed Files Card - UPDATED SECTION -->
+                        <div v-if="processedFilesStats && processedFilesStats.has_files" class="bg-gradient-to-br from-blue-50 to-indigo-50 p-6 rounded-lg border border-blue-200 mb-6">
+                            <!-- Collapsible Header -->
+                            <div @click="processedFilesCollapsed = !processedFilesCollapsed" 
+                                 class="flex justify-between items-center cursor-pointer mb-4 hover:opacity-80 transition-opacity">
+                                <h3 class="text-xl font-semibold text-gray-800">
+                                    📄 Processed Files
+                                </h3>
+                                <svg :class="{'rotate-180': processedFilesCollapsed}" 
+                                     class="w-6 h-6 text-gray-600 transition-transform duration-200" 
+                                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                </svg>
+                            </div>
+                            
+                            <!-- Collapsible Content -->
+                            <div v-show="!processedFilesCollapsed">
+                                <!-- Final Files -->
+                                <div v-if="processedFilesStats.final.total_count > 0" class="mb-6">
+                                    <h4 class="text-lg font-medium mb-3 text-gray-700">
+                                        Final Files ({{ processedFilesStats.final.total_count }})
+                                        <span class="text-sm text-gray-500 font-normal">
+                                            - {{ formatBytes(processedFilesStats.final.total_size) }}
+                                        </span>
+                                    </h4>
+                                    <div class="overflow-x-auto bg-white p-3 rounded border border-gray-200">
                                         <table class="w-full text-sm font-mono border-collapse">
                                             <thead>
-                                                <tr class="border-b-2 border-purple-300">
-                                                    <th class="text-left py-2 px-3 font-semibold text-purple-900">Session ID</th>
-                                                    <th class="text-left py-2 px-3 font-semibold text-purple-900">Date</th>
-                                                    <th class="text-left py-2 px-3 font-semibold text-purple-900">Camera</th>
-                                                    <th class="text-left py-2 px-3 font-semibold text-purple-900">Telescope</th>
-                                                    <th class="text-right py-2 px-3 font-semibold text-purple-900">Lights</th>
-                                                    <th class="text-right py-2 px-3 font-semibold text-purple-900">Darks</th>
-                                                    <th class="text-right py-2 px-3 font-semibold text-purple-900">Flats</th>
-                                                    <th class="text-right py-2 px-3 font-semibold text-purple-900">Bias</th>
+                                                <tr class="border-b-2 border-gray-300">
+                                                    <th class="text-left py-2 px-3 font-semibold text-gray-700">File Type</th>
+                                                    <th class="text-right py-2 px-3 font-semibold text-gray-700">Count</th>
+                                                    <th class="text-right py-2 px-3 font-semibold text-gray-700">Total Size</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                <tr v-for="session in imagingSessions.lights" :key="session.session_id" 
-                                                    class="border-b border-purple-100 hover:bg-purple-50">
-                                                    <td class="py-2 px-3">
-                                                        <a @click="viewImagingSession(session.session_id)" 
-                                                           class="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer">
-                                                            {{ session.session_id }}
-                                                        </a>
+                                                <tr v-for="file in processedFilesStats.final.files" 
+                                                    :key="file.file_type"
+                                                    class="border-b border-gray-100 hover:bg-gray-50">
+                                                    <td class="py-2 px-3 font-medium text-gray-900">
+                                                        {{ file.file_type }}
                                                     </td>
-                                                    <td class="py-2 px-3">{{ session.obs_date }}</td>
-                                                    <td class="py-2 px-3">{{ session.camera }}</td>
-                                                    <td class="py-2 px-3">{{ session.telescope }}</td>
-                                                    <td class="py-2 px-3 text-right">{{ session.lights }}</td>
-                                                    <td class="py-2 px-3 text-right">{{ session.darks }}</td>
-                                                    <td class="py-2 px-3 text-right">{{ session.flats }}</td>
-                                                    <td class="py-2 px-3 text-right">{{ session.bias }}</td>
+                                                    <td class="py-2 px-3 text-gray-700 text-right">
+                                                        {{ file.count }}
+                                                    </td>
+                                                    <td class="py-2 px-3 text-gray-700 text-right">
+                                                        {{ formatBytes(file.total_size) }}
+                                                    </td>
                                                 </tr>
                                             </tbody>
+                                            <tfoot class="bg-gray-50 border-t-2 border-gray-300">
+                                                <tr>
+                                                    <td class="py-2 px-3 font-semibold text-gray-900">
+                                                        Total
+                                                    </td>
+                                                    <td class="py-2 px-3 font-semibold text-gray-900 text-right">
+                                                        {{ processedFilesStats.final.total_count }}
+                                                    </td>
+                                                    <td class="py-2 px-3 font-semibold text-gray-900 text-right">
+                                                        {{ formatBytes(processedFilesStats.final.total_size) }}
+                                                    </td>
+                                                </tr>
+                                            </tfoot>
                                         </table>
                                     </div>
                                 </div>
-
-                                <!-- Calibration Frames Section -->
-                                <div v-if="imagingSessions.calibration.length > 0">
-                                    <h5 class="font-semibold text-purple-700 mb-2 flex items-center">
-                                        <span class="mr-2">⚙️</span> Calibration Frames
-                                    </h5>
-                                    <div class="bg-white p-3 rounded border border-purple-200 overflow-x-auto">
+                                
+                                <!-- Intermediate Files -->
+                                <div v-if="processedFilesStats.intermediate.total_count > 0">
+                                    <h4 class="text-lg font-medium mb-3 text-gray-700">
+                                        Intermediate Files ({{ processedFilesStats.intermediate.total_count }})
+                                        <span class="text-sm text-gray-500 font-normal">
+                                            - {{ formatBytes(processedFilesStats.intermediate.total_size) }}
+                                        </span>
+                                    </h4>
+                                    <div class="overflow-x-auto bg-white p-3 rounded border border-gray-200">
                                         <table class="w-full text-sm font-mono border-collapse">
                                             <thead>
-                                                <tr class="border-b-2 border-purple-300">
-                                                    <th class="text-left py-2 px-3 font-semibold text-purple-900">Session ID</th>
-                                                    <th class="text-left py-2 px-3 font-semibold text-purple-900">Date</th>
-                                                    <th class="text-left py-2 px-3 font-semibold text-purple-900">Camera</th>
-                                                    <th class="text-left py-2 px-3 font-semibold text-purple-900">Telescope</th>
-                                                    <th class="text-right py-2 px-3 font-semibold text-purple-900">Lights</th>
-                                                    <th class="text-right py-2 px-3 font-semibold text-purple-900">Darks</th>
-                                                    <th class="text-right py-2 px-3 font-semibold text-purple-900">Flats</th>
-                                                    <th class="text-right py-2 px-3 font-semibold text-purple-900">Bias</th>
+                                                <tr class="border-b-2 border-gray-300">
+                                                    <th class="text-left py-2 px-3 font-semibold text-gray-700">File Type</th>
+                                                    <th class="text-right py-2 px-3 font-semibold text-gray-700">Count</th>
+                                                    <th class="text-right py-2 px-3 font-semibold text-gray-700">Total Size</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                <tr v-for="session in imagingSessions.calibration" :key="session.session_id" 
-                                                    class="border-b border-purple-100 hover:bg-purple-50">
-                                                    <td class="py-2 px-3">
-                                                        <a @click="viewImagingSession(session.session_id)" 
-                                                           class="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer">
-                                                            {{ session.session_id }}
-                                                        </a>
+                                                <tr v-for="file in processedFilesStats.intermediate.files" 
+                                                    :key="file.file_type"
+                                                    class="border-b border-gray-100 hover:bg-gray-50">
+                                                    <td class="py-2 px-3 font-medium text-gray-900">
+                                                        {{ file.file_type }}
                                                     </td>
-                                                    <td class="py-2 px-3">{{ session.obs_date }}</td>
-                                                    <td class="py-2 px-3">{{ session.camera }}</td>
-                                                    <td class="py-2 px-3">{{ session.telescope }}</td>
-                                                    <td class="py-2 px-3 text-right">{{ session.lights }}</td>
-                                                    <td class="py-2 px-3 text-right">{{ session.darks }}</td>
-                                                    <td class="py-2 px-3 text-right">{{ session.flats }}</td>
-                                                    <td class="py-2 px-3 text-right">{{ session.bias }}</td>
+                                                    <td class="py-2 px-3 text-gray-700 text-right">
+                                                        {{ file.count }}
+                                                    </td>
+                                                    <td class="py-2 px-3 text-gray-700 text-right">
+                                                        {{ formatBytes(file.total_size) }}
+                                                    </td>
                                                 </tr>
                                             </tbody>
+                                            <tfoot class="bg-gray-50 border-t-2 border-gray-300">
+                                                <tr>
+                                                    <td class="py-2 px-3 font-semibold text-gray-900">
+                                                        Total
+                                                    </td>
+                                                    <td class="py-2 px-3 font-semibold text-gray-900 text-right">
+                                                        {{ processedFilesStats.intermediate.total_count }}
+                                                    </td>
+                                                    <td class="py-2 px-3 font-semibold text-gray-900 text-right">
+                                                        {{ formatBytes(processedFilesStats.intermediate.total_size) }}
+                                                    </td>
+                                                </tr>
+                                            </tfoot>
                                         </table>
                                     </div>
                                 </div>
-                            </div>
-                            
-                            <!-- No Sessions State -->
-                            <div v-else class="text-gray-500 text-sm italic">
-                                No imaging sessions found for this processing session.
+                                
+                                <!-- No Files Message -->
+                                <div v-if="!loadingProcessedStats && processedFilesStats.final.total_count === 0 && processedFilesStats.intermediate.total_count === 0" 
+                                     class="text-center py-4 text-gray-500">
+                                    No processed files cataloged for this session yet
+                                </div>
                             </div>
                         </div>
 
-                        <!-- Notes -->
-                        <div v-if="currentSessionDetails.notes" class="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
-                            <h4 class="font-semibold text-yellow-800 mb-2">Notes</h4>
-                            <p class="text-sm text-yellow-700 whitespace-pre-wrap">{{ currentSessionDetails.notes }}</p>
-                        </div>
-
-                        <!-- Processed Files Card -->
-                        <div v-if="processedFilesStats && processedFilesStats.has_files" class="bg-white rounded-lg shadow-md p-6 mb-6">
-                            <h3 class="text-xl font-semibold mb-4 text-gray-800 border-b pb-2">
-                                📄 Processed Files
-                            </h3>
-                            
-                            <!-- Final Files -->
-                            <div v-if="processedFilesStats.final.total_count > 0" class="mb-6">
-                                <h4 class="text-lg font-medium mb-3 text-gray-700">
-                                    Final Files ({{ processedFilesStats.final.total_count }})
-                                    <span class="text-sm text-gray-500 font-normal">
-                                        - {{ processedFilesStats.final.total_size_mb }} MB
-                                    </span>
-                                </h4>
-                                <div class="overflow-x-auto">
-                                    <table class="min-w-full divide-y divide-gray-200">
-                                        <thead class="bg-gray-50">
-                                            <tr>
-                                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    File Type
-                                                </th>
-                                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    Count
-                                                </th>
-                                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    Total Size
-                                                </th>
-                                            </tr>
-                                        </thead>
-                                        <tbody class="bg-white divide-y divide-gray-200">
-                                            <tr v-for="file in processedFilesStats.final.files" :key="file.file_type">
-                                                <td class="px-4 py-3 text-sm font-medium text-gray-900">
-                                                    {{ file.file_type }}
-                                                </td>
-                                                <td class="px-4 py-3 text-sm text-gray-700 text-right">
-                                                    {{ file.count }}
-                                                </td>
-                                                <td class="px-4 py-3 text-sm text-gray-700 text-right">
-                                                    {{ file.total_size_mb }} MB
-                                                </td>
-                                            </tr>
-                                        </tbody>
-                                        <tfoot class="bg-gray-50">
-                                            <tr>
-                                                <td class="px-4 py-3 text-sm font-semibold text-gray-900">
-                                                    Total
-                                                </td>
-                                                <td class="px-4 py-3 text-sm font-semibold text-gray-900 text-right">
-                                                    {{ processedFilesStats.final.total_count }}
-                                                </td>
-                                                <td class="px-4 py-3 text-sm font-semibold text-gray-900 text-right">
-                                                    {{ processedFilesStats.final.total_size_mb }} MB
-                                                </td>
-                                            </tr>
-                                        </tfoot>
-                                    </table>
-                                </div>
-                            </div>
-                            
-                            <!-- Intermediate Files -->
-                            <div v-if="processedFilesStats.intermediate.total_count > 0">
-                                <h4 class="text-lg font-medium mb-3 text-gray-700">
-                                    Intermediate Files ({{ processedFilesStats.intermediate.total_count }})
-                                    <span class="text-sm text-gray-500 font-normal">
-                                        - {{ processedFilesStats.intermediate.total_size_mb }} MB
-                                    </span>
-                                </h4>
-                                <div class="overflow-x-auto">
-                                    <table class="min-w-full divide-y divide-gray-200">
-                                        <thead class="bg-gray-50">
-                                            <tr>
-                                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    File Type
-                                                </th>
-                                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    Count
-                                                </th>
-                                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    Total Size
-                                                </th>
-                                            </tr>
-                                        </thead>
-                                        <tbody class="bg-white divide-y divide-gray-200">
-                                            <tr v-for="file in processedFilesStats.intermediate.files" :key="file.file_type">
-                                                <td class="px-4 py-3 text-sm font-medium text-gray-900">
-                                                    {{ file.file_type }}
-                                                </td>
-                                                <td class="px-4 py-3 text-sm text-gray-700 text-right">
-                                                    {{ file.count }}
-                                                </td>
-                                                <td class="px-4 py-3 text-sm text-gray-700 text-right">
-                                                    {{ file.total_size_mb }} MB
-                                                </td>
-                                            </tr>
-                                        </tbody>
-                                        <tfoot class="bg-gray-50">
-                                            <tr>
-                                                <td class="px-4 py-3 text-sm font-semibold text-gray-900">
-                                                    Total
-                                                </td>
-                                                <td class="px-4 py-3 text-sm font-semibold text-gray-900 text-right">
-                                                    {{ processedFilesStats.intermediate.total_count }}
-                                                </td>
-                                                <td class="px-4 py-3 text-sm font-semibold text-gray-900 text-right">
-                                                    {{ processedFilesStats.intermediate.total_size_mb }} MB
-                                                </td>
-                                            </tr>
-                                        </tfoot>
-                                    </table>
-                                </div>
-                            </div>
-                            
-                            <!-- No Files Message -->
-                            <div v-if="!loadingProcessedStats && processedFilesStats.final.total_count === 0 && processedFilesStats.intermediate.total_count === 0" 
-                                 class="text-center py-4 text-gray-500">
-                                No processed files cataloged for this session yet
-                            </div>
-                        </div>
 
                     </div>
                 </div>
@@ -404,6 +438,11 @@ const ProcessingSessionDetailsModal = {
 
                         <!-- Action Buttons -->
                         <div class="flex space-x-3">
+                            <button v-if="webdavStatus && webdavStatus.running" 
+                                    @click="openFileBrowser" 
+                                    class="btn btn-green text-sm">
+                                📂 Browse Files
+                            </button>
                             <button @click="closeSessionDetailsModal" class="btn btn-gray text-sm">Close</button>
                         </div>
                     </div>
@@ -427,6 +466,9 @@ const ProcessingSessionDetailsModal = {
             statusEditing: false,
             processedFilesStats: null,
             loadingProcessedStats: false,
+            // Collapsible card states
+            processedFilesCollapsed: false,
+            imagingSessionsCollapsed: false,
         };
     },
 
@@ -448,14 +490,8 @@ const ProcessingSessionDetailsModal = {
             try {
                 const sessionId = this.currentSessionDetails.id;
                 const newStatus = this.currentSessionDetails.status;
-
-                // Optional: add notes logic later if you like
                 const payload = { status: newStatus };
-
-                // Direct backend call – same endpoint used by the parent method
                 await ApiService.processingSessions.updateStatus(sessionId, payload);
-
-                // Optionally refresh UI (depending on how your app caches)
                 await window.refreshStats();
                 this.$toast?.success?.(`Status updated to ${this.formatProcessingStatus(newStatus)}.`);
             } catch (error) {
@@ -475,14 +511,9 @@ const ProcessingSessionDetailsModal = {
                 const response = await ApiService.processingSessions.getById(sessionId);
                 this.currentSessionDetails = response.data;
                 
-                // Load WebDAV info for the session
                 await this.loadWebDAVInfo(sessionId);
-                
-                // Load imaging sessions
                 await this.loadImagingSessions(sessionId);
-                
-                // NEW: Load processed file stats
-                await this.loadProcessedFileStats(sessionId);  // ADD THIS LINE
+                await this.loadProcessedFileStats(sessionId);
                 
             } catch (error) {
                 console.error('Error loading session details:', error);
@@ -499,7 +530,6 @@ const ProcessingSessionDetailsModal = {
                 const response = await ApiService.processingSessions.getFiles(sessionId);
                 const files = response.data;
                 
-                // Group by session_id and frame_type
                 const sessionMap = new Map();
                 
                 files.forEach(file => {
@@ -509,9 +539,10 @@ const ProcessingSessionDetailsModal = {
                     if (!sessionMap.has(key)) {
                         sessionMap.set(key, {
                             session_id: file.session_id,
-                            camera: file.camera || 'N/A',
-                            telescope: file.telescope || 'N/A',
-                            obs_date: file.obs_date || 'N/A',
+                            obs_date: file.obs_date || 'Unknown',
+                            camera: file.camera || 'Unknown',
+                            telescope: file.telescope || 'Unknown',
+                            objects: new Set(),
                             lights: 0,
                             darks: 0,
                             flats: 0,
@@ -520,25 +551,30 @@ const ProcessingSessionDetailsModal = {
                     }
                     
                     const session = sessionMap.get(key);
-                    const frameType = (file.frame_type || 'UNKNOWN').toLowerCase();
+                    if (file.object && file.object !== 'CALIBRATION') {
+                        session.objects.add(file.object);
+                    }
                     
-                    if (frameType === 'light') session.lights++;
-                    else if (frameType === 'dark') session.darks++;
-                    else if (frameType === 'flat') session.flats++;
-                    else if (frameType === 'bias') session.bias++;
+                    const frameType = file.frame_type;
+                    if (frameType === 'LIGHT') session.lights++;
+                    else if (frameType === 'DARK') session.darks++;
+                    else if (frameType === 'FLAT') session.flats++;
+                    else if (frameType === 'BIAS') session.bias++;
                 });
                 
-                // Convert to arrays and separate lights from calibration
-                const allSessions = Array.from(sessionMap.values());
+                const allSessions = Array.from(sessionMap.values()).map(s => ({
+                    ...s,
+                    objects: Array.from(s.objects).join(', ') || 'Calibration'
+                }));
                 
                 this.imagingSessions = {
-                    lights: allSessions.filter(s => s.lights > 0).sort((a, b) => b.obs_date.localeCompare(a.obs_date)),
-                    calibration: allSessions.filter(s => s.darks > 0 || s.flats > 0 || s.bias > 0).sort((a, b) => b.obs_date.localeCompare(a.obs_date))
+                    light: allSessions.filter(s => s.lights > 0),
+                    calibration: allSessions.filter(s => s.lights === 0 && (s.darks > 0 || s.flats > 0 || s.bias > 0))
                 };
                 
             } catch (error) {
                 console.error('Error loading imaging sessions:', error);
-                this.imagingSessions = { lights: [], calibration: [] };
+                this.imagingSessions = { light: [], calibration: [] };
             } finally {
                 this.imagingSessionsLoading = false;
             }
@@ -546,19 +582,14 @@ const ProcessingSessionDetailsModal = {
 
         async viewImagingSession(sessionId) {
             const app = this.$root;
-            
             try {
-                // Get all imaging session IDs for navigation
                 const response = await fetch('/api/imaging-sessions/ids');
                 const data = await response.json();
                 const allSessionIds = data.session_ids || [];
                 
-                // Close this modal first
                 this.closeSessionDetailsModal();
                 
-                // Small delay to ensure modal is closed before opening new one
                 setTimeout(() => {
-                    // Open the imaging session modal - ref is sessionDetailModal
                     if (app.$refs.sessionDetailModal) {
                         app.$refs.sessionDetailModal.viewSessionDetails(sessionId, allSessionIds);
                     } else {
@@ -577,16 +608,12 @@ const ProcessingSessionDetailsModal = {
                 const response = await fetch(`/api/webdav/session/${sessionId}`);
                 if (response.ok) {
                     this.webdavInfo = await response.json();
-                    console.log('WebDAV Info:', this.webdavInfo);
-                    
-                    // Set native file path based on platform
                     const platform = this.detectPlatform();
                     if (platform === 'windows') {
                         this.nativeFilePath = this.webdavInfo.instructions.windows_explorer;
                     } else if (platform === 'mac') {
                         this.nativeFilePath = this.webdavInfo.webdav_root;
                     } else {
-                        // Linux
                         this.nativeFilePath = this.webdavInfo.webdav_root;
                     }
                 }
@@ -604,9 +631,7 @@ const ProcessingSessionDetailsModal = {
 
         copySessionIdToClipboard() {
             if (!this.currentSessionDetails) return;
-            
             const sessionId = this.currentSessionDetails.id;
-            
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 navigator.clipboard.writeText(sessionId).then(() => {
                     this.showCopyFeedback(sessionId);
@@ -621,7 +646,6 @@ const ProcessingSessionDetailsModal = {
 
         copyPathToClipboard() {
             if (!this.nativeFilePath) return;
-            
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 navigator.clipboard.writeText(this.nativeFilePath).then(() => {
                     this.showCopyFeedback(this.nativeFilePath);
@@ -641,7 +665,6 @@ const ProcessingSessionDetailsModal = {
             textarea.style.opacity = '0';
             document.body.appendChild(textarea);
             textarea.select();
-            
             try {
                 document.execCommand('copy');
                 this.showCopyFeedback(text);
@@ -658,31 +681,14 @@ const ProcessingSessionDetailsModal = {
                 const element = event.target;
                 const originalBg = element.style.background;
                 const originalColor = element.style.color;
-                
                 element.style.background = '#10b981';
                 element.style.color = 'white';
                 element.textContent = '✓ Copied!';
-                
                 setTimeout(() => {
                     element.style.background = originalBg;
                     element.style.color = originalColor;
                     element.textContent = originalText;
                 }, 1500);
-            }
-        },
-
-        getFileUrl() {
-            if (!this.nativeFilePath) return '';
-            
-            const platform = this.detectPlatform();
-            
-            if (platform === 'windows') {
-                const path = this.nativeFilePath.replace(/\\/g, '/');
-                return 'file://' + path;
-            } else if (platform === 'mac') {
-                return this.nativeFilePath;
-            } else {
-                return this.nativeFilePath;
             }
         },
 
@@ -717,43 +723,6 @@ const ProcessingSessionDetailsModal = {
             app.$refs.calibrationModal.findCalibrationFiles(this.currentSessionDetails.id);
             this.closeSessionDetailsModal();
         },
-        
-        async updateStatusFromDetails() {
-            const app = this.$root;
-            const sessionId = this.currentSessionDetails.id;
-            await app.updateProcessingSessionStatus(sessionId);
-            
-            await this.viewProcessingSession(sessionId, this.allSessionIds);
-            await window.refreshStats();
-        },
-        
-        getProcessingStatusClass(status) {
-            const classes = {
-                'not_started': 'bg-gray-100 text-gray-800',
-                'in_progress': 'bg-blue-100 text-blue-800',
-                'complete': 'bg-green-100 text-green-800'
-            };
-            return classes[status] || 'bg-gray-100 text-gray-800';
-        },
-        
-        formatProcessingStatus(status) {
-            const labels = {
-                'not_started': 'Not Started',
-                'in_progress': 'In Progress',
-                'complete': 'Complete'
-            };
-            return labels[status] || status;
-        },
-        
-        formatDate(dateString) {
-            if (!dateString) return 'N/A';
-            return new Date(dateString).toLocaleDateString();
-        },
-        
-        formatDateTime(dateString) {
-            if (!dateString) return 'N/A';
-            return new Date(dateString).toLocaleString();
-        },
 
         openMarkdownEditor() {
             const sessionId = this.currentSessionDetails.id.trim();
@@ -785,7 +754,6 @@ const ProcessingSessionDetailsModal = {
                 );
                 
                 const result = response.data;
-                
                 let message = `Removed ${result.removed_light_frames} light frames`;
                 if (result.removed_calibration_frames > 0) {
                     message += ` and ${result.removed_calibration_frames} orphaned calibration frames`;
@@ -816,10 +784,8 @@ const ProcessingSessionDetailsModal = {
 
         formatExposureTime(seconds) {
             if (!seconds) return '0m';
-            
             const hours = Math.floor(seconds / 3600);
             const minutes = Math.floor((seconds % 3600) / 60);
-            
             if (hours > 0) {
                 return `${hours}h ${minutes}m`;
             }
@@ -856,12 +822,50 @@ const ProcessingSessionDetailsModal = {
                 this.loadingProcessedStats = false;
             }
         },
+
+        getProcessingStatusClass(status) {
+            const classes = {
+                'not_started': 'bg-gray-100 text-gray-800',
+                'in_progress': 'bg-blue-100 text-blue-800',
+                'complete': 'bg-green-100 text-green-800'
+            };
+            return classes[status] || 'bg-gray-100 text-gray-800';
+        },
+        
+        formatProcessingStatus(status) {
+            const labels = {
+                'not_started': 'Not Started',
+                'in_progress': 'In Progress',
+                'complete': 'Complete'
+            };
+            return labels[status] || status;
+        },
+        
+        formatDate(dateString) {
+            if (!dateString) return 'N/A';
+            return new Date(dateString).toLocaleDateString();
+        },
+
+        /**
+         * Format bytes to human-readable size
+         * NEW: Matches the formatBytes function from S3 backup code
+         */
+        formatBytes(bytes) {
+            if (!bytes || bytes === 0) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let size = bytes;
+            let i = 0;
+            while (size >= 1024 && i < units.length - 1) {
+                size /= 1024;
+                i++;
+            }
+            return `${size.toFixed(2)} ${units[i]}`;
+        }
     },
 
     async mounted() {
         this.handleKeypress = (e) => {
             if (!this.showSessionDetailsModal) return;
-            
             if (e.key === 'ArrowLeft' && this.hasPreviousSession) {
                 this.navigateToPrevSession();
             } else if (e.key === 'ArrowRight' && this.hasNextSession) {
@@ -870,9 +874,7 @@ const ProcessingSessionDetailsModal = {
                 this.closeSessionDetailsModal();
             }
         };
-
         await this.checkWebdavStatus();
-        
         window.addEventListener('keydown', this.handleKeypress);
     },
 
