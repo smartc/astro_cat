@@ -65,16 +65,41 @@ class ProcessingSessionFileBackup:
             s3_config: S3BackupConfig object (from s3_backup.manager)
             db_service: Database service
         """
+        from boto3.s3.transfer import TransferConfig
+
         self.config = config
         self.s3_config = s3_config
         self.db_service = db_service
+
+        # Setup temp directory
+        temp_dir = s3_config.resolve_temp_dir()
+        if temp_dir:
+            self.temp_dir = temp_dir / "processed_backups"
+        else:
+            from pathlib import Path
+            import tempfile
+            self.temp_dir = Path(tempfile.gettempdir()) / "astrocat_processed"
         
+        self.temp_dir.mkdir(parents=True, exist_ok=True)
+        self._cleanup_orphaned_tarballs()  # Clean up any leftover files
+
         # Initialize S3 client
         self.s3_client = boto3.client(
             's3',
             region_name=s3_config.region
         )
+        
+        upload_settings = self.s3_config.config.get('upload_settings', {})
+        self.transfer_config = TransferConfig(
+            multipart_threshold=upload_settings.get('multipart_threshold_mb', 100) * 1024 * 1024,
+            multipart_chunksize=upload_settings.get('multipart_chunksize_mb', 25) * 1024 * 1024,
+            max_concurrency=upload_settings.get('max_concurrency', 4),
+            use_threads=upload_settings.get('use_threads', True)
+        )
+
         self.bucket = s3_config.bucket
+
+
         
     def calculate_md5(self, filepath: Path) -> str:
         """Calculate MD5 hash of a file."""
@@ -87,7 +112,20 @@ class ProcessingSessionFileBackup:
         except Exception as e:
             logger.error(f"Error calculating MD5 for {filepath}: {e}")
             return ""
-    
+
+    def _cleanup_orphaned_tarballs(self):
+        """Remove any leftover temp tarballs from previous failed runs."""
+        if not self.temp_dir.exists():
+            return
+        
+        for tarball in self.temp_dir.glob("*.tar"):
+            try:
+                tarball.unlink()
+                logger.debug(f"Cleaned up orphaned tarball: {tarball.name}")
+            except Exception as e:
+                logger.warning(f"Could not remove {tarball}: {e}")
+
+  
     def _get_file_s3_key(self, session_id: str, subfolder: str, filename: str) -> str:
         """
         Generate S3 key for a processing session file.
@@ -141,6 +179,7 @@ class ProcessingSessionFileBackup:
         finally:
             session.close()
     
+
     def backup_file(
         self,
         file_record: ProcessedFile,
@@ -158,9 +197,50 @@ class ProcessingSessionFileBackup:
                 error=f"File not found: {file_path}"
             )
         
+        # Check if this is a directory that needs tarballing
+        needs_tarball = file_path.is_dir()
+        temp_tarball = None
+        upload_path = file_path
+        
+        # Skip re-uploading existing directory backups BEFORE creating tarball
+        if needs_tarball and not force:
+            session = self.db_service.db_manager.get_session()
+            backup_record = session.query(S3BackupProcessedFileRecord).filter(
+                S3BackupProcessedFileRecord.processed_file_id == file_record.id
+            ).first()
+            session.close()
+            
+            if backup_record:
+                return FileBackupResult(
+                    success=True,
+                    file_path=str(file_path),
+                    needs_backup=False,
+                    reason="Directory already backed up (use --force to re-upload)"
+                )
+        
+        if needs_tarball:
+            import tarfile
+            import tempfile
+            
+            temp_tarball = self.temp_dir / f"{file_path.name}.tar"
+            
+            try:
+                with tarfile.open(temp_tarball, 'w') as tar:
+                    tar.add(file_path, arcname=file_path.name)
+                upload_path = temp_tarball
+                logger.info(f"Created tarball: {temp_tarball.name}")
+            except Exception as e:
+                return FileBackupResult(
+                    success=False,
+                    file_path=str(file_path),
+                    error=f"Failed to create tarball: {e}"
+                )
+        
         if not force:
             needs_backup, reason = self.check_file_needs_backup(file_record)
             if not needs_backup:
+                if temp_tarball and temp_tarball.exists():
+                    temp_tarball.unlink()
                 return FileBackupResult(
                     success=True,
                     file_path=str(file_path),
@@ -168,44 +248,44 @@ class ProcessingSessionFileBackup:
                     reason=reason
                 )
         
-        if not file_record.md5sum:
-            file_record.md5sum = self.calculate_md5(file_path)
+        # Calculate MD5 of upload file (tarball for directories, original file otherwise)
+        # Always recalculate for tarballs since directory content may have changed
+        if not file_record.md5sum or needs_tarball:
+            file_record.md5sum = self.calculate_md5(upload_path)
             session = self.db_service.db_manager.get_session()
             session.merge(file_record)
             session.commit()
             session.close()
         
+        # Add .tar to S3 key if tarballed
+        s3_filename = file_record.filename + '.tar' if needs_tarball else file_record.filename
         s3_key = self._get_file_s3_key(
             file_record.processing_session_id,
             file_record.subfolder,
-            file_record.filename
+            s3_filename
         )
         
-        file_size = file_path.stat().st_size
+        file_size = upload_path.stat().st_size
         
         try:
             logger.info(f"Uploading {file_record.filename} to S3...")
             
-            # Load backup rules from config
             rules = self.s3_config.config.get('backup_rules', {}).get('final_outputs', {})
             archive_policy = rules.get('archive_policy', 'standard')
             backup_policy = rules.get('backup_policy', 'flexible')
             tags = f"archive_policy={archive_policy}&backup_policy={backup_policy}"
             
-            # Determine content type
-            content_type_map = {
+            content_type = 'application/x-tar' if needs_tarball else {
                 'xisf': 'application/octet-stream',
                 'jpg': 'image/jpeg',
                 'jpeg': 'image/jpeg',
                 'xosm': 'application/octet-stream',
                 'pxiproject': 'application/octet-stream'
-            }
-            content_type = content_type_map.get(file_record.file_type, 'application/octet-stream')
-            file_size = file_path.stat().st_size
+            }.get(file_record.file_type, 'application/octet-stream')
+            
             progress_callback = UploadProgressCallback(file_num, total_files, file_size)
             
-            # Upload with tags
-            with open(file_path, 'rb') as f:
+            with open(upload_path, 'rb') as f:
                 upload_kwargs = {
                     'ExtraArgs': {
                         'ContentType': content_type,
@@ -220,9 +300,12 @@ class ProcessingSessionFileBackup:
                     f,
                     self.bucket,
                     s3_key,
+                    Config=self.transfer_config,
                     **upload_kwargs
                 )
-                
+            
+            progress_callback.close()
+            
             response = self.s3_client.head_object(
                 Bucket=self.bucket,
                 Key=s3_key
@@ -263,7 +346,12 @@ class ProcessingSessionFileBackup:
                 file_path=str(file_path),
                 error=str(e)
             )
-    
+        finally:
+            if temp_tarball and temp_tarball.exists():
+                temp_tarball.unlink()
+                logger.debug(f"Cleaned up temp tarball")
+
+
     def _update_backup_record(
         self,
         file_record: ProcessedFile,

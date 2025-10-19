@@ -22,7 +22,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from config import load_config
 from models import DatabaseManager, DatabaseService, Session as SessionModel
 from s3_backup.manager import S3BackupManager, S3BackupConfig
-from s3_backup.models import Base as BackupBase, S3BackupArchive, S3BackupSessionNote, S3BackupProcessingSession, S3BackupProcessedFiles
+from s3_backup.models import Base as BackupBase, S3BackupArchive, S3BackupSessionNote, S3BackupProcessingSession, S3BackupProcessedFileRecord, S3BackupProcessingSessionSummary
 from processed_catalog.models import ProcessedFile
 
 logging.basicConfig(level=logging.INFO)
@@ -112,7 +112,7 @@ async def update_storage_cache():
 async def _get_storage_categories_internal(session_db):
     """Internal function with all the logic from get_storage_categories."""
     from sqlalchemy import func
-    from s3_backup.models import S3BackupSessionNote, S3BackupProcessingSession, S3BackupProcessedFiles
+    from s3_backup.models import S3BackupSessionNote, S3BackupProcessingSession, S3BackupProcessedFileRecord
     from processed_catalog.models import ProcessedFile
 
     if not db_service:
@@ -244,54 +244,136 @@ async def _get_storage_categories_internal(session_db):
             "annual_cost": annual_cost
         })
         
-        # Category 4: Processing Sessions (Final Outputs)
-        from processed_catalog.models import ProcessedFile
-        from sqlalchemy import func
-        
-        # Get all processing sessions with final files
+        # Get backed up sessions (needed for both categories 4 & 5)
+        backed_up_processed = session_db.query(S3BackupProcessedFileRecord).all()
+        backed_up_ids = {b.processing_session_id for b in backed_up_processed}
+
+        # Set up S3 paginator for both categories
+        processed_base = "backups/processed/"
+        paginator = backup_manager.s3_client.get_paginator('list_objects_v2')
+
+
+        # Category 4: Processing Sessions (Intermediates)
+        intermediate_file_count = session_db.query(ProcessedFile).filter(
+            ProcessedFile.subfolder == 'intermediate',
+            ProcessedFile.file_type.in_(['jpg', 'jpeg', 'xisf', 'xosm', 'pxiproject'])
+        ).count()
+
+        sessions_with_intermediate_query = session_db.query(ProcessedFile.processing_session_id).filter(
+            ProcessedFile.subfolder == 'intermediate',
+            ProcessedFile.file_type.in_(['jpg', 'jpeg', 'xisf', 'xosm', 'pxiproject'])
+        ).distinct()
+        sessions_with_intermediate = {row[0] for row in sessions_with_intermediate_query.all()}
+
+        total_intermediate_size = session_db.query(func.sum(ProcessedFile.file_size)).filter(
+            ProcessedFile.subfolder == 'intermediate',
+            ProcessedFile.file_type.in_(['jpg', 'jpeg', 'xisf', 'xosm', 'pxiproject'])
+        ).scalar() or 0
+
+        backed_up_size_intermediate = session_db.query(func.sum(ProcessedFile.file_size)).join(
+            S3BackupProcessedFileRecord,
+            ProcessedFile.id == S3BackupProcessedFileRecord.processed_file_id
+        ).filter(
+            ProcessedFile.subfolder == 'intermediate'
+        ).scalar() or 0
+
+        s3_intermediate_file_count = session_db.query(S3BackupProcessedFileRecord).join(
+            ProcessedFile,
+            ProcessedFile.id == S3BackupProcessedFileRecord.processed_file_id
+        ).filter(
+            ProcessedFile.subfolder == 'intermediate'
+        ).count()
+
+        intermediate_not_backed_up = len([s for s in sessions_with_intermediate if s not in backed_up_ids])
+
+        # Get S3 size by checking for /intermediate/ in paths
+        s3_intermediate_size = 0
+        s3_intermediate_count = 0
+        for page in paginator.paginate(Bucket=backup_manager.s3_config.bucket, Prefix=processed_base):
+            if 'Contents' not in page:
+                continue
+            for obj in page['Contents']:
+                if '/intermediate/' in obj['Key'] and not obj['Key'].endswith('/'):
+                    s3_intermediate_count += 1
+                    s3_intermediate_size += obj['Size']
+
+        annual_cost_intermediate, is_fallback = calculate_s3_cost(s3_intermediate_size, "FLEXIBLE")
+        using_fallback_pricing = using_fallback_pricing or is_fallback
+
+        categories.append({
+            "name": "Processing Sessions - Intermediate",
+            "local_files": intermediate_file_count,
+            "s3_files": s3_intermediate_file_count,
+            "local_not_in_s3": intermediate_not_backed_up,
+            "local_storage": total_intermediate_size,
+            "s3_storage": s3_intermediate_size,
+            "backed_up_size": backed_up_size_intermediate,
+            "storage_class": "Flexible",
+            "backup_pct": (backed_up_size_intermediate / total_intermediate_size * 100) if total_intermediate_size > 0 else 0,
+            "annual_cost": annual_cost_intermediate
+        })
+
+
+        # Category 5: Processing Sessions (Finals)
+        local_file_count = session_db.query(ProcessedFile).filter(
+            ProcessedFile.subfolder == 'final',
+            ProcessedFile.file_type.in_(['jpg', 'jpeg', 'xisf', 'xosm', 'pxiproject'])
+        ).count()
+
         sessions_with_finals_query = session_db.query(ProcessedFile.processing_session_id).filter(
             ProcessedFile.subfolder == 'final',
-            ProcessedFile.file_type.in_(['jpg', 'jpeg', 'xisf'])
+            ProcessedFile.file_type.in_(['jpg', 'jpeg', 'xisf', 'xosm', 'pxiproject'])
         ).distinct()
-        
         sessions_with_finals = {row[0] for row in sessions_with_finals_query.all()}
-        
-        # Calculate total size of local final files
+
         total_final_size = session_db.query(func.sum(ProcessedFile.file_size)).filter(
             ProcessedFile.subfolder == 'final',
-            ProcessedFile.file_type.in_(['jpg', 'jpeg', 'xisf'])
+            ProcessedFile.file_type.in_(['jpg', 'jpeg', 'xisf', 'xosm', 'pxiproject'])
         ).scalar() or 0
-        
-        # Get backed up sessions
-        backed_up_processed = session_db.query(S3BackupProcessedFiles).all()
-        backed_up_ids = {b.processing_session_id for b in backed_up_processed}
-        
-        # Calculate backed up size
-        backed_up_size_processed = sum(b.archive_size_bytes or 0 for b in backed_up_processed)
-        
-        # Count not in S3
+
+        backed_up_size_final = session_db.query(func.sum(ProcessedFile.file_size)).join(
+            S3BackupProcessedFileRecord,
+            ProcessedFile.id == S3BackupProcessedFileRecord.processed_file_id
+        ).filter(
+            ProcessedFile.subfolder == 'final'
+        ).scalar() or 0
+
+        s3_final_file_count = session_db.query(S3BackupProcessedFileRecord).join(
+            ProcessedFile,
+            ProcessedFile.id == S3BackupProcessedFileRecord.processed_file_id
+        ).filter(
+            ProcessedFile.subfolder == 'final'
+        ).count()
+
         not_backed_up_count = len(sessions_with_finals - backed_up_ids)
-        
-        # Get S3 stats for processed files
-        processed_path = "backups/processed"
-        s3_proc_files, s3_proc_size = get_s3_stats(processed_path)
-        
-        annual_cost, is_fallback = calculate_s3_cost(s3_proc_size, "FLEXIBLE")
+
+        # Get S3 size by checking for /final/ in paths
+        s3_final_size = 0
+        s3_final_count = 0
+        for page in paginator.paginate(Bucket=backup_manager.s3_config.bucket, Prefix=processed_base):
+            if 'Contents' not in page:
+                continue
+            for obj in page['Contents']:
+                if '/final/' in obj['Key'] and not obj['Key'].endswith('/'):
+                    s3_final_count += 1
+                    s3_final_size += obj['Size']
+
+        annual_cost_final, is_fallback = calculate_s3_cost(s3_final_size, "FLEXIBLE")
         using_fallback_pricing = using_fallback_pricing or is_fallback
-        
+
         categories.append({
-            "name": "Processing Sessions",
-            "local_files": len(sessions_with_finals),
-            "s3_files": len(backed_up_ids),
+            "name": "Processing Sessions - Final",
+            "local_files": local_file_count,
+            "s3_files": s3_final_file_count,
             "local_not_in_s3": not_backed_up_count,
             "local_storage": total_final_size,
-            "s3_storage": s3_proc_size,
-            "backed_up_size": backed_up_size_processed,
+            "s3_storage": s3_final_size,
+            "backed_up_size": backed_up_size_final,
             "storage_class": "Flexible",
-            "backup_pct": (backed_up_size_processed / total_final_size * 100) if total_final_size > 0 else 0,
-            "annual_cost": annual_cost
+            "backup_pct": (backed_up_size_final / total_final_size * 100) if total_final_size > 0 else 0,
+            "annual_cost": annual_cost_final
         })
-        
+
         return {
             "categories": categories,
             "using_fallback_pricing": using_fallback_pricing
@@ -407,10 +489,10 @@ async def get_status():
         notes_size = sum(n.file_size_bytes or 0 for n in session_notes)
         
         # Processed files stats
-        processed_backups = session_db.query(S3BackupProcessedFiles).all()
+        processed_backups = session_db.query(S3BackupProcessedFileRecord).all()
         processed_count = len(processed_backups)
-        processed_files = sum(p.file_count or 0 for p in processed_backups)
-        processed_size = sum(p.archive_size_bytes or 0 for p in processed_backups)
+        processed_files = len(processed_backups)  # Count individual file records
+        processed_size = sum(p.file_size or 0 for p in processed_backups)        
         
         # Count total processing sessions with final files
         total_with_finals = session_db.query(ProcessedFile.processing_session_id).filter(
