@@ -22,7 +22,8 @@ sys.path.append(str(Path(__file__).parent.parent))
 from config import load_config
 from models import DatabaseManager, DatabaseService, Session as SessionModel
 from s3_backup.manager import S3BackupManager, S3BackupConfig
-from s3_backup.models import Base as BackupBase, S3BackupArchive
+from s3_backup.models import Base as BackupBase, S3BackupArchive, S3BackupSessionNote, S3BackupProcessingSession, S3BackupProcessedFiles
+from processed_catalog.models import ProcessedFile
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -110,6 +111,10 @@ async def update_storage_cache():
 
 async def _get_storage_categories_internal(session_db):
     """Internal function with all the logic from get_storage_categories."""
+    from sqlalchemy import func
+    from s3_backup.models import S3BackupSessionNote, S3BackupProcessingSession, S3BackupProcessedFiles
+    from processed_catalog.models import ProcessedFile
+
     if not db_service:
         raise HTTPException(status_code=503, detail="Database not initialized")
         
@@ -239,20 +244,51 @@ async def _get_storage_categories_internal(session_db):
             "annual_cost": annual_cost
         })
         
-        # Category 4: Processing Sessions
-        annual_cost, is_fallback = calculate_s3_cost(0, "GLACIER")
+        # Category 4: Processing Sessions (Final Outputs)
+        from processed_catalog.models import ProcessedFile
+        from sqlalchemy import func
+        
+        # Get all processing sessions with final files
+        sessions_with_finals_query = session_db.query(ProcessedFile.processing_session_id).filter(
+            ProcessedFile.subfolder == 'final',
+            ProcessedFile.file_type.in_(['jpg', 'jpeg', 'xisf'])
+        ).distinct()
+        
+        sessions_with_finals = {row[0] for row in sessions_with_finals_query.all()}
+        
+        # Calculate total size of local final files
+        total_final_size = session_db.query(func.sum(ProcessedFile.file_size)).filter(
+            ProcessedFile.subfolder == 'final',
+            ProcessedFile.file_type.in_(['jpg', 'jpeg', 'xisf'])
+        ).scalar() or 0
+        
+        # Get backed up sessions
+        backed_up_processed = session_db.query(S3BackupProcessedFiles).all()
+        backed_up_ids = {b.processing_session_id for b in backed_up_processed}
+        
+        # Calculate backed up size
+        backed_up_size_processed = sum(b.archive_size_bytes or 0 for b in backed_up_processed)
+        
+        # Count not in S3
+        not_backed_up_count = len(sessions_with_finals - backed_up_ids)
+        
+        # Get S3 stats for processed files
+        processed_path = "backups/processed"
+        s3_proc_files, s3_proc_size = get_s3_stats(processed_path)
+        
+        annual_cost, is_fallback = calculate_s3_cost(s3_proc_size, "FLEXIBLE")
         using_fallback_pricing = using_fallback_pricing or is_fallback
         
         categories.append({
             "name": "Processing Sessions",
-            "local_files": 0,
-            "s3_files": 0,
-            "local_not_in_s3": 0,
-            "local_storage": 0,
-            "s3_storage": 0,
-            "backed_up_size": 0,
+            "local_files": len(sessions_with_finals),
+            "s3_files": len(backed_up_ids),
+            "local_not_in_s3": not_backed_up_count,
+            "local_storage": total_final_size,
+            "s3_storage": s3_proc_size,
+            "backed_up_size": backed_up_size_processed,
             "storage_class": "Flexible",
-            "backup_pct": 0,
+            "backup_pct": (backed_up_size_processed / total_final_size * 100) if total_final_size > 0 else 0,
             "annual_cost": annual_cost
         })
         
@@ -340,7 +376,6 @@ class BackupStats(BaseModel):
     processed_output: dict
 
 
-# API Endpoints
 @app.get("/api/status")
 async def get_status():
     """Get overall backup status and statistics."""
@@ -352,6 +387,7 @@ async def get_status():
     try:
         total_sessions = session_db.query(SessionModel).count()
         
+        # Raw FITS archives
         archives = session_db.query(S3BackupArchive).all()
         backed_up = len(archives)
         
@@ -364,6 +400,23 @@ async def get_status():
         for archive in archives:
             storage_class = archive.current_storage_class or 'STANDARD'
             storage_classes[storage_class] = storage_classes.get(storage_class, 0) + 1
+        
+        # Session notes stats
+        session_notes = session_db.query(S3BackupSessionNote).all()
+        notes_count = len(session_notes)
+        notes_size = sum(n.file_size_bytes or 0 for n in session_notes)
+        
+        # Processed files stats
+        processed_backups = session_db.query(S3BackupProcessedFiles).all()
+        processed_count = len(processed_backups)
+        processed_files = sum(p.file_count or 0 for p in processed_backups)
+        processed_size = sum(p.archive_size_bytes or 0 for p in processed_backups)
+        
+        # Count total processing sessions with final files
+        total_with_finals = session_db.query(ProcessedFile.processing_session_id).filter(
+            ProcessedFile.subfolder == 'final',
+            ProcessedFile.file_type.in_(['jpg', 'jpeg', 'xisf'])
+        ).distinct().count()
         
         return {
             "total_sessions": total_sessions,
@@ -378,12 +431,27 @@ async def get_status():
             "storage_classes": storage_classes,
             "bucket": backup_manager.s3_config.bucket,
             "region": backup_manager.s3_config.region,
-            "enabled": backup_manager.s3_config.enabled
+            "enabled": backup_manager.s3_config.enabled,
+            "raw_images": {
+                "count": backed_up,
+                "files": total_files,
+                "size": total_compressed
+            },
+            "session_notes": {
+                "count": notes_count,
+                "size": notes_size
+            },
+            "processed_output": {
+                "backed_up": processed_count,
+                "total_with_finals": total_with_finals,
+                "remaining": total_with_finals - processed_count,
+                "files": processed_files,
+                "size": processed_size
+            }
         }
         
     finally:
         session_db.close()
-
 
 @app.get("/api/temp-info")
 async def get_temp_info():

@@ -139,6 +139,63 @@ class S3BackupProcessingSession(Base):
     )
 
 
+# ============================================================================
+# NEW: Processed Files Backup Tracking
+# ============================================================================
+
+class S3BackupProcessedFiles(Base):
+    """Track S3 backups of processed final output files.
+    
+    Each record represents one processing session's final outputs
+    backed up to S3 as a tar archive. Only includes JPG and XISF files
+    from the final/ subfolder.
+    """
+    __tablename__ = 's3_backup_processed_files'
+    
+    # Processing session identifier
+    processing_session_id = Column(String(50), primary_key=True)
+    
+    # S3 location
+    s3_bucket = Column(String(255), nullable=False)
+    s3_key = Column(String(500), nullable=False)
+    s3_region = Column(String(50), nullable=False)
+    s3_etag = Column(String(100))
+    
+    # Backup metadata
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    file_count = Column(Integer)  # Number of files in archive
+    original_size_bytes = Column(Integer)  # Total size of original files
+    archive_size_bytes = Column(Integer)  # Size of tar archive
+    
+    # Archive details
+    archive_format = Column(String(20), default='tar')  # tar, tar.gz, etc.
+    storage_class = Column(String(50), default='STANDARD')
+    
+    # Backup validation
+    verified = Column(Boolean, default=False)
+    verified_at = Column(DateTime)
+    verification_etag = Column(String(100))
+    
+    # Additional metadata
+    notes = Column(String(500))
+    
+    __table_args__ = (
+        Index('idx_processed_backup_bucket_key', 's3_bucket', 's3_key'),
+        Index('idx_processed_backup_uploaded', 'uploaded_at'),
+        Index('idx_processed_backup_verified', 'verified'),
+    )
+    
+    def __repr__(self):
+        return (f"<S3BackupProcessedFiles("
+                f"session='{self.processing_session_id}', "
+                f"files={self.file_count}, "
+                f"size={self.archive_size_bytes})>")
+
+
+# ============================================================================
+# ORIGINAL MODELS BELOW - UNCHANGED
+# ============================================================================
+
 class S3BackupLog(Base):
     """Audit log for all S3 backup operations.
     

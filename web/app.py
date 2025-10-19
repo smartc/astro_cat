@@ -92,13 +92,13 @@ def start_s3_backup_web(port: int = 8083):
         logger.info(f"Starting S3 backup web interface on port {port}...")
         s3_backup_process = subprocess.Popen(
             [sys.executable, "-m", "s3_backup.run_web"],
-            # stdout=subprocess.PIPE,
-            # stderr=subprocess.PIPE
+            stdout=None,  # Changed from subprocess.PIPE
+            stderr=None   # Changed from subprocess.PIPE
         )
         logger.info(f"✓ S3 backup interface at http://0.0.0.0:{port}")
     except Exception as e:
         logger.warning(f"Could not start S3 backup interface: {e}")
-
+        
 
 def restart_s3_backup_web():
     """Restart S3 backup web interface."""
