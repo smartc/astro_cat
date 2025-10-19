@@ -17,7 +17,7 @@ from file_monitor import FileMonitor
 from file_organizer import FileOrganizer
 from validation import FitsValidator
 from processing_session_manager import ProcessingSessionManager, ProcessingSessionInfo
-
+from processed_catalog import ProcessedFileCataloger
 
 # Global flag for graceful shutdown
 shutdown_flag = False
@@ -1218,6 +1218,304 @@ def open_folder(ctx, session_id):
         click.echo(f"Error opening folder: {e}")
         sys.exit(1)
 
+@cli.group()
+@click.pass_context
+def processed(ctx):
+    """Processed file cataloging commands."""
+    pass
+
+
+@processed.command()
+@click.option('--session-id', '-s', help='Catalog files for specific session ID')
+@click.option('--all', 'scan_all', is_flag=True, help='Catalog files for all sessions')
+@click.pass_context
+def catalog(ctx, session_id, scan_all):
+    """Catalog processed output files (JPG, XISF, XOSM, PXIPROJECT).
+    
+    Scans processing session folders for final and intermediate outputs
+    and catalogs them with metadata.
+    
+    Examples:
+        # Catalog one session
+        python main.py processed catalog --session-id 20251010_022B0AE9
+        
+        # Catalog all sessions
+        python main.py processed catalog --all
+    """
+    config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        
+        # Create cataloger
+        cataloger = ProcessedFileCataloger(config.paths.database_path)
+        
+        if scan_all:
+            # Scan all processing sessions
+            processing_dir = Path(config.paths.processing_dir)
+            if not processing_dir.exists():
+                click.echo(f"Processing directory not found: {processing_dir}")
+                return
+            
+            cataloger.run(processing_dir)
+            
+        elif session_id:
+            # Scan specific session
+            cataloger.run(Path('.'), session_id)
+            
+        else:
+            click.echo("Error: Specify either --session-id or --all")
+            click.echo("Examples:")
+            click.echo("  python main.py processed catalog --session-id 20251010_022B0AE9")
+            click.echo("  python main.py processed catalog --all")
+            return
+        
+    except Exception as e:
+        click.echo(f"Error cataloging processed files: {e}")
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@processed.command()
+@click.option('--session-id', '-s', help='Show files for specific session')
+@click.option('--file-type', '-t', 
+              type=click.Choice(['jpg', 'jpeg', 'xisf', 'xosm', 'pxiproject', 'all']),
+              default='all',
+              help='Filter by file type')
+@click.option('--subfolder', 
+              type=click.Choice(['final', 'intermediate', 'all']),
+              default='all',
+              help='Filter by subfolder')
+@click.pass_context
+def list(ctx, session_id, file_type, subfolder):
+    """List cataloged processed files.
+    
+    Examples:
+        # List all processed files
+        python main.py processed list
+        
+        # List files for specific session
+        python main.py processed list --session-id 20251010_022B0AE9
+        
+        # List only JPG files in final folder
+        python main.py processed list --file-type jpg --subfolder final
+    """
+    config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        
+        from processed_catalog.models import ProcessedFile
+        from models import DatabaseManager
+        
+        db_manager = DatabaseManager(config.database.connection_string)
+        session = db_manager.get_session()
+        
+        try:
+            # Build query
+            query = session.query(ProcessedFile)
+            
+            if session_id:
+                query = query.filter(ProcessedFile.processing_session_id == session_id)
+            
+            if file_type != 'all':
+                query = query.filter(ProcessedFile.file_type == file_type)
+            
+            if subfolder != 'all':
+                query = query.filter(ProcessedFile.subfolder == subfolder)
+            
+            # Order by session, then subfolder, then filename
+            query = query.order_by(
+                ProcessedFile.processing_session_id,
+                ProcessedFile.subfolder,
+                ProcessedFile.filename
+            )
+            
+            files = query.all()
+            
+            if not files:
+                click.echo("No processed files found.")
+                return
+            
+            click.echo(f"Found {len(files)} processed file(s):")
+            click.echo()
+            
+            current_session = None
+            for file in files:
+                # Print session header when it changes
+                if file.processing_session_id != current_session:
+                    current_session = file.processing_session_id
+                    click.echo(f"Session: {current_session}")
+                    click.echo()
+                
+                # Format file size
+                size_mb = file.file_size / 1024 / 1024 if file.file_size else 0
+                
+                # Format dimensions if available
+                dims = ""
+                if file.image_width and file.image_height:
+                    dims = f" [{file.image_width}x{file.image_height}]"
+                
+                # Print file info
+                click.echo(f"  📄 {file.filename}")
+                click.echo(f"     Type: {file.file_type.upper():<10} "
+                          f"Subfolder: {file.subfolder:<12} "
+                          f"Size: {size_mb:.1f} MB{dims}")
+                
+                if file.associated_object:
+                    click.echo(f"     Object: {file.associated_object}")
+                
+                if file.has_companion:
+                    comp_size_mb = file.companion_size / 1024 / 1024 if file.companion_size else 0
+                    click.echo(f"     Companion: {file.companion_path} ({comp_size_mb:.1f} MB)")
+                
+                click.echo()
+        
+        finally:
+            session.close()
+            db_manager.close()
+        
+    except Exception as e:
+        click.echo(f"Error listing processed files: {e}")
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+@processed.command()
+@click.pass_context
+def stats(ctx):
+    """Show processed file statistics.
+    
+    Displays counts and sizes by file type, subfolder, and session.
+    """
+    config_path = ctx.obj['config_path']
+    verbose = ctx.obj['verbose']
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        
+        from processed_catalog.models import ProcessedFile
+        from models import DatabaseManager
+        from sqlalchemy import func
+        
+        db_manager = DatabaseManager(config.database.connection_string)
+        session = db_manager.get_session()
+        
+        try:
+            # Total files and size
+            total_query = session.query(
+                func.count(ProcessedFile.id),
+                func.sum(ProcessedFile.file_size)
+            ).first()
+            
+            total_files = total_query[0] or 0
+            total_size = total_query[1] or 0
+            total_size_gb = total_size / 1024 / 1024 / 1024
+            
+            click.echo("=" * 70)
+            click.echo("PROCESSED FILES STATISTICS")
+            click.echo("=" * 70)
+            click.echo(f"Total files: {total_files}")
+            click.echo(f"Total size:  {total_size_gb:.2f} GB")
+            click.echo()
+            
+            # By file type
+            type_stats = session.query(
+                ProcessedFile.file_type,
+                func.count(ProcessedFile.id),
+                func.sum(ProcessedFile.file_size)
+            ).group_by(ProcessedFile.file_type).all()
+            
+            if type_stats:
+                click.echo("By File Type:")
+                for file_type, count, size in type_stats:
+                    size_gb = (size or 0) / 1024 / 1024 / 1024
+                    click.echo(f"  {file_type.upper():<12} {count:>6} files  {size_gb:>8.2f} GB")
+                click.echo()
+            
+            # By subfolder
+            subfolder_stats = session.query(
+                ProcessedFile.subfolder,
+                func.count(ProcessedFile.id),
+                func.sum(ProcessedFile.file_size)
+            ).group_by(ProcessedFile.subfolder).all()
+            
+            if subfolder_stats:
+                click.echo("By Subfolder:")
+                for subfolder, count, size in subfolder_stats:
+                    size_gb = (size or 0) / 1024 / 1024 / 1024
+                    click.echo(f"  {subfolder:<12} {count:>6} files  {size_gb:>8.2f} GB")
+                click.echo()
+            
+            # Sessions with processed files
+            session_count = session.query(
+                func.count(func.distinct(ProcessedFile.processing_session_id))
+            ).scalar()
+            
+            click.echo(f"Sessions with processed files: {session_count}")
+            click.echo("=" * 70)
+        
+        finally:
+            session.close()
+            db_manager.close()
+        
+    except Exception as e:
+        click.echo(f"Error getting statistics: {e}")
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@processed.command()
+@click.option('--confirm', is_flag=True, help='Skip confirmation prompt')
+@click.pass_context
+def init_db(ctx, confirm):
+    """Initialize processed files database tables.
+    
+    Creates the processed_files table and adds new fields to
+    processing_sessions table if they don't exist.
+    """
+    config_path = ctx.obj['config_path']
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        
+        if not confirm:
+            click.echo("This will create/modify database tables for processed file cataloging.")
+            click.echo(f"Database: {config.paths.database_path}")
+            click.echo()
+            if not click.confirm("Continue?"):
+                click.echo("Cancelled.")
+                return
+        
+        # Run the migration script
+        import subprocess
+        result = subprocess.run(
+            ['python', 'migrate_processed_catalog.py', '--database', config.paths.database_path],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode == 0:
+            click.echo(result.stdout)
+            click.echo("✓ Database initialized successfully!")
+        else:
+            click.echo("✗ Database initialization failed:")
+            click.echo(result.stderr)
+            sys.exit(1)
+        
+    except Exception as e:
+        click.echo(f"Error initializing database: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     cli()
