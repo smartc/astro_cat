@@ -16,6 +16,7 @@ from config import load_config
 from models import DatabaseManager, DatabaseService
 from processing_session_manager import ProcessingSessionManager
 from webdav_server import start_webdav_server, stop_webdav_server
+from web.routes import processed_files
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -261,5 +262,6 @@ app.include_router(equipment.router)
 app.include_router(config_routes.router)
 app.include_router(database.router)
 app.include_router(webdav.router)
+app.include_router(processed_files.router)
 
 logger.info("✓ All routes registered")

@@ -260,6 +260,126 @@ const ProcessingSessionDetailsModal = {
                             <h4 class="font-semibold text-yellow-800 mb-2">Notes</h4>
                             <p class="text-sm text-yellow-700 whitespace-pre-wrap">{{ currentSessionDetails.notes }}</p>
                         </div>
+
+                        <!-- Processed Files Card -->
+                        <div v-if="processedFilesStats && processedFilesStats.has_files" class="bg-white rounded-lg shadow-md p-6 mb-6">
+                            <h3 class="text-xl font-semibold mb-4 text-gray-800 border-b pb-2">
+                                📄 Processed Files
+                            </h3>
+                            
+                            <!-- Final Files -->
+                            <div v-if="processedFilesStats.final.total_count > 0" class="mb-6">
+                                <h4 class="text-lg font-medium mb-3 text-gray-700">
+                                    Final Files ({{ processedFilesStats.final.total_count }})
+                                    <span class="text-sm text-gray-500 font-normal">
+                                        - {{ processedFilesStats.final.total_size_mb }} MB
+                                    </span>
+                                </h4>
+                                <div class="overflow-x-auto">
+                                    <table class="min-w-full divide-y divide-gray-200">
+                                        <thead class="bg-gray-50">
+                                            <tr>
+                                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    File Type
+                                                </th>
+                                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Count
+                                                </th>
+                                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Total Size
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="bg-white divide-y divide-gray-200">
+                                            <tr v-for="file in processedFilesStats.final.files" :key="file.file_type">
+                                                <td class="px-4 py-3 text-sm font-medium text-gray-900">
+                                                    {{ file.file_type }}
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-gray-700 text-right">
+                                                    {{ file.count }}
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-gray-700 text-right">
+                                                    {{ file.total_size_mb }} MB
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                        <tfoot class="bg-gray-50">
+                                            <tr>
+                                                <td class="px-4 py-3 text-sm font-semibold text-gray-900">
+                                                    Total
+                                                </td>
+                                                <td class="px-4 py-3 text-sm font-semibold text-gray-900 text-right">
+                                                    {{ processedFilesStats.final.total_count }}
+                                                </td>
+                                                <td class="px-4 py-3 text-sm font-semibold text-gray-900 text-right">
+                                                    {{ processedFilesStats.final.total_size_mb }} MB
+                                                </td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <!-- Intermediate Files -->
+                            <div v-if="processedFilesStats.intermediate.total_count > 0">
+                                <h4 class="text-lg font-medium mb-3 text-gray-700">
+                                    Intermediate Files ({{ processedFilesStats.intermediate.total_count }})
+                                    <span class="text-sm text-gray-500 font-normal">
+                                        - {{ processedFilesStats.intermediate.total_size_mb }} MB
+                                    </span>
+                                </h4>
+                                <div class="overflow-x-auto">
+                                    <table class="min-w-full divide-y divide-gray-200">
+                                        <thead class="bg-gray-50">
+                                            <tr>
+                                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    File Type
+                                                </th>
+                                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Count
+                                                </th>
+                                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Total Size
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="bg-white divide-y divide-gray-200">
+                                            <tr v-for="file in processedFilesStats.intermediate.files" :key="file.file_type">
+                                                <td class="px-4 py-3 text-sm font-medium text-gray-900">
+                                                    {{ file.file_type }}
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-gray-700 text-right">
+                                                    {{ file.count }}
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-gray-700 text-right">
+                                                    {{ file.total_size_mb }} MB
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                        <tfoot class="bg-gray-50">
+                                            <tr>
+                                                <td class="px-4 py-3 text-sm font-semibold text-gray-900">
+                                                    Total
+                                                </td>
+                                                <td class="px-4 py-3 text-sm font-semibold text-gray-900 text-right">
+                                                    {{ processedFilesStats.intermediate.total_count }}
+                                                </td>
+                                                <td class="px-4 py-3 text-sm font-semibold text-gray-900 text-right">
+                                                    {{ processedFilesStats.intermediate.total_size_mb }} MB
+                                                </td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <!-- No Files Message -->
+                            <div v-if="!loadingProcessedStats && processedFilesStats.final.total_count === 0 && processedFilesStats.intermediate.total_count === 0" 
+                                 class="text-center py-4 text-gray-500">
+                                No processed files cataloged for this session yet
+                            </div>
+                        </div>
+
                     </div>
                 </div>
 
@@ -302,10 +422,11 @@ const ProcessingSessionDetailsModal = {
             webdavStatus: null,
             webdavInfo: null,
             nativeFilePath: null,
-            // NEW: Imaging sessions data
             imagingSessions: null,
             imagingSessionsLoading: false,
-            statusEditing: false
+            statusEditing: false,
+            processedFilesStats: null,
+            loadingProcessedStats: false,
         };
     },
 
@@ -357,8 +478,11 @@ const ProcessingSessionDetailsModal = {
                 // Load WebDAV info for the session
                 await this.loadWebDAVInfo(sessionId);
                 
-                // NEW: Load imaging sessions
+                // Load imaging sessions
                 await this.loadImagingSessions(sessionId);
+                
+                // NEW: Load processed file stats
+                await this.loadProcessedFileStats(sessionId);  // ADD THIS LINE
                 
             } catch (error) {
                 console.error('Error loading session details:', error);
@@ -369,7 +493,6 @@ const ProcessingSessionDetailsModal = {
             }
         },
 
-        // NEW: Load imaging sessions from files
         async loadImagingSessions(sessionId) {
             this.imagingSessionsLoading = true;
             try {
@@ -421,7 +544,6 @@ const ProcessingSessionDetailsModal = {
             }
         },
 
-        // NEW: View imaging session details
         async viewImagingSession(sessionId) {
             const app = this.$root;
             
@@ -480,7 +602,6 @@ const ProcessingSessionDetailsModal = {
             return 'linux';
         },
 
-        // NEW: Copy session ID to clipboard
         copySessionIdToClipboard() {
             if (!this.currentSessionDetails) return;
             
@@ -720,7 +841,21 @@ const ProcessingSessionDetailsModal = {
                 const url = `/file-browser?session_id=${encodeURIComponent(this.currentSessionDetails.id)}`;
                 window.open(url, '_blank');
             }
-        }
+        },
+
+        async loadProcessedFileStats(sessionId) {
+            this.loadingProcessedStats = true;
+            try {
+                const response = await fetch(`/api/processed-files/session/${sessionId}/stats`);
+                if (response.ok) {
+                    this.processedFilesStats = await response.json();
+                }
+            } catch (error) {
+                console.error('Error loading processed file stats:', error);
+            } finally {
+                this.loadingProcessedStats = false;
+            }
+        },
     },
 
     async mounted() {
