@@ -8,10 +8,11 @@ from .models import (
     S3BackupArchive,
     S3BackupSessionNote,
     S3BackupProcessingSession,
-    S3BackupProcessedFiles,
     S3BackupLog,
     S3BackupConfig as S3BackupConfigModel,
-    S3BackupStats
+    S3BackupStats,
+    S3BackupProcessedFileRecord,
+    S3BackupProcessingSessionSummary
 )
 
 __version__ = '1.0.0'
@@ -23,8 +24,9 @@ __all__ = [
     'S3BackupArchive',
     'S3BackupSessionNote',
     'S3BackupProcessingSession',
-    'S3BackupProcessedFiles',
     'S3BackupLog',
     'S3BackupConfigModel',
     'S3BackupStats',
+    'S3BackupProcessedFileRecord',
+    'S3BackupProcessingSessionSummary'
 ]

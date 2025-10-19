@@ -10,14 +10,18 @@ from typing import List, Dict
 import click
 from tqdm import tqdm
 
-from config import load_config, create_default_config, Config
-from models import DatabaseManager, DatabaseService, FitsFile, ProcessingSessionFile
-from fits_processor import OptimizedFitsProcessor
+from config import load_config, create_default_config, Config, setup_logging
+from models import DatabaseManager, DatabaseService, FitsFile, ProcessingSessionFile, ProcessingSession
+from processing import OptimizedFitsProcessor
 from file_monitor import FileMonitor
 from file_organizer import FileOrganizer
 from validation import FitsValidator
 from processing_session_manager import ProcessingSessionManager, ProcessingSessionInfo
 from processed_catalog import ProcessedFileCataloger
+from processed_catalog.models import ProcessedFile
+from s3_backup.manager import S3BackupConfig
+from s3_backup.processing_file_backup import ProcessingSessionFileBackup
+from s3_backup.models import S3BackupProcessedFileRecord
 
 # Global flag for graceful shutdown
 shutdown_flag = False
@@ -1515,6 +1519,477 @@ def init_db(ctx, confirm):
         
     except Exception as e:
         click.echo(f"Error initializing database: {e}")
+        sys.exit(1)
+
+@processed.command('backup')
+@click.argument('session_id')
+@click.option('--subfolder', '-s', multiple=True, 
+              help='Backup specific subfolder(s) (e.g., final, intermediate)')
+@click.option('--file-type', '-t', multiple=True,
+              help='Backup specific file type(s) (e.g., xisf, jpg)')
+@click.option('--force', is_flag=True,
+              help='Force backup even if files haven\'t changed')
+@click.pass_context
+def backup(ctx, session_id, subfolder, file_type, force):
+    """Backup processing session files to S3.
+    
+    Examples:
+        python main.py processed backup 20250115_ABC123
+        python main.py processed backup 20250115_ABC123 --subfolder final
+        python main.py processed backup 20250115_ABC123 --file-type xisf --file-type jpg
+    """
+    config_path = ctx.obj.get('config_path', 'config.json')
+    s3_config_path = 's3_config.json'
+    verbose = ctx.obj.get('verbose', False)
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        s3_config = S3BackupConfig(s3_config_path)
+        
+        if not s3_config.enabled:
+            click.echo("S3 backup is not enabled in configuration.")
+            sys.exit(1)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        backup_manager = ProcessingSessionFileBackup(config, s3_config, cataloger.db_service)
+        
+        # Verify session exists
+        db_session = cataloger.db_service.db_manager.get_session()
+        ps = db_session.query(ProcessingSession).filter(
+            ProcessingSession.id == session_id
+        ).first()
+        
+        if not ps:
+            click.echo(f"Error: Processing session '{session_id}' not found")
+            db_session.close()
+            sys.exit(1)
+        
+        click.echo(f"Backing up: {ps.name}")
+        click.echo(f"Session ID: {session_id}")
+        if subfolder:
+            click.echo(f"Subfolders: {', '.join(subfolder)}")
+        if file_type:
+            click.echo(f"File types: {', '.join(file_type)}")
+        click.echo()
+        
+        db_session.close()
+        
+        # Perform backup
+        subfolders = list(subfolder) if subfolder else None
+        file_types = list(file_type) if file_type else None
+        
+        stats = backup_manager.backup_session_files(
+            session_id=session_id,
+            subfolders=subfolders,
+            file_types=file_types,
+            force=force
+        )
+        
+        # Display results
+        click.echo()
+        click.echo("=" * 70)
+        click.echo("BACKUP SUMMARY")
+        click.echo("=" * 70)
+        click.echo(f"Total files:     {stats['total_files']}")
+        click.echo(f"Uploaded:        {stats['uploaded']}")
+        click.echo(f"Skipped:         {stats['skipped']} (already backed up)")
+        click.echo(f"Failed:          {stats['failed']}")
+        click.echo(f"Total size:      {backup_manager._format_bytes(stats['total_size'])}")
+        click.echo("=" * 70)
+        
+        if stats['errors']:
+            click.echo()
+            click.echo("Errors:")
+            for error in stats['errors']:
+                click.echo(f"  - {error['file']}: {error['error']}")
+        
+        if stats['failed'] > 0:
+            sys.exit(1)
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error: {e}")
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@processed.command('backup-all')
+@click.option('--incomplete', is_flag=True,
+              help='Only backup sessions with incomplete backups')
+@click.option('--force', is_flag=True,
+              help='Force backup even if files haven\'t changed')
+@click.option('--limit', type=int,
+              help='Limit number of sessions to process')
+@click.pass_context
+def backup_all(ctx, incomplete, force, limit):
+    """Backup files from multiple processing sessions.
+    
+    Examples:
+        python main.py processed backup-all
+        python main.py processed backup-all --incomplete
+        python main.py processed backup-all --limit 5
+    """
+    config_path = ctx.obj.get('config_path', 'config.json')
+    s3_config_path = 's3_config.json'
+    verbose = ctx.obj.get('verbose', False)
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        s3_config = S3BackupConfig(s3_config_path)
+        
+        if not s3_config.enabled:
+            click.echo("S3 backup is not enabled in configuration.")
+            sys.exit(1)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        backup_manager = ProcessingSessionFileBackup(config, s3_config, cataloger.db_service)
+        db_session = cataloger.db_service.db_manager.get_session()
+        
+        # Get list of sessions
+        query = db_session.query(ProcessingSession.id, ProcessingSession.name)
+        
+        if incomplete:
+            from s3_backup.models import S3BackupProcessingSessionSummary
+            incomplete_sessions = db_session.query(
+                S3BackupProcessingSessionSummary.processing_session_id
+            ).filter(
+                S3BackupProcessingSessionSummary.backup_complete == False
+            ).all()
+            
+            incomplete_ids = [s[0] for s in incomplete_sessions]
+            if incomplete_ids:
+                query = query.filter(ProcessingSession.id.in_(incomplete_ids))
+            else:
+                click.echo("No sessions with incomplete backups found.")
+                db_session.close()
+                return
+        
+        sessions = query.all()
+        
+        if not sessions:
+            click.echo("No sessions found to backup.")
+            db_session.close()
+            return
+        
+        if limit:
+            sessions = sessions[:limit]
+        
+        click.echo(f"Found {len(sessions)} session(s) to backup")
+        click.echo()
+        
+        db_session.close()
+        
+        # Process each session
+        total_stats = {
+            'sessions_processed': 0,
+            'total_uploaded': 0,
+            'total_skipped': 0,
+            'total_failed': 0,
+            'total_size': 0,
+            'failed_sessions': []
+        }
+        
+        for idx, (session_id, session_name) in enumerate(sessions, 1):
+            click.echo(f"[{idx}/{len(sessions)}] {session_name} ({session_id})")
+            click.echo("-" * 70)
+            
+            stats = backup_manager.backup_session_files(
+                session_id=session_id,
+                force=force
+            )
+            
+            total_stats['sessions_processed'] += 1
+            total_stats['total_uploaded'] += stats['uploaded']
+            total_stats['total_skipped'] += stats['skipped']
+            total_stats['total_failed'] += stats['failed']
+            total_stats['total_size'] += stats['total_size']
+            
+            if stats['failed'] > 0:
+                total_stats['failed_sessions'].append(session_name)
+            
+            click.echo()
+        
+        # Display summary
+        click.echo("=" * 70)
+        click.echo("OVERALL SUMMARY")
+        click.echo("=" * 70)
+        click.echo(f"Sessions processed:  {total_stats['sessions_processed']}")
+        click.echo(f"Total uploaded:      {total_stats['total_uploaded']}")
+        click.echo(f"Total skipped:       {total_stats['total_skipped']}")
+        click.echo(f"Total failed:        {total_stats['total_failed']}")
+        click.echo(f"Total size:          {backup_manager._format_bytes(total_stats['total_size'])}")
+        
+        if total_stats['failed_sessions']:
+            click.echo()
+            click.echo("Sessions with failures:")
+            for name in total_stats['failed_sessions']:
+                click.echo(f"  - {name}")
+        
+        click.echo("=" * 70)
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error: {e}")
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@processed.command('backup-status')
+@click.argument('session_id')
+@click.pass_context
+def backup_status(ctx, session_id):
+    """Show backup status for a processing session.
+    
+    Example:
+        python main.py processed backup-status 20250115_ABC123
+    """
+    config_path = ctx.obj.get('config_path', 'config.json')
+    s3_config_path = 's3_config.json'
+    verbose = ctx.obj.get('verbose', False)
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        s3_config = S3BackupConfig(s3_config_path)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        backup_manager = ProcessingSessionFileBackup(config, s3_config, cataloger.db_service)
+        
+        # Get backup status
+        backup_info = backup_manager.list_session_backups(session_id)
+        
+        # Get session info
+        db_session = cataloger.db_service.db_manager.get_session()
+        ps = db_session.query(ProcessingSession).filter(
+            ProcessingSession.id == session_id
+        ).first()
+        
+        if not ps:
+            click.echo(f"Error: Processing session '{session_id}' not found")
+            db_session.close()
+            sys.exit(1)
+        
+        # Get total files
+        total_files = db_session.query(ProcessedFile).filter(
+            ProcessedFile.processing_session_id == session_id
+        ).count()
+        
+        db_session.close()
+        
+        # Display status
+        click.echo("=" * 70)
+        click.echo(f"BACKUP STATUS: {ps.name}")
+        click.echo("=" * 70)
+        click.echo(f"Session ID:          {session_id}")
+        click.echo(f"Total files:         {total_files}")
+        click.echo(f"Backed up:           {backup_info['total_files']}")
+        click.echo(f"Not backed up:       {total_files - backup_info['total_files']}")
+        click.echo(f"Total backup size:   {backup_info['total_size_mb']} MB")
+        click.echo("=" * 70)
+        
+        if backup_info['files']:
+            click.echo()
+            click.echo("Backed up files:")
+            click.echo()
+            
+            # Group by subfolder
+            by_subfolder = {}
+            for file_info in backup_info['files']:
+                subfolder = file_info['subfolder'] or 'root'
+                if subfolder not in by_subfolder:
+                    by_subfolder[subfolder] = []
+                by_subfolder[subfolder].append(file_info)
+            
+            for subfolder, files in sorted(by_subfolder.items()):
+                click.echo(f"  {subfolder}/:")
+                for file_info in files:
+                    size_mb = file_info['file_size'] / 1024 / 1024
+                    uploaded = file_info['uploaded_at'].strftime('%Y-%m-%d %H:%M')
+                    click.echo(f"    - {file_info['filename']} "
+                              f"({size_mb:.2f} MB, uploaded: {uploaded})")
+                click.echo()
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error: {e}")
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@processed.command('backup-verify')
+@click.argument('session_id')
+@click.pass_context
+def backup_verify(ctx, session_id):
+    """Verify backup integrity for a processing session.
+    
+    Example:
+        python main.py processed backup-verify 20250115_ABC123
+    """
+    config_path = ctx.obj.get('config_path', 'config.json')
+    s3_config_path = 's3_config.json'
+    verbose = ctx.obj.get('verbose', False)
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        s3_config = S3BackupConfig(s3_config_path)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        backup_manager = ProcessingSessionFileBackup(config, s3_config, cataloger.db_service)
+        
+        # Get backed up files
+        db_session = cataloger.db_service.db_manager.get_session()
+        
+        from s3_backup.models import S3BackupProcessedFileRecord
+        backup_records = db_session.query(
+            S3BackupProcessedFileRecord, ProcessedFile
+        ).join(
+            ProcessedFile,
+            S3BackupProcessedFileRecord.processed_file_id == ProcessedFile.id
+        ).filter(
+            S3BackupProcessedFileRecord.processing_session_id == session_id
+        ).all()
+        
+        if not backup_records:
+            click.echo(f"No backups found for session {session_id}")
+            db_session.close()
+            return
+        
+        click.echo(f"Verifying {len(backup_records)} backed up files...")
+        click.echo()
+        
+        verified = 0
+        failed = 0
+        
+        from tqdm import tqdm
+        
+        for backup_record, file_record in tqdm(backup_records, desc="Verifying"):
+            if backup_manager.verify_backup(file_record):
+                verified += 1
+            else:
+                failed += 1
+                click.echo(f"  ✗ {file_record.filename}")
+        
+        db_session.close()
+        
+        # Display results
+        click.echo()
+        click.echo("=" * 70)
+        click.echo("VERIFICATION RESULTS")
+        click.echo("=" * 70)
+        click.echo(f"Total files:     {len(backup_records)}")
+        click.echo(f"Verified:        {verified}")
+        click.echo(f"Failed:          {failed}")
+        click.echo("=" * 70)
+        
+        if failed > 0:
+            sys.exit(1)
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error: {e}")
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@processed.command('backup-list')
+@click.pass_context
+def backup_list(ctx):
+    """List all processing sessions and their backup status."""
+    config_path = ctx.obj.get('config_path', 'config.json')
+    s3_config_path = 's3_config.json'
+    verbose = ctx.obj.get('verbose', False)
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        s3_config = S3BackupConfig(s3_config_path)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        db_session = cataloger.db_service.db_manager.get_session()
+        
+        from sqlalchemy import func, case
+        from s3_backup.models import S3BackupProcessedFileRecord
+        
+        sessions = db_session.query(
+            ProcessingSession.id,
+            ProcessingSession.name,
+            ProcessingSession.created_at,
+            func.count(ProcessedFile.id).label('total_files'),
+            func.sum(case((ProcessedFile.subfolder == 'intermediate', 1), else_=0)).label('intermediate_count'),
+            func.sum(case((ProcessedFile.subfolder == 'final', 1), else_=0)).label('final_count'),
+            func.sum(ProcessedFile.file_size).label('total_size'),
+            func.count(S3BackupProcessedFileRecord.id).label('backed_up')
+        ).outerjoin(
+            ProcessedFile,
+            ProcessedFile.processing_session_id == ProcessingSession.id
+        ).outerjoin(
+            S3BackupProcessedFileRecord,
+            S3BackupProcessedFileRecord.processed_file_id == ProcessedFile.id
+        ).group_by(
+            ProcessingSession.id
+        ).order_by(
+            ProcessingSession.created_at.desc()
+        ).all()
+        
+        db_session.close()
+        
+        if not sessions:
+            click.echo("No processing sessions found.")
+            return
+        
+        click.echo("=" * 140)
+        click.echo("PROCESSING SESSION BACKUP STATUS")
+        click.echo("=" * 140)
+        click.echo(f"{'Session Name':<30} {'Session ID':<20} {'Created':<12} {'Int':<5} {'Final':<6} {'Total':<6} {'Size':<10} {'Status':<20}")
+        click.echo("-" * 140)
+
+        for session_id, name, created_at, total_files, int_count, final_count, total_size, backed_up in sessions:
+            if total_files == 0:
+                status = "No files"
+                status_icon = "○"
+            elif backed_up == 0:
+                status = "Not backed up"
+                status_icon = "✗"
+            elif backed_up < total_files:
+                status = f"Partial ({backed_up}/{total_files})"
+                status_icon = "◐"
+            else:
+                status = "Complete"
+                status_icon = "✓"
+            
+            created = created_at.strftime('%Y-%m-%d')
+            int_str = str(int_count or 0)
+            final_str = str(final_count or 0)
+            total_str = str(total_files)
+            size_gb = (total_size or 0) / 1024 / 1024 / 1024
+            size_str = f"{size_gb:.2f} GB" if size_gb > 0 else "-"
+            
+            click.echo(f"{status_icon} {name[:28]:<28} {session_id:<20} {created:<12} {int_str:<5} {final_str:<6} {total_str:<6} {size_str:<10} {status:<20}")
+
+        click.echo("=" * 140)
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error: {e}")
+        if verbose:
+            import traceback
+            traceback.print_exc()
         sys.exit(1)
 
 if __name__ == "__main__":

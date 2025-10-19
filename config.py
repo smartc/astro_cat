@@ -167,6 +167,22 @@ def create_default_config(config_path: str = "config.json") -> None:
     print("Created default equipment files: cameras.json, telescopes.json, filters.json")
     
 
+def setup_logging(config: Config, verbose: bool = False):
+    """Setup logging based on configuration."""
+    import logging
+    
+    log_level = logging.DEBUG if verbose else getattr(logging, config.logging.level)
+    
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(config.logging.file),
+            logging.StreamHandler()
+        ]
+    )
+
+
 if __name__ == "__main__":
     # Example usage
     try:

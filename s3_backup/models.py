@@ -139,57 +139,110 @@ class S3BackupProcessingSession(Base):
     )
 
 
-# ============================================================================
-# NEW: Processed Files Backup Tracking
-# ============================================================================
-
-class S3BackupProcessedFiles(Base):
-    """Track S3 backups of processed final output files.
-    
-    Each record represents one processing session's final outputs
-    backed up to S3 as a tar archive. Only includes JPG and XISF files
-    from the final/ subfolder.
+class S3BackupProcessedFileRecord(Base):
     """
-    __tablename__ = 's3_backup_processed_files'
+    Track individual processed file backups to S3.
     
-    # Processing session identifier
-    processing_session_id = Column(String(50), primary_key=True)
+    Each record represents one processed file (XISF, JPG, etc.) backed up to S3.
+    Replaces the tarball approach with individual file tracking.
+    """
+    __tablename__ = 's3_backup_processed_file_records'
+    
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Link to processed file
+    processed_file_id = Column(
+        Integer,
+        nullable=False,
+        unique=True  # Each processed file can only have one backup record
+    )
+    
+    # Link to processing session
+    processing_session_id = Column(
+        String(50),
+        nullable=False
+    )
     
     # S3 location
     s3_bucket = Column(String(255), nullable=False)
-    s3_key = Column(String(500), nullable=False)
+    s3_key = Column(String(500), nullable=False, unique=True)  # Full S3 path
     s3_region = Column(String(50), nullable=False)
-    s3_etag = Column(String(100))
+    s3_etag = Column(String(100))  # For verification
+    
+    # File metadata
+    file_size = Column(Integer)  # Size in bytes
+    md5sum = Column(String(32))  # MD5 hash for change detection
     
     # Backup metadata
     uploaded_at = Column(DateTime, default=datetime.utcnow)
-    file_count = Column(Integer)  # Number of files in archive
-    original_size_bytes = Column(Integer)  # Total size of original files
-    archive_size_bytes = Column(Integer)  # Size of tar archive
-    
-    # Archive details
-    archive_format = Column(String(20), default='tar')  # tar, tar.gz, etc.
     storage_class = Column(String(50), default='STANDARD')
     
-    # Backup validation
+    # Verification tracking
     verified = Column(Boolean, default=False)
     verified_at = Column(DateTime)
-    verification_etag = Column(String(100))
     
-    # Additional metadata
+    # Notes
     notes = Column(String(500))
     
     __table_args__ = (
-        Index('idx_processed_backup_bucket_key', 's3_bucket', 's3_key'),
-        Index('idx_processed_backup_uploaded', 'uploaded_at'),
-        Index('idx_processed_backup_verified', 'verified'),
+        Index('idx_backup_file_processed_id', 'processed_file_id'),
+        Index('idx_backup_file_session', 'processing_session_id'),
+        Index('idx_backup_file_s3_key', 's3_key'),
+        Index('idx_backup_file_uploaded', 'uploaded_at'),
+        Index('idx_backup_file_verified', 'verified'),
     )
     
     def __repr__(self):
-        return (f"<S3BackupProcessedFiles("
+        return (f"<S3BackupProcessedFileRecord("
+                f"id={self.id}, "
                 f"session='{self.processing_session_id}', "
-                f"files={self.file_count}, "
-                f"size={self.archive_size_bytes})>")
+                f"s3_key='{self.s3_key}')>")
+
+
+class S3BackupProcessingSessionSummary(Base):
+    """
+    Summary statistics for processing session backups.
+    
+    Provides quick overview of backup status for each processing session.
+    """
+    __tablename__ = 's3_backup_processing_session_summary'
+    
+    # Primary key is the processing session ID
+    processing_session_id = Column(
+        String(50),
+        primary_key=True
+    )
+    
+    # Backup statistics
+    total_files = Column(Integer, default=0)
+    backed_up_files = Column(Integer, default=0)
+    total_size_bytes = Column(Integer, default=0)
+    
+    # Timestamps
+    first_backup_at = Column(DateTime)
+    last_backup_at = Column(DateTime)
+    last_verified_at = Column(DateTime)
+    
+    # Status flags
+    backup_complete = Column(Boolean, default=False)
+    all_verified = Column(Boolean, default=False)
+    
+    # S3 details
+    s3_bucket = Column(String(255))
+    s3_prefix = Column(String(500))  # Base path: backups/YEAR/SESSION_ID/
+    
+    __table_args__ = (
+        Index('idx_session_summary_complete', 'backup_complete'),
+        Index('idx_session_summary_verified', 'all_verified'),
+        Index('idx_session_summary_last_backup', 'last_backup_at'),
+    )
+    
+    def __repr__(self):
+        return (f"<S3BackupProcessingSessionSummary("
+                f"session='{self.processing_session_id}', "
+                f"files={self.backed_up_files}/{self.total_files})>")
+
 
 
 # ============================================================================
