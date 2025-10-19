@@ -374,6 +374,47 @@ async def _get_storage_categories_internal(session_db):
             "annual_cost": annual_cost_final
         })
 
+        # Category 6: Database Backups
+        # Get local database file
+        db_conn_string = main_config.database.connection_string
+        db_path = Path(db_conn_string.replace('sqlite:///', ''))
+
+        local_db_size = 0
+        local_db_count = 0
+        if db_path.exists():
+            local_db_size = db_path.stat().st_size
+            local_db_count = 1
+
+        # Get S3 database backups - use list_object_versions to get ALL versions
+        db_backup_path = backup_manager.s3_config.config.get('s3_paths', {}).get('database_backups', 'backups/database/')
+        s3_db_count = 0
+        s3_db_size = 0
+
+        version_paginator = backup_manager.s3_client.get_paginator('list_object_versions')
+        for page in version_paginator.paginate(Bucket=backup_manager.s3_config.bucket, Prefix=db_backup_path):
+            # Count current versions
+            if 'Versions' in page:
+                for version in page['Versions']:
+                    if not version['Key'].endswith('/'):
+                        s3_db_count += 1
+                        s3_db_size += version['Size']
+
+        annual_cost_db, is_fallback = calculate_s3_cost(s3_db_size, "STANDARD")
+        using_fallback_pricing = using_fallback_pricing or is_fallback
+
+        categories.append({
+            "name": "Database Backups",
+            "local_files": local_db_count,
+            "s3_files": s3_db_count,
+            "local_not_in_s3": 0,
+            "local_storage": local_db_size,
+            "s3_storage": s3_db_size,
+            "backed_up_size": s3_db_size,
+            "storage_class": "Standard",
+            "backup_pct": (s3_db_size / local_db_size * 100) if local_db_size > 0 else 0,
+            "annual_cost": annual_cost_db
+        })
+
         return {
             "categories": categories,
             "using_fallback_pricing": using_fallback_pricing
