@@ -1992,5 +1992,463 @@ def backup_list(ctx):
             traceback.print_exc()
         sys.exit(1)
 
+
+# Add these commands to your main.py file in the @processed group
+# Place them after the existing backup command
+
+@processed.command('backup-final')
+@click.argument('session_id')
+@click.option('--file-type', '-t', multiple=True,
+              help='Backup specific file type(s) (e.g., xisf, jpg)')
+@click.option('--force', is_flag=True,
+              help='Force backup even if files haven\'t changed')
+@click.pass_context
+def backup_final(ctx, session_id, file_type, force):
+    """Backup only final output files from a processing session to S3.
+    
+    This is a convenience command that automatically filters for files
+    in the 'final' subfolder. Equivalent to:
+    python main.py processed backup SESSION_ID --subfolder final
+    
+    Examples:
+        # Backup all final files
+        python main.py processed backup-final 20251010_022B0AE9
+        
+        # Backup only final XISF files
+        python main.py processed backup-final 20251010_022B0AE9 --file-type xisf
+        
+        # Force backup even if unchanged
+        python main.py processed backup-final 20251010_022B0AE9 --force
+    """
+    config_path = ctx.obj.get('config_path', 'config.json')
+    s3_config_path = 's3_config.json'
+    verbose = ctx.obj.get('verbose', False)
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        s3_config = S3BackupConfig(s3_config_path)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        backup_manager = ProcessingSessionFileBackup(config, s3_config, cataloger.db_service)
+        
+        # Verify session exists
+        db_session = cataloger.db_service.db_manager.get_session()
+        ps = db_session.query(ProcessingSession).filter(
+            ProcessingSession.id == session_id
+        ).first()
+        
+        if not ps:
+            click.echo(f"Error: Processing session '{session_id}' not found")
+            db_session.close()
+            sys.exit(1)
+        
+        click.echo(f"Backing up FINAL files: {ps.name}")
+        click.echo(f"Session ID: {session_id}")
+        if file_type:
+            click.echo(f"File types: {', '.join(file_type)}")
+        click.echo()
+        
+        db_session.close()
+        
+        # Perform backup - force subfolder to 'final'
+        file_types = list(file_type) if file_type else None
+        
+        stats = backup_manager.backup_session_files(
+            session_id=session_id,
+            subfolders=['final'],  # Only backup final folder
+            file_types=file_types,
+            force=force
+        )
+        
+        # Display results
+        click.echo()
+        click.echo("=" * 70)
+        click.echo("FINAL FILES BACKUP SUMMARY")
+        click.echo("=" * 70)
+        click.echo(f"Total files:     {stats['total_files']}")
+        click.echo(f"Uploaded:        {stats['uploaded']}")
+        click.echo(f"Skipped:         {stats['skipped']} (already backed up)")
+        click.echo(f"Failed:          {stats['failed']}")
+        click.echo(f"Total size:      {backup_manager._format_bytes(stats['total_size'])}")
+        click.echo("=" * 70)
+        
+        if stats['errors']:
+            click.echo()
+            click.echo("Errors:")
+            for error in stats['errors']:
+                click.echo(f"  - {error['file']}: {error['error']}")
+        
+        if stats['failed'] > 0:
+            sys.exit(1)
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error: {e}")
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@processed.command('backup-intermediate')
+@click.argument('session_id')
+@click.option('--file-type', '-t', multiple=True,
+              help='Backup specific file type(s) (e.g., xisf, jpg)')
+@click.option('--force', is_flag=True,
+              help='Force backup even if files haven\'t changed')
+@click.pass_context
+def backup_intermediate(ctx, session_id, file_type, force):
+    """Backup only intermediate files from a processing session to S3.
+    
+    This is a convenience command that automatically filters for files
+    in the 'intermediate' subfolder. Equivalent to:
+    python main.py processed backup SESSION_ID --subfolder intermediate
+    
+    Examples:
+        # Backup all intermediate files
+        python main.py processed backup-intermediate 20251010_022B0AE9
+        
+        # Backup only intermediate XISF files
+        python main.py processed backup-intermediate 20251010_022B0AE9 --file-type xisf
+        
+        # Force backup even if unchanged
+        python main.py processed backup-intermediate 20251010_022B0AE9 --force
+    """
+    config_path = ctx.obj.get('config_path', 'config.json')
+    s3_config_path = 's3_config.json'
+    verbose = ctx.obj.get('verbose', False)
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        s3_config = S3BackupConfig(s3_config_path)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        backup_manager = ProcessingSessionFileBackup(config, s3_config, cataloger.db_service)
+        
+        # Verify session exists
+        db_session = cataloger.db_service.db_manager.get_session()
+        ps = db_session.query(ProcessingSession).filter(
+            ProcessingSession.id == session_id
+        ).first()
+        
+        if not ps:
+            click.echo(f"Error: Processing session '{session_id}' not found")
+            db_session.close()
+            sys.exit(1)
+        
+        click.echo(f"Backing up INTERMEDIATE files: {ps.name}")
+        click.echo(f"Session ID: {session_id}")
+        if file_type:
+            click.echo(f"File types: {', '.join(file_type)}")
+        click.echo()
+        
+        db_session.close()
+        
+        # Perform backup - force subfolder to 'intermediate'
+        file_types = list(file_type) if file_type else None
+        
+        stats = backup_manager.backup_session_files(
+            session_id=session_id,
+            subfolders=['intermediate'],  # Only backup intermediate folder
+            file_types=file_types,
+            force=force
+        )
+        
+        # Display results
+        click.echo()
+        click.echo("=" * 70)
+        click.echo("INTERMEDIATE FILES BACKUP SUMMARY")
+        click.echo("=" * 70)
+        click.echo(f"Total files:     {stats['total_files']}")
+        click.echo(f"Uploaded:        {stats['uploaded']}")
+        click.echo(f"Skipped:         {stats['skipped']} (already backed up)")
+        click.echo(f"Failed:          {stats['failed']}")
+        click.echo(f"Total size:      {backup_manager._format_bytes(stats['total_size'])}")
+        click.echo("=" * 70)
+        
+        if stats['errors']:
+            click.echo()
+            click.echo("Errors:")
+            for error in stats['errors']:
+                click.echo(f"  - {error['file']}: {error['error']}")
+        
+        if stats['failed'] > 0:
+            sys.exit(1)
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error: {e}")
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@processed.command('backup-all-final')
+@click.option('--incomplete', is_flag=True,
+              help='Only backup sessions with incomplete final file backups')
+@click.option('--force', is_flag=True,
+              help='Force backup even if files haven\'t changed')
+@click.option('--limit', type=int,
+              help='Limit number of sessions to process')
+@click.pass_context
+def backup_all_final(ctx, incomplete, force, limit):
+    """Backup final files from multiple processing sessions.
+    
+    Examples:
+        # Backup final files from all sessions
+        python main.py processed backup-all-final
+        
+        # Only backup sessions missing final file backups
+        python main.py processed backup-all-final --incomplete
+        
+        # Limit to 5 sessions
+        python main.py processed backup-all-final --limit 5
+    """
+    config_path = ctx.obj.get('config_path', 'config.json')
+    s3_config_path = 's3_config.json'
+    verbose = ctx.obj.get('verbose', False)
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        s3_config = S3BackupConfig(s3_config_path)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        backup_manager = ProcessingSessionFileBackup(config, s3_config, cataloger.db_service)
+        
+        # Get all processing sessions
+        db_session = cataloger.db_service.db_manager.get_session()
+        query = db_session.query(ProcessingSession)
+        
+        if incomplete:
+            # Filter for sessions with files in final folder that aren't backed up
+            from s3_backup.models import S3BackupProcessedFileRecord
+            
+            # Get sessions with final files
+            sessions_with_final = db_session.query(ProcessedFile.processing_session_id).filter(
+                ProcessedFile.subfolder == 'final'
+            ).distinct().all()
+            session_ids_with_final = {s[0] for s in sessions_with_final}
+            
+            # Get sessions with backed up final files
+            backed_up_final = db_session.query(
+                S3BackupProcessedFileRecord.processing_session_id
+            ).join(
+                ProcessedFile,
+                ProcessedFile.id == S3BackupProcessedFileRecord.processed_file_id
+            ).filter(
+                ProcessedFile.subfolder == 'final'
+            ).distinct().all()
+            backed_up_ids = {s[0] for s in backed_up_final}
+            
+            # Find sessions with final files that need backup
+            incomplete_ids = session_ids_with_final - backed_up_ids
+            
+            if not incomplete_ids:
+                click.echo("No sessions with incomplete final file backups found.")
+                db_session.close()
+                return
+            
+            query = query.filter(ProcessingSession.id.in_(incomplete_ids))
+        
+        sessions = query.order_by(ProcessingSession.created_at.desc()).all()
+        
+        if limit:
+            sessions = sessions[:limit]
+        
+        db_session.close()
+        
+        if not sessions:
+            click.echo("No sessions found to backup.")
+            return
+        
+        click.echo(f"Found {len(sessions)} sessions to backup (FINAL files only)")
+        click.echo()
+        
+        total_uploaded = 0
+        total_failed = 0
+        total_skipped = 0
+        
+        for i, ps in enumerate(sessions, 1):
+            click.echo(f"[{i}/{len(sessions)}] Backing up: {ps.name} ({ps.id})")
+            
+            try:
+                stats = backup_manager.backup_session_files(
+                    session_id=ps.id,
+                    subfolders=['final'],  # Only final files
+                    file_types=None,
+                    force=force
+                )
+                
+                total_uploaded += stats['uploaded']
+                total_failed += stats['failed']
+                total_skipped += stats['skipped']
+                
+                click.echo(f"  ✓ Uploaded: {stats['uploaded']}, "
+                          f"Skipped: {stats['skipped']}, "
+                          f"Failed: {stats['failed']}")
+                
+            except Exception as e:
+                click.echo(f"  ✗ Error: {e}")
+                total_failed += 1
+            
+            click.echo()
+        
+        # Summary
+        click.echo("=" * 70)
+        click.echo("BATCH BACKUP SUMMARY (FINAL FILES)")
+        click.echo("=" * 70)
+        click.echo(f"Sessions processed: {len(sessions)}")
+        click.echo(f"Files uploaded:     {total_uploaded}")
+        click.echo(f"Files skipped:      {total_skipped}")
+        click.echo(f"Files failed:       {total_failed}")
+        click.echo("=" * 70)
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error: {e}")
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@processed.command('backup-all-intermediate')
+@click.option('--incomplete', is_flag=True,
+              help='Only backup sessions with incomplete intermediate file backups')
+@click.option('--force', is_flag=True,
+              help='Force backup even if files haven\'t changed')
+@click.option('--limit', type=int,
+              help='Limit number of sessions to process')
+@click.pass_context
+def backup_all_intermediate(ctx, incomplete, force, limit):
+    """Backup intermediate files from multiple processing sessions.
+    
+    Examples:
+        # Backup intermediate files from all sessions
+        python main.py processed backup-all-intermediate
+        
+        # Only backup sessions missing intermediate file backups
+        python main.py processed backup-all-intermediate --incomplete
+        
+        # Limit to 5 sessions
+        python main.py processed backup-all-intermediate --limit 5
+    """
+    config_path = ctx.obj.get('config_path', 'config.json')
+    s3_config_path = 's3_config.json'
+    verbose = ctx.obj.get('verbose', False)
+    
+    try:
+        config, cameras, telescopes, filter_mappings = load_config(config_path)
+        setup_logging(config, verbose)
+        s3_config = S3BackupConfig(s3_config_path)
+        
+        cataloger = FitsCataloger(config, cameras, telescopes, filter_mappings)
+        backup_manager = ProcessingSessionFileBackup(config, s3_config, cataloger.db_service)
+        
+        # Get all processing sessions
+        db_session = cataloger.db_service.db_manager.get_session()
+        query = db_session.query(ProcessingSession)
+        
+        if incomplete:
+            # Filter for sessions with files in intermediate folder that aren't backed up
+            from s3_backup.models import S3BackupProcessedFileRecord
+            
+            # Get sessions with intermediate files
+            sessions_with_intermediate = db_session.query(ProcessedFile.processing_session_id).filter(
+                ProcessedFile.subfolder == 'intermediate'
+            ).distinct().all()
+            session_ids_with_intermediate = {s[0] for s in sessions_with_intermediate}
+            
+            # Get sessions with backed up intermediate files
+            backed_up_intermediate = db_session.query(
+                S3BackupProcessedFileRecord.processing_session_id
+            ).join(
+                ProcessedFile,
+                ProcessedFile.id == S3BackupProcessedFileRecord.processed_file_id
+            ).filter(
+                ProcessedFile.subfolder == 'intermediate'
+            ).distinct().all()
+            backed_up_ids = {s[0] for s in backed_up_intermediate}
+            
+            # Find sessions with intermediate files that need backup
+            incomplete_ids = session_ids_with_intermediate - backed_up_ids
+            
+            if not incomplete_ids:
+                click.echo("No sessions with incomplete intermediate file backups found.")
+                db_session.close()
+                return
+            
+            query = query.filter(ProcessingSession.id.in_(incomplete_ids))
+        
+        sessions = query.order_by(ProcessingSession.created_at.desc()).all()
+        
+        if limit:
+            sessions = sessions[:limit]
+        
+        db_session.close()
+        
+        if not sessions:
+            click.echo("No sessions found to backup.")
+            return
+        
+        click.echo(f"Found {len(sessions)} sessions to backup (INTERMEDIATE files only)")
+        click.echo()
+        
+        total_uploaded = 0
+        total_failed = 0
+        total_skipped = 0
+        
+        for i, ps in enumerate(sessions, 1):
+            click.echo(f"[{i}/{len(sessions)}] Backing up: {ps.name} ({ps.id})")
+            
+            try:
+                stats = backup_manager.backup_session_files(
+                    session_id=ps.id,
+                    subfolders=['intermediate'],  # Only intermediate files
+                    file_types=None,
+                    force=force
+                )
+                
+                total_uploaded += stats['uploaded']
+                total_failed += stats['failed']
+                total_skipped += stats['skipped']
+                
+                click.echo(f"  ✓ Uploaded: {stats['uploaded']}, "
+                          f"Skipped: {stats['skipped']}, "
+                          f"Failed: {stats['failed']}")
+                
+            except Exception as e:
+                click.echo(f"  ✗ Error: {e}")
+                total_failed += 1
+            
+            click.echo()
+        
+        # Summary
+        click.echo("=" * 70)
+        click.echo("BATCH BACKUP SUMMARY (INTERMEDIATE FILES)")
+        click.echo("=" * 70)
+        click.echo(f"Sessions processed: {len(sessions)}")
+        click.echo(f"Files uploaded:     {total_uploaded}")
+        click.echo(f"Files skipped:      {total_skipped}")
+        click.echo(f"Files failed:       {total_failed}")
+        click.echo("=" * 70)
+        
+        cataloger.cleanup()
+        
+    except Exception as e:
+        click.echo(f"Error: {e}")
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     cli()
