@@ -54,13 +54,105 @@ const ProcessingSessionDetailsModal = {
                         <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200 mb-6">
                             <div class="flex justify-between items-start mb-4">
                                 <h3 class="text-xl font-bold text-blue-900">Session Summary</h3>
-                                <div class="flex flex-col space-y-2">
-                                    <button @click="openMarkdownEditor" class="btn btn-green text-sm">
-                                        📝 Edit Notes
-                                    </button>
-                                    <button @click="findCalibrationFromDetails" class="btn btn-green text-sm">
-                                        🔍 Find Calibration
-                                    </button>
+                                <div class="flex items-start space-x-4">
+                                    <!-- Action Buttons -->
+                                    <div class="flex flex-col space-y-2">
+                                        <button @click="openMarkdownEditor" class="btn btn-green text-sm">
+                                            📝 Edit Notes
+                                        </button>
+                                        <button @click="findCalibrationFromDetails" class="btn btn-green text-sm">
+                                            🔍 Find Calibration
+                                        </button>
+                                    </div>
+                                    
+                                    <!-- S3 Backup Status Badges -->
+                                    <div class="flex flex-col space-y-2">
+                                        <!-- Intermediate Files Backup Status -->
+                                        <div v-if="s3BackupError" 
+                                             class="px-3 py-1 bg-red-50 text-red-600 rounded-lg flex items-center space-x-2 text-xs" 
+                                             title="Error checking backup status">
+                                            <svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                            </svg>
+                                            <span class="font-medium">Backup Error</span>
+                                        </div>
+                                        <div v-else-if="s3BackupEnabled === false" 
+                                             class="px-3 py-1 bg-gray-100 text-gray-500 rounded-lg flex items-center space-x-2 cursor-not-allowed text-xs" 
+                                             title="S3 Backup is disabled">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                                            </svg>
+                                            <span class="font-medium">Backup Disabled</span>
+                                        </div>
+                                        <div v-else-if="loadingBackupStatus" 
+                                             class="px-3 py-1 bg-gray-100 rounded-lg flex items-center space-x-2 text-xs">
+                                            <div class="spinner-small"></div>
+                                            <span class="text-gray-600">Checking...</span>
+                                        </div>
+                                        <template v-else-if="backupStatus">
+                                            <!-- Intermediate Files Badge -->
+                                            <div v-if="backupStatus.intermediate.total_files > 0">
+                                                <div v-if="backupStatus.intermediate.is_complete" 
+                                                     class="px-3 py-1 bg-green-100 text-green-800 rounded-lg flex items-center space-x-2 text-xs" 
+                                                     :title="'Intermediate: ' + backupStatus.intermediate.backed_up_files + ' of ' + backupStatus.intermediate.total_files + ' files backed up'">
+                                                    <svg class="w-4 h-4 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                                    </svg>
+                                                    <span class="font-medium">Intermediate Backed Up</span>
+                                                </div>
+                                                <div v-else-if="backupStatus.intermediate.backed_up_files > 0" 
+                                                     class="px-3 py-1 bg-orange-100 text-orange-800 rounded-lg flex items-center space-x-2 text-xs" 
+                                                     :title="'Intermediate: ' + backupStatus.intermediate.backed_up_files + ' of ' + backupStatus.intermediate.total_files + ' files backed up (' + backupStatus.intermediate.backup_percentage.toFixed(0) + '%)'">
+                                                    <svg class="w-4 h-4 text-orange-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                                    </svg>
+                                                    <span class="font-medium">Intermediate Partial ({{ backupStatus.intermediate.backup_percentage.toFixed(0) }}%)</span>
+                                                </div>
+                                                <button v-else 
+                                                        @click="backupIntermediate" 
+                                                        :disabled="backingUpIntermediate"
+                                                        class="px-3 py-1 bg-yellow-50 hover:bg-yellow-100 text-yellow-800 rounded-lg flex items-center space-x-2 transition-colors text-xs"
+                                                        title="Back up intermediate files to S3">
+                                                    <svg class="w-4 h-4 text-yellow-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                                                    </svg>
+                                                    <span v-if="backingUpIntermediate" class="font-medium">Backing up...</span>
+                                                    <span v-else class="font-medium">Backup Intermediate</span>
+                                                </button>
+                                            </div>
+                                            
+                                            <!-- Final Files Badge -->
+                                            <div v-if="backupStatus.final.total_files > 0">
+                                                <div v-if="backupStatus.final.is_complete" 
+                                                     class="px-3 py-1 bg-green-100 text-green-800 rounded-lg flex items-center space-x-2 text-xs" 
+                                                     :title="'Final: ' + backupStatus.final.backed_up_files + ' of ' + backupStatus.final.total_files + ' files backed up'">
+                                                    <svg class="w-4 h-4 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                                    </svg>
+                                                    <span class="font-medium">Final Backed Up</span>
+                                                </div>
+                                                <div v-else-if="backupStatus.final.backed_up_files > 0" 
+                                                     class="px-3 py-1 bg-orange-100 text-orange-800 rounded-lg flex items-center space-x-2 text-xs" 
+                                                     :title="'Final: ' + backupStatus.final.backed_up_files + ' of ' + backupStatus.final.total_files + ' files backed up (' + backupStatus.final.backup_percentage.toFixed(0) + '%)'">
+                                                    <svg class="w-4 h-4 text-orange-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                                    </svg>
+                                                    <span class="font-medium">Final Partial ({{ backupStatus.final.backup_percentage.toFixed(0) }}%)</span>
+                                                </div>
+                                                <button v-else 
+                                                        @click="backupFinal" 
+                                                        :disabled="backingUpFinal"
+                                                        class="px-3 py-1 bg-yellow-50 hover:bg-yellow-100 text-yellow-800 rounded-lg flex items-center space-x-2 transition-colors text-xs"
+                                                        title="Back up final files to S3">
+                                                    <svg class="w-4 h-4 text-yellow-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                                                    </svg>
+                                                    <span v-if="backingUpFinal" class="font-medium">Backing up...</span>
+                                                    <span v-else class="font-medium">Backup Final</span>
+                                                </button>
+                                            </div>
+                                        </template>
+                                    </div>
                                 </div>
                             </div>
 
@@ -466,9 +558,18 @@ const ProcessingSessionDetailsModal = {
             statusEditing: false,
             processedFilesStats: null,
             loadingProcessedStats: false,
+
             // Collapsible card states
             processedFilesCollapsed: false,
             imagingSessionsCollapsed: false,
+
+            // S3 Backup status
+            backupStatus: null,
+            loadingBackupStatus: false,
+            backingUpIntermediate: false,
+            backingUpFinal: false,
+            s3BackupEnabled: null,
+            s3BackupError: false,
         };
     },
 
@@ -512,6 +613,7 @@ const ProcessingSessionDetailsModal = {
                 this.currentSessionDetails = response.data;
                 
                 await this.loadWebDAVInfo(sessionId);
+                await this.checkBackupStatus();
                 await this.loadImagingSessions(sessionId);
                 await this.loadProcessedFileStats(sessionId);
                 
@@ -860,7 +962,113 @@ const ProcessingSessionDetailsModal = {
                 i++;
             }
             return `${size.toFixed(2)} ${units[i]}`;
+        },
+
+        async checkBackupStatus() {
+            if (!this.currentSessionDetails) return;
+            
+            this.loadingBackupStatus = true;
+            this.s3BackupError = false;
+            
+            try {
+                const response = await fetch(
+                    `http://${window.location.hostname}:8083/api/processing-session/${this.currentSessionDetails.id}/backup-status`
+                );
+                
+                if (!response.ok) {
+                    throw new Error('Failed to check backup status');
+                }
+                
+                const data = await response.json();
+                this.backupStatus = data;
+                this.s3BackupEnabled = data.s3_enabled;
+                
+            } catch (error) {
+                console.error('Error checking backup status:', error);
+                this.s3BackupError = true;
+            } finally {
+                this.loadingBackupStatus = false;
+            }
+        },
+
+        async backupIntermediate() {
+            if (!this.currentSessionDetails || this.backingUpIntermediate) return;
+            
+            if (!confirm(`Backup intermediate files for this session?\n\nThis will upload ${this.backupStatus.intermediate.total_files} files to S3.`)) {
+                return;
+            }
+            
+            this.backingUpIntermediate = true;
+            
+            try {
+                const response = await fetch(
+                    `http://${window.location.hostname}:8083/api/processing-session/${this.currentSessionDetails.id}/backup-intermediate`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    }
+                );
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Backup failed');
+                }
+                
+                const result = await response.json();
+                alert(`Backup complete!\n\nUploaded: ${result.stats.uploaded}\nSkipped: ${result.stats.skipped}\nFailed: ${result.stats.failed}`);
+                
+                // Refresh backup status
+                await this.checkBackupStatus();
+                
+            } catch (error) {
+                console.error('Error backing up intermediate files:', error);
+                alert(`Backup error: ${error.message}`);
+            } finally {
+                this.backingUpIntermediate = false;
+            }
+        },
+
+        async backupFinal() {
+            if (!this.currentSessionDetails || this.backingUpFinal) return;
+            
+            if (!confirm(`Backup final files for this session?\n\nThis will upload ${this.backupStatus.final.total_files} files to S3.`)) {
+                return;
+            }
+            
+            this.backingUpFinal = true;
+            
+            try {
+                const response = await fetch(
+                    `http://${window.location.hostname}:8083/api/processing-session/${this.currentSessionDetails.id}/backup-final`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    }
+                );
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Backup failed');
+                }
+                
+                const result = await response.json();
+                alert(`Backup complete!\n\nUploaded: ${result.stats.uploaded}\nSkipped: ${result.stats.skipped}\nFailed: ${result.stats.failed}`);
+                
+                // Refresh backup status
+                await this.checkBackupStatus();
+                
+            } catch (error) {
+                console.error('Error backing up final files:', error);
+                alert(`Backup error: ${error.message}`);
+            } finally {
+                this.backingUpFinal = false;
+            }
         }
+
     },
 
     async mounted() {

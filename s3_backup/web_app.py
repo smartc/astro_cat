@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 import json
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -1265,7 +1265,7 @@ async def get_backup_task_status(task_id: str):
         raise HTTPException(status_code=404, detail="Task not found")
     
     return backup_tasks[task_id]
-    
+
 
 def calculate_s3_cost(bytes_size, storage_class):
     """Calculate estimated annual S3 storage cost using config rates.
@@ -1298,6 +1298,168 @@ def calculate_s3_cost(bytes_size, storage_class):
     monthly_cost = gb * monthly_rate
     return monthly_cost * 12, using_fallback
 
+
+@app.get("/api/processing-session/{session_id}/backup-status")
+async def get_processing_session_backup_status(session_id: str):
+    """Get backup status for a processing session (both intermediate and final files)."""
+    if not backup_manager:
+        raise HTTPException(status_code=503, detail="Backup manager not initialized")
+    
+    try:
+        from sqlalchemy import func
+        from s3_backup.models import S3BackupProcessedFileRecord
+        from processed_catalog.models import ProcessedFile
+        
+        session_db = db_service.db_manager.get_session()
+        
+        try:
+            
+            # Check intermediate files backup status
+            intermediate_files = session_db.query(ProcessedFile).filter(
+                ProcessedFile.processing_session_id == session_id,
+                ProcessedFile.subfolder == 'intermediate',
+                ProcessedFile.file_type.in_(['jpg', 'jpeg', 'xisf', 'xosm', 'pxiproject'])
+            ).all()
+            
+            intermediate_backed_up = session_db.query(S3BackupProcessedFileRecord).filter(
+                S3BackupProcessedFileRecord.processing_session_id == session_id
+            ).join(
+                ProcessedFile,
+                ProcessedFile.id == S3BackupProcessedFileRecord.processed_file_id
+            ).filter(
+                ProcessedFile.subfolder == 'intermediate'
+            ).count()
+            
+            # Check final files backup status
+            final_files = session_db.query(ProcessedFile).filter(
+                ProcessedFile.processing_session_id == session_id,
+                ProcessedFile.subfolder == 'final',
+                ProcessedFile.file_type.in_(['jpg', 'jpeg', 'xisf', 'xosm', 'pxiproject'])
+            ).all()
+            
+            final_backed_up = session_db.query(S3BackupProcessedFileRecord).filter(
+                S3BackupProcessedFileRecord.processing_session_id == session_id
+            ).join(
+                ProcessedFile,
+                ProcessedFile.id == S3BackupProcessedFileRecord.processed_file_id
+            ).filter(
+                ProcessedFile.subfolder == 'final'
+            ).count()
+            
+            # Calculate sizes
+            intermediate_total_size = sum(f.file_size or 0 for f in intermediate_files)
+            final_total_size = sum(f.file_size or 0 for f in final_files)
+            
+            intermediate_backed_up_files = session_db.query(ProcessedFile).filter(
+                ProcessedFile.processing_session_id == session_id,
+                ProcessedFile.subfolder == 'intermediate'
+            ).join(
+                S3BackupProcessedFileRecord,
+                ProcessedFile.id == S3BackupProcessedFileRecord.processed_file_id
+            ).all()
+            
+            final_backed_up_files = session_db.query(ProcessedFile).filter(
+                ProcessedFile.processing_session_id == session_id,
+                ProcessedFile.subfolder == 'final'
+            ).join(
+                S3BackupProcessedFileRecord,
+                ProcessedFile.id == S3BackupProcessedFileRecord.processed_file_id
+            ).all()
+            
+            intermediate_backed_up_size = sum(f.file_size or 0 for f in intermediate_backed_up_files)
+            final_backed_up_size = sum(f.file_size or 0 for f in final_backed_up_files)
+            
+            return {
+                "session_id": session_id,
+                "s3_enabled": backup_manager.s3_config.enabled,
+                "intermediate": {
+                    "total_files": len(intermediate_files),
+                    "backed_up_files": intermediate_backed_up,
+                    "total_size": intermediate_total_size,
+                    "backed_up_size": intermediate_backed_up_size,
+                    "is_complete": intermediate_backed_up >= len(intermediate_files) if intermediate_files else False,
+                    "backup_percentage": (intermediate_backed_up / len(intermediate_files) * 100) if intermediate_files else 0
+                },
+                "final": {
+                    "total_files": len(final_files),
+                    "backed_up_files": final_backed_up,
+                    "total_size": final_total_size,
+                    "backed_up_size": final_backed_up_size,
+                    "is_complete": final_backed_up >= len(final_files) if final_files else False,
+                    "backup_percentage": (final_backed_up / len(final_files) * 100) if final_files else 0
+                }
+            }
+            
+        finally:
+            session_db.close()
+            
+    except Exception as e:
+        logger.error(f"Error getting backup status for processing session {session_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/processing-session/{session_id}/backup-intermediate")
+async def backup_processing_intermediate_single(session_id: str, force: bool = Query(False)):
+    """Backup intermediate files for a single processing session."""
+    if not backup_manager:
+        raise HTTPException(status_code=503, detail="Backup manager not initialized")
+    
+    if not backup_manager.s3_config.enabled:
+        raise HTTPException(status_code=400, detail="S3 backup is disabled")
+    
+    try:
+        def do_backup():
+            result = backup_manager.backup_session_files(
+                session_id=session_id,
+                subfolders=['intermediate'],
+                file_types=None,
+                force=force
+            )
+            return result
+        
+        result = await asyncio.to_thread(do_backup)
+        
+        return {
+            "success": True,
+            "message": f"Backup complete for intermediate files",
+            "stats": result
+        }
+        
+    except Exception as e:
+        logger.error(f"Error backing up intermediate files for {session_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/processing-session/{session_id}/backup-final")
+async def backup_processing_final_single(session_id: str, force: bool = Query(False)):
+    """Backup final files for a single processing session."""
+    if not backup_manager:
+        raise HTTPException(status_code=503, detail="Backup manager not initialized")
+    
+    if not backup_manager.s3_config.enabled:
+        raise HTTPException(status_code=400, detail="S3 backup is disabled")
+    
+    try:
+        def do_backup():
+            result = backup_manager.backup_session_files(
+                session_id=session_id,
+                subfolders=['final'],
+                file_types=None,
+                force=force
+            )
+            return result
+        
+        result = await asyncio.to_thread(do_backup)
+        
+        return {
+            "success": True,
+            "message": f"Backup complete for final files",
+            "stats": result
+        }
+        
+    except Exception as e:
+        logger.error(f"Error backing up final files for {session_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
