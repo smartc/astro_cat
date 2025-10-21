@@ -736,6 +736,537 @@ async def get_storage_categories(force_refresh: bool = False):
     }
                        
 
+class BackupRequest(BaseModel):
+    """Request model for backup operations."""
+    force: bool = False
+    limit: Optional[int] = None
+
+
+class BackupResponse(BaseModel):
+    """Response model for backup operations."""
+    success: bool
+    message: str
+    stats: Optional[dict] = None
+    task_id: Optional[str] = None
+
+
+# Track ongoing backup tasks
+backup_tasks = {}
+
+
+async def run_backup_task(task_id: str, backup_func, *args, **kwargs):
+    """Run a backup task in the background."""
+    try:
+        backup_tasks[task_id] = {"status": "running", "progress": 0}
+        result = await asyncio.to_thread(backup_func, *args, **kwargs)
+        backup_tasks[task_id] = {"status": "complete", "result": result}
+        return result
+    except Exception as e:
+        backup_tasks[task_id] = {"status": "error", "error": str(e)}
+        logger.error(f"Backup task {task_id} failed: {e}")
+        raise
+
+
+@app.post("/api/backup/raw-files", response_model=BackupResponse)
+async def backup_raw_files(request: BackupRequest):
+    """Backup raw imaging session files (creates archives and uploads)."""
+    if not backup_manager:
+        raise HTTPException(status_code=503, detail="Backup manager not initialized")
+    
+    if not backup_manager.s3_config.enabled:
+        raise HTTPException(status_code=400, detail="S3 backup is disabled")
+    
+    session_db = db_service.db_manager.get_session()
+    
+    try:
+        # Get sessions that need backing up
+        from models import ImagingSession as SessionModel
+        from s3_backup.models import S3BackupArchive
+        
+        query = session_db.query(SessionModel).order_by(SessionModel.session_date)
+        sessions = query.all()
+        
+        # Filter to not-backed-up sessions
+        sessions_to_backup = []
+        for session in sessions:
+            archive = session_db.query(S3BackupArchive).filter(
+                S3BackupArchive.session_id == session.session_id
+            ).first()
+            
+            if not archive or request.force:
+                sessions_to_backup.append(session)
+                
+                if request.limit and len(sessions_to_backup) >= request.limit:
+                    break
+        
+        if not sessions_to_backup:
+            return BackupResponse(
+                success=True,
+                message="No sessions need backing up",
+                stats={"uploaded": 0, "skipped": 0, "failed": 0}
+            )
+        
+        # Start backup in background
+        task_id = f"raw_backup_{asyncio.current_task().get_name()}"
+        
+        def do_backup():
+            stats = {"uploaded": 0, "failed": 0, "total": len(sessions_to_backup)}
+            
+            for session in sessions_to_backup:
+                try:
+                    from datetime import datetime
+                    year = datetime.strptime(session.session_date, '%Y-%m-%d').year
+                    
+                    result = backup_manager.backup_session(
+                        session.session_id,
+                        year,
+                        cleanup_archives=True
+                    )
+                    
+                    if result.success:
+                        stats["uploaded"] += 1
+                    else:
+                        stats["failed"] += 1
+                        
+                except Exception as e:
+                    logger.error(f"Failed to backup session {session.session_id}: {e}")
+                    stats["failed"] += 1
+            
+            return stats
+        
+        asyncio.create_task(run_backup_task(task_id, do_backup))
+        
+        return BackupResponse(
+            success=True,
+            message=f"Started backup of {len(sessions_to_backup)} sessions",
+            task_id=task_id,
+            stats={"queued": len(sessions_to_backup)}
+        )
+        
+    finally:
+        session_db.close()
+
+
+@app.post("/api/backup/session-notes", response_model=BackupResponse)
+async def backup_session_notes(request: BackupRequest):
+    """Backup imaging session markdown notes."""
+    if not backup_manager:
+        raise HTTPException(status_code=503, detail="Backup manager not initialized")
+    
+    if not backup_manager.s3_config.enabled:
+        raise HTTPException(status_code=400, detail="S3 backup is disabled")
+    
+    try:
+        from config import load_config
+        from pathlib import Path
+        from s3_backup.models import S3BackupSessionNote
+        
+        config, _, _, _ = load_config()
+        notes_dir = Path(config.paths.notes_dir) / "Imaging_Sessions"
+        
+        if not notes_dir.exists():
+            return BackupResponse(
+                success=False,
+                message="Imaging_Sessions directory not found"
+            )
+        
+        markdown_files = sorted(notes_dir.rglob("*.md"))
+        
+        if not markdown_files:
+            return BackupResponse(
+                success=True,
+                message="No session notes found",
+                stats={"uploaded": 0, "skipped": 0, "failed": 0}
+            )
+        
+        def do_backup():
+            stats = {"uploaded": 0, "skipped": 0, "failed": 0}
+            session_db = db_service.db_manager.get_session()
+            
+            try:
+                for md_file in markdown_files[:request.limit] if request.limit else markdown_files:
+                    try:
+                        session_id = md_file.stem
+                        year = int(md_file.parent.name)
+                        s3_key = backup_manager._get_session_note_key(session_id, year)
+                        
+                        metadata = {
+                            'session_id': session_id,
+                            'type': 'imaging_session'
+                        }
+                        
+                        result = backup_manager.upload_markdown(
+                            md_file, s3_key, 'imaging_sessions', metadata, force=request.force
+                        )
+                        
+                        if result.success and result.needs_backup:
+                            stats['uploaded'] += 1
+                            
+                            # Update database
+                            existing = session_db.query(S3BackupSessionNote).filter(
+                                S3BackupSessionNote.session_id == session_id
+                            ).first()
+                            
+                            if existing:
+                                existing.s3_etag = result.s3_etag
+                                existing.uploaded_at = datetime.now()
+                                existing.file_size_bytes = result.file_size
+                                existing.verified = True
+                            else:
+                                from datetime import datetime
+                                backup_note = S3BackupSessionNote(
+                                    session_id=session_id,
+                                    session_year=year,
+                                    s3_bucket=backup_manager.s3_config.bucket,
+                                    s3_key=s3_key,
+                                    s3_region=backup_manager.s3_config.region,
+                                    s3_etag=result.s3_etag,
+                                    uploaded_at=datetime.now(),
+                                    file_size_bytes=result.file_size,
+                                    archive_policy='never',
+                                    backup_policy='never',
+                                    current_storage_class='STANDARD',
+                                    verified=True
+                                )
+                                session_db.add(backup_note)
+                            
+                            session_db.commit()
+                            
+                        elif result.success and not result.needs_backup:
+                            stats['skipped'] += 1
+                        else:
+                            stats['failed'] += 1
+                            
+                    except Exception as e:
+                        logger.error(f"Failed to backup {md_file}: {e}")
+                        stats['failed'] += 1
+                        session_db.rollback()
+                
+                return stats
+                
+            finally:
+                session_db.close()
+        
+        task_id = f"notes_backup_{asyncio.current_task().get_name()}"
+        asyncio.create_task(run_backup_task(task_id, do_backup))
+        
+        return BackupResponse(
+            success=True,
+            message=f"Started backup of {len(markdown_files)} session notes",
+            task_id=task_id
+        )
+        
+    except Exception as e:
+        logger.error(f"Error starting session notes backup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/backup/processing-notes", response_model=BackupResponse)
+async def backup_processing_notes(request: BackupRequest):
+    """Backup processing session markdown notes."""
+    if not backup_manager:
+        raise HTTPException(status_code=503, detail="Backup manager not initialized")
+    
+    if not backup_manager.s3_config.enabled:
+        raise HTTPException(status_code=400, detail="S3 backup is disabled")
+    
+    try:
+        from config import load_config
+        from pathlib import Path
+        from s3_backup.models import S3BackupProcessingSession
+        
+        config, _, _, _ = load_config()
+        notes_dir = Path(config.paths.notes_dir) / "Processing_Sessions"
+        
+        if not notes_dir.exists():
+            return BackupResponse(
+                success=False,
+                message="Processing_Sessions directory not found"
+            )
+        
+        markdown_files = sorted(notes_dir.rglob("*.md"))
+        
+        if not markdown_files:
+            return BackupResponse(
+                success=True,
+                message="No processing notes found",
+                stats={"uploaded": 0, "skipped": 0, "failed": 0}
+            )
+        
+        def do_backup():
+            stats = {"uploaded": 0, "skipped": 0, "failed": 0}
+            session_db = db_service.db_manager.get_session()
+            
+            try:
+                for md_file in markdown_files[:request.limit] if request.limit else markdown_files:
+                    try:
+                        session_id = md_file.stem
+                        s3_key = backup_manager._get_processing_note_key(session_id)
+                        
+                        metadata = {
+                            'session_id': session_id,
+                            'type': 'processing_session'
+                        }
+                        
+                        result = backup_manager.upload_markdown(
+                            md_file, s3_key, 'processing_sessions', metadata, force=request.force
+                        )
+                        
+                        if result.success and result.needs_backup:
+                            stats['uploaded'] += 1
+                            
+                            # Update database
+                            existing = session_db.query(S3BackupProcessingSession).filter(
+                                S3BackupProcessingSession.processing_session_id == session_id
+                            ).first()
+                            
+                            if existing:
+                                existing.s3_etag = result.s3_etag
+                                existing.uploaded_at = datetime.now()
+                                existing.file_size_bytes = result.file_size
+                            else:
+                                from datetime import datetime
+                                backup_proc = S3BackupProcessingSession(
+                                    processing_session_id=session_id,
+                                    s3_bucket=backup_manager.s3_config.bucket,
+                                    s3_key=s3_key,
+                                    s3_region=backup_manager.s3_config.region,
+                                    s3_etag=result.s3_etag,
+                                    uploaded_at=datetime.now(),
+                                    file_size_bytes=result.file_size,
+                                    archive_policy='never',
+                                    backup_policy='never',
+                                    current_storage_class='STANDARD'
+                                )
+                                session_db.add(backup_proc)
+                            
+                            session_db.commit()
+                            
+                        elif result.success and not result.needs_backup:
+                            stats['skipped'] += 1
+                        else:
+                            stats['failed'] += 1
+                            
+                    except Exception as e:
+                        logger.error(f"Failed to backup {md_file}: {e}")
+                        stats['failed'] += 1
+                        session_db.rollback()
+                
+                return stats
+                
+            finally:
+                session_db.close()
+        
+        task_id = f"proc_notes_backup_{asyncio.current_task().get_name()}"
+        asyncio.create_task(run_backup_task(task_id, do_backup))
+        
+        return BackupResponse(
+            success=True,
+            message=f"Started backup of {len(markdown_files)} processing notes",
+            task_id=task_id
+        )
+        
+    except Exception as e:
+        logger.error(f"Error starting processing notes backup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/backup/processed-intermediate", response_model=BackupResponse)
+async def backup_processed_intermediate(request: BackupRequest):
+    """Backup intermediate processed files."""
+    if not backup_manager:
+        raise HTTPException(status_code=503, detail="Backup manager not initialized")
+    
+    if not backup_manager.s3_config.enabled:
+        raise HTTPException(status_code=400, detail="S3 backup is disabled")
+    
+    try:
+        # Use the processing file backup functionality
+        from models import ProcessingSession
+        
+        session_db = db_service.db_manager.get_session()
+        
+        # Get sessions with files
+        sessions = session_db.query(ProcessingSession).all()
+        session_db.close()
+        
+        if not sessions:
+            return BackupResponse(
+                success=True,
+                message="No processing sessions found",
+                stats={"uploaded": 0, "skipped": 0, "failed": 0}
+            )
+        
+        def do_backup():
+            stats = {"uploaded": 0, "skipped": 0, "failed": 0}
+            
+            for ps in sessions[:request.limit] if request.limit else sessions:
+                try:
+                    result = backup_manager.backup_session_files(
+                        session_id=ps.id,
+                        subfolders=['intermediate'],
+                        file_types=None,
+                        force=request.force
+                    )
+                    
+                    stats['uploaded'] += result.get('uploaded', 0)
+                    stats['skipped'] += result.get('skipped', 0)
+                    stats['failed'] += result.get('failed', 0)
+                    
+                except Exception as e:
+                    logger.error(f"Failed to backup intermediate files for {ps.id}: {e}")
+                    stats['failed'] += 1
+            
+            return stats
+        
+        task_id = f"intermediate_backup_{asyncio.current_task().get_name()}"
+        asyncio.create_task(run_backup_task(task_id, do_backup))
+        
+        return BackupResponse(
+            success=True,
+            message=f"Started backup of intermediate files",
+            task_id=task_id
+        )
+        
+    except Exception as e:
+        logger.error(f"Error starting intermediate backup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/backup/processed-final", response_model=BackupResponse)
+async def backup_processed_final(request: BackupRequest):
+    """Backup final processed files."""
+    if not backup_manager:
+        raise HTTPException(status_code=503, detail="Backup manager not initialized")
+    
+    if not backup_manager.s3_config.enabled:
+        raise HTTPException(status_code=400, detail="S3 backup is disabled")
+    
+    try:
+        from models import ProcessingSession
+        
+        session_db = db_service.db_manager.get_session()
+        sessions = session_db.query(ProcessingSession).all()
+        session_db.close()
+        
+        if not sessions:
+            return BackupResponse(
+                success=True,
+                message="No processing sessions found",
+                stats={"uploaded": 0, "skipped": 0, "failed": 0}
+            )
+        
+        def do_backup():
+            stats = {"uploaded": 0, "skipped": 0, "failed": 0}
+            
+            for ps in sessions[:request.limit] if request.limit else sessions:
+                try:
+                    result = backup_manager.backup_session_files(
+                        session_id=ps.id,
+                        subfolders=['final'],
+                        file_types=None,
+                        force=request.force
+                    )
+                    
+                    stats['uploaded'] += result.get('uploaded', 0)
+                    stats['skipped'] += result.get('skipped', 0)
+                    stats['failed'] += result.get('failed', 0)
+                    
+                except Exception as e:
+                    logger.error(f"Failed to backup final files for {ps.id}: {e}")
+                    stats['failed'] += 1
+            
+            return stats
+        
+        task_id = f"final_backup_{asyncio.current_task().get_name()}"
+        asyncio.create_task(run_backup_task(task_id, do_backup))
+        
+        return BackupResponse(
+            success=True,
+            message=f"Started backup of final files",
+            task_id=task_id
+        )
+        
+    except Exception as e:
+        logger.error(f"Error starting final backup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/backup/database", response_model=BackupResponse)
+async def backup_database(request: BackupRequest):
+    """Backup the SQLite database file."""
+    if not backup_manager:
+        raise HTTPException(status_code=503, detail="Backup manager not initialized")
+    
+    if not backup_manager.s3_config.enabled:
+        raise HTTPException(status_code=400, detail="S3 backup is disabled")
+    
+    try:
+        from config import load_config
+        from pathlib import Path
+        from datetime import datetime
+        
+        config, _, _, _ = load_config()
+        db_path = Path(config.paths.database_path)
+        
+        if not db_path.exists():
+            return BackupResponse(
+                success=False,
+                message="Database file not found"
+            )
+        
+        def do_backup():
+            try:
+                # Create timestamped backup key
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                s3_key = f"backups/database/fits_cataloger_{timestamp}.db"
+                
+                # Upload database
+                with open(db_path, 'rb') as f:
+                    backup_manager.s3_client.upload_fileobj(
+                        f,
+                        backup_manager.s3_config.bucket,
+                        s3_key,
+                        ExtraArgs={
+                            'ContentType': 'application/x-sqlite3',
+                            'Tagging': 'backup_policy=standard'
+                        }
+                    )
+                
+                file_size = db_path.stat().st_size
+                
+                return {
+                    "uploaded": 1,
+                    "size": file_size,
+                    "s3_key": s3_key
+                }
+                
+            except Exception as e:
+                logger.error(f"Failed to backup database: {e}")
+                raise
+        
+        result = await asyncio.to_thread(do_backup)
+        
+        return BackupResponse(
+            success=True,
+            message="Database backed up successfully",
+            stats=result
+        )
+        
+    except Exception as e:
+        logger.error(f"Error backing up database: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/backup/task/{task_id}")
+async def get_backup_task_status(task_id: str):
+    """Get the status of a backup task."""
+    if task_id not in backup_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    return backup_tasks[task_id]
+    
+
 def calculate_s3_cost(bytes_size, storage_class):
     """Calculate estimated annual S3 storage cost using config rates.
     

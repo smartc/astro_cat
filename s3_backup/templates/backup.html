@@ -45,6 +45,7 @@
                                 <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Storage Class</th>
                                 <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">% Backed Up</th>
                                 <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Est. Annual Cost</th>
+                                <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
@@ -63,11 +64,34 @@
                                     </span>
                                 </td>
                                 <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700 text-right">${{ cat.annual_cost.toFixed(2) }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-center">
+                                    <button 
+                                        @click="startBackup(cat.name)" 
+                                        :disabled="!status.enabled || isBackingUp(cat.name)"
+                                        :class="[
+                                            'px-3 py-1 rounded text-xs font-medium transition',
+                                            status.enabled && !isBackingUp(cat.name) 
+                                                ? 'bg-blue-500 hover:bg-blue-600 text-white' 
+                                                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                        ]"
+                                        :title="getBackupButtonTitle(cat.name)">
+                                        <span v-if="isBackingUp(cat.name)" class="flex items-center">
+                                            <svg class="animate-spin h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24">
+                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                            Backing up...
+                                        </span>
+                                        <span v-else>
+                                            📤 Backup
+                                        </span>
+                                    </button>
+                                </td>
                             </tr>
-                        </tbody>
-                        <tfoot class="bg-gray-100 font-semibold">
-                            <tr>
-                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900">Total</td>
+                            
+                            <!-- Total Row -->
+                            <tr class="bg-gray-100 font-semibold">
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900">TOTAL</td>
                                 <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-right">{{ totalStats.local_files.toLocaleString() }}</td>
                                 <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-right">{{ totalStats.s3_files.toLocaleString() }}</td>
                                 <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-right">{{ totalStats.local_not_in_s3.toLocaleString() }}</td>
@@ -81,60 +105,37 @@
                                     </span>
                                 </td>
                                 <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-right">${{ totalStats.annual_cost.toFixed(2) }}</td>
+                                <td class="px-4 py-3"></td>
                             </tr>
-                        </tfoot>
+                        </tbody>
                     </table>
                 </div>
-                <div class="text-xs text-gray-500 mt-2 space-y-1">
-                    <p v-if="lastUpdated">Last updated: {{ formatTimestamp(lastUpdated) }}</p>
-                    <p v-if="usingFallbackPricing" class="text-yellow-600">
-                        ⚠️ Using fallback pricing rates. Check cost_tracking configuration in s3_config.json for accurate estimates.
-                    </p>
+                
+                <div v-if="usingFallbackPricing" class="mt-2 text-xs text-yellow-600">
+                    ⚠️ Using fallback pricing estimates
+                </div>
+                <div v-if="lastUpdated" class="mt-2 text-xs text-gray-500">
+                    Last refreshed: {{ formatTimestamp(lastUpdated) }}
                 </div>
             </div>
-            
-            <!-- Temp Directory Card -->
-            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-                <h2 class="text-xl font-bold text-gray-800 mb-4">Temporary Directory</h2>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                    <div class="border-l-4 border-blue-500 pl-4">
-                        <p class="text-sm font-semibold text-gray-600 mb-1">Location</p>
-                        <p class="text-xs text-gray-700 font-mono">{{ tempInfo.path }}</p>
+
+            <!-- Temp Directory Info -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">Temporary Storage</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <p class="text-sm text-gray-600">Path</p>
+                        <p class="font-mono text-sm">{{ tempInfo.path }}</p>
                     </div>
-                    <div class="border-l-4 border-green-500 pl-4">
-                        <p class="text-sm font-semibold text-gray-600 mb-1">Free Space</p>
-                        <p class="text-lg font-bold text-green-600">{{ formatBytes(tempInfo.free) }}</p>
-                    </div>
-                    <div class="border-l-4 border-purple-500 pl-4">
-                        <p class="text-sm font-semibold text-gray-600 mb-1">Total</p>
-                        <p class="text-lg font-bold text-purple-600">{{ formatBytes(tempInfo.total) }}</p>
-                    </div>
-                    <div class="border-l-4 border-orange-500 pl-4">
-                        <p class="text-sm font-semibold text-gray-600 mb-1">Usage</p>
-                        <p class="text-lg font-bold text-orange-600">{{ tempInfo.usage_percent.toFixed(1) }}%</p>
+                    <div>
+                        <p class="text-sm text-gray-600">Usage</p>
+                        <p class="text-sm">{{ formatBytes(tempInfo.total - tempInfo.free) }} / {{ formatBytes(tempInfo.total) }} ({{ tempInfo.usage_percent.toFixed(1) }}%)</p>
                     </div>
                 </div>
                 
-                <div v-if="tempInfo.largest_session_id" class="bg-gray-50 rounded p-4 mb-4">
-                    <h3 class="text-sm font-semibold text-gray-700 mb-2">Largest Session</h3>
-                    <div class="grid grid-cols-3 gap-4 text-sm">
-                        <div>
-                            <span class="text-gray-600">ID:</span>
-                            <span class="font-mono ml-2">{{ tempInfo.largest_session_id }}</span>
-                        </div>
-                        <div>
-                            <span class="text-gray-600">Size:</span>
-                            <span class="font-semibold ml-2">{{ formatBytes(tempInfo.largest_session_size) }}</span>
-                        </div>
-                        <div>
-                            <span class="text-gray-600">Required:</span>
-                            <span class="font-semibold ml-2">{{ formatBytes(tempInfo.required_with_buffer) }}</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div v-if="!tempInfo.has_space" class="bg-yellow-50 border border-yellow-200 rounded p-4 mb-4">
-                    <p class="text-yellow-800 font-medium">⚠️ Insufficient space! Need {{ formatBytes(tempInfo.required_with_buffer) }}, have {{ formatBytes(tempInfo.free) }}</p>
+                <div v-if="!tempInfo.has_space" class="bg-red-50 border border-red-200 rounded p-4 mb-4">
+                    <p class="text-red-800 font-medium">⚠️ Insufficient space for largest session</p>
+                    <p class="text-red-700 text-sm">Need {{ formatBytes(tempInfo.required_with_buffer) }}, have {{ formatBytes(tempInfo.free) }}</p>
                 </div>
                 <div v-else-if="tempInfo.largest_session_id" class="bg-green-50 border border-green-200 rounded p-4 mb-4">
                     <p class="text-green-800 font-medium">✓ Sufficient space for largest session</p>
@@ -198,7 +199,8 @@
                             },
                             storageCategories: [],
                             usingFallbackPricing: false,
-                            lastUpdated: null
+                            lastUpdated: null,
+                            backupTasks: {}
                         };
                     },
                     computed: {
@@ -224,7 +226,6 @@
                                 total.annual_cost += cat.annual_cost;
                             });
                             
-                            // Recalculate percentage based on aggregate backed up size
                             total.backup_pct = total.local_storage > 0 
                                 ? (total.backed_up_size / total.local_storage) * 100 
                                 : 0;
@@ -263,6 +264,110 @@
                                 alert('Failed to toggle backup status');
                             }
                         },
+                        getCategoryEndpoint(categoryName) {
+                            const endpoints = {
+                                'Raw Imaging Sessions': '/api/backup/raw-files',
+                                'Imaging Session Notes': '/api/backup/session-notes',
+                                'Processing Session Notes': '/api/backup/processing-notes',
+                                'Processing Sessions - Intermediate': '/api/backup/processed-intermediate',
+                                'Processing Sessions - Final': '/api/backup/processed-final',
+                                'Database Backups': '/api/backup/database'
+                            };
+                            return endpoints[categoryName];
+                        },
+                        isBackingUp(categoryName) {
+                            return this.backupTasks[categoryName]?.status === 'running';
+                        },
+                        getBackupButtonTitle(categoryName) {
+                            if (!this.status.enabled) {
+                                return 'S3 Backup is disabled';
+                            }
+                            if (this.isBackingUp(categoryName)) {
+                                return 'Backup in progress...';
+                            }
+                            return `Start backup for ${categoryName}`;
+                        },
+                        async startBackup(categoryName) {
+                            if (!this.status.enabled) {
+                                alert('S3 Backup is disabled. Please enable it first.');
+                                return;
+                            }
+                            
+                            if (this.isBackingUp(categoryName)) {
+                                return;
+                            }
+                            
+                            const endpoint = this.getCategoryEndpoint(categoryName);
+                            if (!endpoint) {
+                                console.error('No endpoint mapping found for category:', categoryName);
+                                console.log('Available categories:', this.storageCategories.map(c => c.name));
+                                alert(`No backup endpoint for ${categoryName}`);
+                                return;
+                            }
+                            
+                            const confirmMsg = `Start backing up ${categoryName}?\n\nThis will upload files that haven't been backed up yet.`;
+                            if (!confirm(confirmMsg)) {
+                                return;
+                            }
+                            
+                            this.backupTasks[categoryName] = { status: 'running' };
+                            
+                            try {
+                                const response = await axios.post(endpoint, {
+                                    force: false,
+                                    limit: null
+                                });
+                                
+                                if (response.data.success) {
+                                    alert(response.data.message);
+                                    
+                                    if (response.data.task_id) {
+                                        this.pollBackupTask(categoryName, response.data.task_id);
+                                    } else {
+                                        this.backupTasks[categoryName] = { status: 'complete' };
+                                        await this.refreshData(true);
+                                    }
+                                } else {
+                                    alert(`Backup failed: ${response.data.message}`);
+                                    delete this.backupTasks[categoryName];
+                                }
+                            } catch (error) {
+                                console.error('Backup error:', error);
+                                alert(`Backup error: ${error.response?.data?.detail || error.message}`);
+                                delete this.backupTasks[categoryName];
+                            }
+                        },
+                        async pollBackupTask(categoryName, taskId) {
+                            const maxPolls = 120;
+                            let polls = 0;
+                            
+                            const poll = async () => {
+                                try {
+                                    const response = await axios.get(`/api/backup/task/${taskId}`);
+                                    const taskStatus = response.data;
+                                    
+                                    if (taskStatus.status === 'complete') {
+                                        this.backupTasks[categoryName] = { status: 'complete' };
+                                        await this.refreshData(true);
+                                        alert(`Backup complete for ${categoryName}`);
+                                    } else if (taskStatus.status === 'error') {
+                                        delete this.backupTasks[categoryName];
+                                        alert(`Backup failed: ${taskStatus.error}`);
+                                    } else if (polls < maxPolls) {
+                                        polls++;
+                                        setTimeout(poll, 5000);
+                                    } else {
+                                        delete this.backupTasks[categoryName];
+                                        alert(`Backup timeout for ${categoryName}`);
+                                    }
+                                } catch (error) {
+                                    console.error('Polling error:', error);
+                                    delete this.backupTasks[categoryName];
+                                }
+                            };
+                            
+                            setTimeout(poll, 5000);
+                        },
                         formatBytes(bytes) {
                             if (!bytes) return '0 B';
                             const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -287,9 +392,6 @@
                             if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
                             if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
                             return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-                        },
-                        async uploadNext() {
-                            alert('Upload will be implemented next');
                         },
                         async cleanupOrphans() {
                             if (confirm('Delete orphaned archives?')) {
