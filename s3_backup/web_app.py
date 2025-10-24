@@ -45,7 +45,6 @@ backup_manager: Optional[S3BackupManager] = None
 db_manager: Optional[DatabaseManager] = None
 db_service: Optional[DatabaseService] = None
 
-
 # Global cache
 storage_cache = {
     "data": None,
@@ -753,16 +752,37 @@ class BackupResponse(BaseModel):
 # Track ongoing backup tasks
 backup_tasks = {}
 
+# Track ongoing backup tasks by session_id
+# Structure: {session_id: {"status": "running"|"complete"|"error", "started_at": datetime, ...}}
+backup_tasks_by_session = {}
 
-async def run_backup_task(task_id: str, backup_func, *args, **kwargs):
+async def run_backup_task(task_id: str, session_id: str, backup_func, *args, **kwargs):
     """Run a backup task in the background."""
     try:
-        backup_tasks[task_id] = {"status": "running", "progress": 0}
+        # Track by session_id
+        backup_tasks_by_session[session_id] = {
+            "status": "running", 
+            "progress": 0,
+            "started_at": datetime.now(),
+            "task_id": task_id
+        }
+        
         result = await asyncio.to_thread(backup_func, *args, **kwargs)
-        backup_tasks[task_id] = {"status": "complete", "result": result}
+        
+        backup_tasks_by_session[session_id] = {
+            "status": "complete", 
+            "result": result,
+            "completed_at": datetime.now(),
+            "task_id": task_id
+        }
         return result
     except Exception as e:
-        backup_tasks[task_id] = {"status": "error", "error": str(e)}
+        backup_tasks_by_session[session_id] = {
+            "status": "error", 
+            "error": str(e),
+            "completed_at": datetime.now(),
+            "task_id": task_id
+        }
         logger.error(f"Backup task {task_id} failed: {e}")
         raise
 
@@ -845,6 +865,99 @@ async def backup_raw_files(request: BackupRequest):
         
     finally:
         session_db.close()
+
+
+@app.post("/api/backup/session/{session_id}")
+async def backup_single_imaging_session(session_id: str, force: bool = Query(False)):
+    """
+    Backup a single imaging session to S3.
+    Creates a tar archive and uploads it.
+    """
+    if not backup_manager:
+        raise HTTPException(status_code=503, detail="Backup manager not initialized")
+    
+    if not backup_manager.s3_config.enabled:
+        raise HTTPException(status_code=400, detail="S3 backup is disabled")
+    
+    # Check if already backing up
+    if session_id in backup_tasks_by_session:
+        task_info = backup_tasks_by_session[session_id]
+        if task_info["status"] == "running":
+            return {
+                "success": False,
+                "message": f"Backup already in progress for session {session_id}",
+                "in_progress": True
+            }
+    
+    try:
+        # Get session from database to verify it exists
+        session_db = db_service.db_manager.get_session()
+        try:
+            imaging_session = session_db.query(SessionModel).filter(
+                SessionModel.session_id == session_id
+            ).first()
+            
+            if not imaging_session:
+                raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+            
+        finally:
+            session_db.close()
+        
+        # Run backup in background thread
+        def do_backup():
+            result = backup_manager.backup_session(
+                session_id=session_id,
+                skip_existing=not force,
+                cleanup_archive=True
+            )
+            return result
+        
+        task_id = f"backup_{session_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        logger.info(f"Starting backup for session: {session_id} (task_id={task_id}, force={force})")
+        
+        # Start the backup task (don't await it - let it run in background)
+        asyncio.create_task(run_backup_task(task_id, session_id, do_backup))
+        
+        return {
+            "success": True,
+            "message": f"Backup started for session {session_id}",
+            "task_id": task_id,
+            "in_progress": True
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error starting backup for session {session_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+        
+
+@app.get("/api/backup/session/{session_id}/status")
+async def get_session_backup_status(session_id: str):
+    """
+    Get the backup status for a specific session.
+    Returns whether a backup is currently in progress, completed, or errored.
+    """
+    # Check if there's an active task for this session
+    if session_id in backup_tasks_by_session:
+        task_info = backup_tasks_by_session[session_id]
+        
+        # Clean up old completed/error tasks after 5 minutes
+        if task_info["status"] in ["complete", "error"]:
+            completed_at = task_info.get("completed_at")
+            if completed_at and (datetime.now() - completed_at).total_seconds() > 300:
+                del backup_tasks_by_session[session_id]
+                return {"has_active_task": False}
+        
+        return {
+            "has_active_task": True,
+            "status": task_info["status"],
+            "started_at": task_info.get("started_at").isoformat() if task_info.get("started_at") else None,
+            "task_id": task_info.get("task_id"),
+            "error": task_info.get("error")
+        }
+    
+    return {"has_active_task": False}
 
 
 @app.post("/api/backup/session-notes", response_model=BackupResponse)

@@ -49,48 +49,69 @@ window.ImagingSessionDetailModal = {
                             <div class="flex justify-between items-start mb-4">
                                 <h3 class="text-xl font-bold text-blue-900">Session Summary</h3>
                                 <div class="flex items-center space-x-2">
-                                    <!-- S3 Backup Status Badge/Button -->
-                                    <div v-if="s3BackupError" 
-                                         class="px-3 py-1 bg-red-50 text-red-600 rounded-lg flex items-center space-x-2" 
-                                         title="Error checking backup status">
-                                        <svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                                        </svg>
-                                        <span class="text-sm font-medium">Backup Error</span>
+        
+                                    <!-- S3 Backup Status Badge -->
+                                    <div v-if="s3BackupEnabled && !s3BackupError" class="flex items-center">
+                                        <!-- Loading state -->
+                                        <span v-if="loadingBackupStatus" 
+                                              class="px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600">
+                                            <svg class="animate-spin inline-block h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                            Checking...
+                                        </span>
+                                        
+                                        <!-- Backing up state (in progress) -->
+                                        <span v-else-if="backupInProgress" 
+                                              class="px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-700 cursor-default">
+                                            <svg class="animate-spin inline-block h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                            Backing up...
+                                        </span>
+                                        
+                                        <!-- Backed up state (complete) - UPDATED: Cloud with checkmark icon -->
+                                        <span v-else-if="isBackedUp" 
+                                              class="px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-700 cursor-default">
+                                            <!-- Cloud with checkmark icon (UPDATED) -->
+                                            <svg class="inline-block h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                                                <!-- Checkmark overlay -->
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 12l2 2 4-4" />
+                                            </svg>
+                                            Backed Up
+                                        </span>
+                                        
+                                        <!-- Ready to backup (clickable) - UPDATED: Yellow background -->
+                                        <button v-else
+                                                @click="backupSession"
+                                                :disabled="backingUp"
+                                                class="px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800 hover:bg-yellow-200 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                                            <svg v-if="backingUp" class="animate-spin inline-block h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                            <span v-else>
+                                                <svg class="inline-block h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                                </svg>
+                                            </span>
+                                            Backup to S3
+                                        </button>
                                     </div>
-                                    <div v-else-if="s3BackupEnabled === false" 
-                                         class="px-3 py-1 bg-gray-100 text-gray-500 rounded-lg flex items-center space-x-2 cursor-not-allowed" 
-                                         title="S3 Backup is disabled">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-                                        </svg>
-                                        <span class="text-sm font-medium">Backup Disabled</span>
+
+                                    <!-- S3 Service Error State -->
+                                    <div v-else-if="s3BackupError" class="flex items-center">
+                                        <span class="px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-700 cursor-default">
+                                            <svg class="inline-block h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                            </svg>
+                                            S3 Unavailable
+                                        </span>
                                     </div>
-                                    <div v-else-if="loadingBackupStatus" 
-                                         class="px-3 py-1 bg-gray-100 rounded-lg flex items-center space-x-2">
-                                        <div class="spinner-small"></div>
-                                        <span class="text-sm text-gray-600">Checking...</span>
-                                    </div>
-                                    <div v-else-if="isBackedUp" 
-                                         class="px-3 py-1 bg-green-100 text-green-800 rounded-lg flex items-center space-x-2" 
-                                         title="Session is backed up to S3">
-                                        <svg class="w-4 h-4 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-                                        </svg>
-                                        <span class="text-sm font-medium">Backed Up</span>
-                                    </div>
-                                    <button v-else 
-                                            @click="backupSession" 
-                                            :disabled="backingUp"
-                                            class="px-3 py-1 bg-yellow-50 hover:bg-yellow-100 text-yellow-800 rounded-lg flex items-center space-x-2 transition-colors"
-                                            title="Back up this session to S3">
-                                        <svg class="w-4 h-4 text-yellow-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-                                        </svg>
-                                        <span v-if="backingUp" class="text-sm font-medium">Backing up...</span>
-                                        <span v-else class="text-sm font-medium">Backup</span>
-                                    </button>
-                                    
+                         
                                     <!-- Edit Notes Button -->
                                     <button @click="openMarkdownEditor" class="btn btn-green text-sm">
                                         📝 Edit Notes
@@ -309,7 +330,10 @@ window.ImagingSessionDetailModal = {
             loadingBackupStatus: false,
             backingUp: false,
             s3BackupEnabled: null,
-            s3BackupError: false
+            s3BackupError: false,
+            backupInProgress: false,
+            backupTaskId: null,
+            backupStatusPollInterval: null
         };
     },
 
@@ -335,6 +359,12 @@ window.ImagingSessionDetailModal = {
             this.selectedSessionId = sessionId;
             this.allSessionIds = allSessionIds;
             this.currentSessionIndex = allSessionIds.indexOf(sessionId);
+            
+            // Reset backup state for the new session
+            this.backupInProgress = false;
+            this.isBackedUp = false;
+            this.backupTaskId = null;
+            this.stopBackupStatusPolling();
             
             try {
                 const response = await fetch(`/api/imaging-sessions/${sessionId}/details`);
@@ -370,10 +400,9 @@ window.ImagingSessionDetailModal = {
             this.loadingBackupStatus = true;
             this.s3BackupError = false;
             try {
-                // First check if S3 backup service is running and get its status
+                // First check if S3 backup service is running
                 const statusResponse = await fetch(`http://${window.location.hostname}:8083/api/status`);
                 if (!statusResponse.ok) {
-                    // S3 backup service not available
                     this.s3BackupEnabled = false;
                     this.loadingBackupStatus = false;
                     return;
@@ -387,19 +416,41 @@ window.ImagingSessionDetailModal = {
                     return;
                 }
                 
-                // Get all sessions to check if this one is backed up
+                // Check if there's an active backup task for this session
+                const taskStatusResponse = await fetch(`http://${window.location.hostname}:8083/api/backup/session/${sessionId}/status`);
+                if (taskStatusResponse.ok) {
+                    const taskStatus = await taskStatusResponse.json();
+                    if (taskStatus.has_active_task) {
+                        // Set status based on task state
+                        if (taskStatus.status === 'running') {
+                            this.backupInProgress = true;
+                            this.isBackedUp = false;  // <-- IMPORTANT: Not backed up yet!
+                            this.startBackupStatusPolling(sessionId);
+                        } else if (taskStatus.status === 'complete') {
+                            this.backupInProgress = false;
+                            this.isBackedUp = true;  // <-- Only set true when complete
+                        } else if (taskStatus.status === 'error') {
+                            this.backupInProgress = false;
+                            this.isBackedUp = false;
+                        }
+                        
+                        this.backupTaskId = taskStatus.task_id;
+                        this.loadingBackupStatus = false;
+                        return;  // Don't check database - we have fresh task info
+                    }
+                }
+                
+                // Check if already backed up (in database)
                 const sessionsResponse = await fetch(`http://${window.location.hostname}:8083/api/sessions?limit=1000`);
                 if (sessionsResponse.ok) {
                     const sessions = await sessionsResponse.json();
                     const session = sessions.find(s => s.session_id === sessionId);
                     this.isBackedUp = session ? session.backed_up : false;
                 } else {
-                    // Error getting sessions
                     this.s3BackupError = true;
                 }
             } catch (error) {
                 console.error('Error checking backup status:', error);
-                // If we can't reach the S3 backup service, show error state
                 this.s3BackupError = true;
             } finally {
                 this.loadingBackupStatus = false;
@@ -408,7 +459,7 @@ window.ImagingSessionDetailModal = {
         
         // NEW: Backup session to S3
         async backupSession() {
-            if (this.backingUp || this.isBackedUp) return;
+            if (this.backingUp || this.isBackedUp || this.backupInProgress) return;
             
             this.backingUp = true;
             try {
@@ -416,21 +467,70 @@ window.ImagingSessionDetailModal = {
                     method: 'POST'
                 });
                 
+                const data = await response.json();
+                
                 if (response.ok) {
-                    this.isBackedUp = true;
-                    // Show success message
-                    console.log('Session backed up successfully');
-                    // Optionally refresh the backup status
-                    setTimeout(() => this.checkBackupStatus(this.selectedSessionId), 2000);
+                    if (data.in_progress) {
+                        // Backup started
+                        this.backupInProgress = true;
+                        this.backupTaskId = data.task_id;
+                        this.startBackupStatusPolling(this.selectedSessionId);
+                        console.log('Backup started:', data.message);
+                    } else if (data.already_backed_up) {
+                        this.isBackedUp = true;
+                        console.log('Already backed up');
+                    }
                 } else {
-                    const error = await response.text();
-                    throw new Error(error || 'Failed to backup session');
+                    throw new Error(data.detail || 'Backup failed');
                 }
             } catch (error) {
                 console.error('Error backing up session:', error);
-                alert(`Failed to backup session: ${error.message}`);
+                alert('Failed to backup session: ' + error.message);
             } finally {
                 this.backingUp = false;
+            }
+        },
+
+        startBackupStatusPolling(sessionId) {
+            // Clear any existing poll
+            if (this.backupStatusPollInterval) {
+                clearInterval(this.backupStatusPollInterval);
+            }
+            
+            // Poll every 2 seconds
+            this.backupStatusPollInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`http://${window.location.hostname}:8083/api/backup/session/${sessionId}/status`);
+                    if (response.ok) {
+                        const status = await response.json();
+                        
+                        if (!status.has_active_task || status.status !== 'running') {
+                            // Backup finished
+                            this.backupInProgress = false;
+                            
+                            if (status.status === 'complete') {
+                                this.isBackedUp = true;
+                                console.log('Backup completed successfully');
+                            } else if (status.status === 'error') {
+                                console.error('Backup failed:', status.error);
+                                alert(`Backup failed: ${status.error}`);
+                            }
+                            
+                            // Stop polling
+                            clearInterval(this.backupStatusPollInterval);
+                            this.backupStatusPollInterval = null;
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error polling backup status:', error);
+                }
+            }, 2000);
+        },
+
+        stopBackupStatusPolling() {
+            if (this.backupStatusPollInterval) {
+                clearInterval(this.backupStatusPollInterval);
+                this.backupStatusPollInterval = null;
             }
         },
         
@@ -559,14 +659,20 @@ window.ImagingSessionDetailModal = {
             this.selectedSessionId = null;
             this.processingSessions = null;
             this.processingSessionsLoading = false;
+            
+            // Stop backup status polling
+            this.stopBackupStatusPolling();
+            
             // Reset S3 backup status
             this.isBackedUp = false;
             this.loadingBackupStatus = false;
             this.backingUp = false;
+            this.backupInProgress = false;
+            this.backupTaskId = null;
             this.s3BackupEnabled = null;
             this.s3BackupError = false;
         },
-        
+
         openMarkdownEditor() {
             if (this.selectedSessionId) {
                 window.open(`/imaging-editor?session_id=${this.selectedSessionId}&session_name=${encodeURIComponent(this.selectedSessionId)}`, '_blank');
