@@ -839,7 +839,7 @@ class S3BackupManager:
         
         Args:
             session_id: Imaging session ID
-            skip_existing: Skip if already backed up
+            skip_existing: Skip if already backed up (checks DB first, then syncs from S3)
             cleanup_archive: Delete local archive after successful upload
         
         Returns:
@@ -870,43 +870,117 @@ class S3BackupManager:
                     error="Invalid session date format"
                 )
             
-            # Check if already exists
-            if skip_existing and self.check_archive_exists(session_id, year):
-                logger.info(f"Archive already exists for {session_id}, skipping")
-                return ArchiveResult(
-                    success=True,
-                    session_id=session_id,
-                    error="Already backed up (skipped)"
-                )
+            # NEW: Check database FIRST
+            if skip_existing:
+                existing_backup = session_db.query(S3BackupArchive).filter(
+                    S3BackupArchive.session_id == session_id
+                ).first()
+                
+                if existing_backup:
+                    logger.info(f"Archive already in database for {session_id}, skipping")
+                    return ArchiveResult(
+                        success=True,
+                        session_id=session_id,
+                        error="Already backed up (in database, skipped)"
+                    )
+                
+                # NEW: Not in database - check if it exists in S3
+                if self.check_archive_exists(session_id, year):
+                    logger.info(f"Archive exists in S3 but not in database for {session_id}, syncing...")
+                    
+                    # Get S3 metadata
+                    s3_key = self._get_archive_key(session_id, year)
+                    try:
+                        response = self.s3_client.head_object(
+                            Bucket=self.s3_config.bucket,
+                            Key=s3_key
+                        )
+                        
+                        # Create database record from S3 metadata
+                        from s3_backup.models import S3BackupArchive
+                        
+                        backup_archive = S3BackupArchive(
+                            session_id=session_id,
+                            session_year=year,
+                            s3_bucket=self.s3_config.bucket,
+                            s3_key=s3_key,
+                            s3_region=self.s3_config.region,
+                            s3_etag=response['ETag'].strip('"'),
+                            compressed_size_bytes=response['ContentLength'],
+                            original_size_bytes=response['ContentLength'],  # We don't know original, use compressed
+                            file_count=0,  # Unknown
+                            uploaded_at=response['LastModified'],
+                            current_storage_class=response.get('StorageClass', 'STANDARD'),
+                            archive_policy='unknown',
+                            backup_policy='unknown',
+                            verified=True,
+                            verification_method='head_object',
+                            last_verified_at=datetime.now()
+                        )
+                        
+                        session_db.add(backup_archive)
+                        session_db.commit()
+                        
+                        logger.info(f"✓ Synced database record from S3 for {session_id}")
+                        
+                        return ArchiveResult(
+                            success=True,
+                            session_id=session_id,
+                            s3_key=s3_key,
+                            compressed_size=response['ContentLength'],
+                            error="Already backed up (synced from S3)"
+                        )
+                        
+                    except ClientError as e:
+                        logger.warning(f"Failed to sync from S3 for {session_id}: {e}")
+                        # Fall through to normal upload
             
             # PRE-FLIGHT SPACE CHECK
-            space_check = self.check_temp_space(session_id)
-            if not space_check.has_space:
-                logger.error(f"Pre-flight check failed for {session_id}: {space_check.error}")
+            # Get session files
+            from models import FitsFile
+            files = [
+                f for f in session_db.query(FitsFile).filter(
+                    FitsFile.session_id == session_id
+                ).all()
+                if Path(f.folder).joinpath(f.file).exists()
+            ]
+            
+            if not files:
                 return ArchiveResult(
                     success=False,
                     session_id=session_id,
-                    error=space_check.error
+                    error="No files found for session"
                 )
             
-            logger.info(
-                f"Pre-flight check passed: session {format_size(space_check.session_size)}, "
-                f"free {format_size(space_check.free_space)}"
+            # Calculate total size
+            total_size = sum(
+                Path(f.folder).joinpath(f.file).stat().st_size 
+                for f in files
             )
+            
+            # Check available space
+            temp_dir = Path(self.s3_config.config.get('archive_settings', {}).get(
+                'temp_dir', '/tmp/astrocat_archives'
+            ))
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            
+            import shutil
+            stat = shutil.disk_usage(temp_dir)
+            available = stat.free
+            
+            # Need at least total_size for the archive
+            if available < total_size:
+                shortage = total_size - available
+                return ArchiveResult(
+                    success=False,
+                    session_id=session_id,
+                    error=f"Insufficient space: need {self._format_bytes(total_size)}, "
+                          f"have {self._format_bytes(available)}, "
+                          f"short by {self._format_bytes(shortage)}"
+                )
             
             # Create archive
-            logger.info(f"Starting backup for session: {session_id}")
-            
-            # Get compression settings from config
-            compression_level = self.s3_config.config.get('archive_settings', {}).get('compression_level', 6)
-            use_pigz = self.s3_config.config.get('archive_settings', {}).get('use_pigz', True)
-            
-            archive_path = self.create_session_archive(
-                session_id,
-                compression_level=compression_level,
-                use_pigz=use_pigz
-            )
-            
+            archive_path = self.create_archive(session_id, year)
             if not archive_path:
                 return ArchiveResult(
                     success=False,
@@ -914,7 +988,7 @@ class S3BackupManager:
                     error="Failed to create archive"
                 )
             
-            # Upload
+            # Calculate statistics
             original_size = sum(
                 Path(f.folder).joinpath(f.file).stat().st_size 
                 for f in session_db.query(FitsFile).filter(
@@ -954,38 +1028,28 @@ class S3BackupManager:
                     error=f"Verification failed: {verify_result.error}"
                 )
             
-            # Clean up temporary archive using safe unlink
-            if cleanup_archive and self.safe_unlink(archive_path):
-                logger.info(f"🧹 Deleted local archive: {archive_path}")
-
-            
-            # Get file count
-            file_count = session_db.query(FitsFile).filter(
-                FitsFile.session_id == session_id
-            ).count()
+            # Clean up temporary archive if requested
+            if cleanup_archive and archive_path.exists():
+                try:
+                    archive_path.unlink()
+                    logger.info(f"✓ Cleaned up local archive: {archive_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up archive {archive_path}: {e}")
             
             return ArchiveResult(
                 success=True,
                 session_id=session_id,
-                archive_path=None if cleanup_archive else archive_path,
-                file_count=file_count,
+                archive_path=archive_path if not cleanup_archive else None,
+                s3_key=s3_key,
                 original_size=original_size,
                 compressed_size=compressed_size,
-                compression_ratio=compressed_size / original_size if original_size > 0 else 0,
-                s3_key=s3_key,
-                s3_etag=etag
+                file_count=len(files)
             )
             
-        except Exception as e:
-            logger.error(f"Error backing up session {session_id}: {e}")
-            return ArchiveResult(
-                success=False,
-                session_id=session_id,
-                error=str(e)
-            )
         finally:
             session_db.close()
-    
+
+        
 # ========================================================================
     # DATABASE BACKUP METHODS WITH VERSIONING
     # Add these 3 methods to the end of your S3BackupManager class
