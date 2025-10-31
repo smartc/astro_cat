@@ -7,12 +7,20 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import logging
 import shutil
+from typing import Optional
 
 from models import FitsFile, Session as ImagingSession, ProcessingSession, ProcessingSessionFile
 from web.dependencies import get_db_service, get_config
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
+
+# Cache for disk space calculations (expensive operations)
+_disk_space_cache = {
+    "data": None,
+    "timestamp": None,
+    "ttl": 300  # Cache for 5 minutes (300 seconds)
+}
 
 
 def count_physical_files_in_folder(folder_path: Path, extensions: list = None) -> int:
@@ -215,12 +223,20 @@ def calculate_new_sessions_stats(session, config):
             FitsFile.created_at >= start_date
         ).scalar() or 0
 
-        # Estimate file size based on average file size per frame type
-        # This avoids expensive stat() calls on every file
-        # Typical FITS file sizes: ~30MB for LIGHT, ~20MB for calibration
-        file_count = sum(frame_dict.values())
-        estimated_avg_size_mb = 25  # Average MB per file
-        estimated_size = file_count * estimated_avg_size_mb * 1024 * 1024
+        # Calculate actual file sizes for recently added files
+        # This is reasonable since we're only looking at recent files
+        files = session.query(FitsFile.folder, FitsFile.file).filter(
+            FitsFile.created_at >= start_date
+        ).all()
+
+        total_size = 0
+        for folder, filename in files:
+            try:
+                file_path = Path(folder) / filename
+                if file_path.exists():
+                    total_size += file_path.stat().st_size
+            except Exception as e:
+                logger.debug(f"Could not get size for {folder}/{filename}: {e}")
 
         return {
             "session_count": session_count,
@@ -232,8 +248,8 @@ def calculate_new_sessions_stats(session, config):
                 "total": sum(frame_dict.values())
             },
             "integration_time": format_integration_time(integration_time),
-            "total_file_size": estimated_size,
-            "total_file_size_gb": format_number(estimated_size / (1024**3))
+            "total_file_size": total_size,
+            "total_file_size_gb": format_number(total_size / (1024**3))
         }
 
     # Year to date
@@ -257,18 +273,19 @@ def calculate_new_sessions_stats(session, config):
     }
 
 
-def calculate_disk_space_stats(session, config):
+def calculate_disk_space_stats_actual(session, config):
     """
-    Calculate disk space utilization statistics.
+    Calculate actual disk space utilization statistics using filesystem stat() calls.
 
-    PERFORMANCE NOTE: This function estimates file sizes to avoid expensive
-    filesystem stat() calls on every file during each API call.
+    This is expensive, so results are cached for 5 minutes.
     """
+    logger.info("Calculating actual disk space statistics (not cached)...")
+
     # Get the catalog root directory (where the database is located)
     db_path = Path(config.database.connection_string.replace('sqlite:///', ''))
     catalog_root = db_path.parent
 
-    # Get disk usage stats for the catalog drive
+    # Get disk usage stats for the catalog drive (fast operation)
     try:
         disk_usage = shutil.disk_usage(catalog_root)
         total_space = disk_usage.total
@@ -282,31 +299,31 @@ def calculate_disk_space_stats(session, config):
         free_space = 0
         used_percent = 0
 
-    # Estimate cataloged file sizes based on frame counts
-    # This avoids expensive stat() calls on every file
-    # Average sizes: LIGHT ~30MB, DARK ~20MB, FLAT ~20MB, BIAS ~10MB
-    frame_type_avg_sizes = {
-        'LIGHT': 30 * 1024 * 1024,
-        'DARK': 20 * 1024 * 1024,
-        'FLAT': 20 * 1024 * 1024,
-        'BIAS': 10 * 1024 * 1024
-    }
-
+    # Calculate actual cataloged file sizes by frame type
     cataloged_size = 0
     by_frame_type = {}
 
-    for frame_type, avg_size in frame_type_avg_sizes.items():
-        count = session.query(func.count(FitsFile.id)).filter(
+    for frame_type in ['LIGHT', 'DARK', 'FLAT', 'BIAS']:
+        files = session.query(FitsFile.folder, FitsFile.file).filter(
             FitsFile.frame_type == frame_type
-        ).scalar() or 0
+        ).all()
 
-        estimated_size = count * avg_size
-        cataloged_size += estimated_size
+        frame_size = 0
+        for folder, filename in files:
+            try:
+                file_path = Path(folder) / filename
+                if file_path.exists():
+                    frame_size += file_path.stat().st_size
+            except Exception as e:
+                logger.debug(f"Could not get size for {folder}/{filename}: {e}")
 
+        cataloged_size += frame_size
         by_frame_type[frame_type] = {
-            "bytes": estimated_size,
-            "gb": format_number(estimated_size / (1024**3))
+            "bytes": frame_size,
+            "gb": format_number(frame_size / (1024**3))
         }
+
+    logger.info(f"Calculated cataloged files size: {cataloged_size / (1024**3):.2f} GB")
 
     # Calculate space used by session notes
     imaging_notes_size = 0
@@ -372,6 +389,38 @@ def calculate_disk_space_stats(session, config):
             "mb": format_number(db_size / (1024**2))
         }
     }
+
+
+def calculate_disk_space_stats(session, config):
+    """
+    Get disk space statistics with caching.
+
+    Returns cached data if available and not expired (< 5 minutes old).
+    Otherwise calculates actual stats and updates cache.
+    """
+    global _disk_space_cache
+
+    now = datetime.now()
+
+    # Check if cache is valid
+    if (_disk_space_cache["data"] is not None and
+        _disk_space_cache["timestamp"] is not None):
+
+        age_seconds = (now - _disk_space_cache["timestamp"]).total_seconds()
+
+        if age_seconds < _disk_space_cache["ttl"]:
+            logger.debug(f"Using cached disk space stats (age: {age_seconds:.1f}s)")
+            return _disk_space_cache["data"]
+
+    # Cache miss or expired - calculate actual stats
+    logger.info("Disk space cache expired or empty, recalculating...")
+    stats = calculate_disk_space_stats_actual(session, config)
+
+    # Update cache
+    _disk_space_cache["data"] = stats
+    _disk_space_cache["timestamp"] = now
+
+    return stats
 
 
 @router.get("/stats")
