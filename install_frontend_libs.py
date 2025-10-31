@@ -32,8 +32,13 @@ LIBRARIES = {
     "css": [
         {
             "name": "Tailwind CSS",
-            "url": "https://cdn.jsdelivr.net/npm/tailwindcss@3.4.1/dist/tailwind.min.css",
-            "filename": "tailwind.min.css"
+            "urls": [  # Multiple URLs to try in order
+                "https://unpkg.com/tailwindcss@2.2.19/dist/tailwind.min.css",
+                "https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css",
+                "https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css"
+            ],
+            "filename": "tailwind.min.css",
+            "note": "Using Tailwind CSS v2.2.19 (last version with pre-built CSS)"
         },
         {
             "name": "Toast UI Editor CSS",
@@ -48,7 +53,7 @@ def download_file(url: str, output_path: Path) -> bool:
     """Download a file from a URL to the specified path."""
     try:
         print(f"  Downloading from {url}...")
-        with urllib.request.urlopen(url) as response:
+        with urllib.request.urlopen(url, timeout=30) as response:
             content = response.read()
         
         with open(output_path, 'wb') as f:
@@ -58,6 +63,23 @@ def download_file(url: str, output_path: Path) -> bool:
     except Exception as e:
         print(f"  ✗ Error downloading: {e}")
         return False
+
+
+def download_with_fallbacks(lib: dict, output_path: Path) -> bool:
+    """Download a file, trying multiple URLs if provided."""
+    urls = lib.get("urls", [lib.get("url")])  # Support both 'url' and 'urls'
+    
+    if isinstance(urls, str):
+        urls = [urls]
+    
+    for i, url in enumerate(urls):
+        if i > 0:
+            print(f"  Trying fallback URL {i}...")
+        
+        if download_file(url, output_path):
+            return True
+    
+    return False
 
 
 def install_libraries():
@@ -98,7 +120,7 @@ def install_libraries():
             skipped += 1
         else:
             print(f"→ {lib['name']}")
-            if download_file(lib["url"], output_path):
+            if download_with_fallbacks(lib, output_path):
                 print(f"✓ {lib['name']} downloaded successfully")
                 downloaded += 1
             else:
@@ -117,7 +139,9 @@ def install_libraries():
             skipped += 1
         else:
             print(f"→ {lib['name']}")
-            if download_file(lib["url"], output_path):
+            if lib.get("note"):
+                print(f"  Note: {lib['note']}")
+            if download_with_fallbacks(lib, output_path):
                 print(f"✓ {lib['name']} downloaded successfully")
                 downloaded += 1
             else:
@@ -147,7 +171,7 @@ def install_libraries():
         print("    - Axios 1.6.7")
         print("    - Toast UI Editor (latest)")
         print("  CSS:")
-        print("    - Tailwind CSS 3.4.1")
+        print("    - Tailwind CSS 2.2.19")
         print("    - Toast UI Editor (latest)")
         print()
     
