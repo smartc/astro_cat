@@ -45,6 +45,27 @@ def count_physical_files_in_folder(folder_path: Path, extensions: list = None) -
     return count
 
 
+def format_number(value: float, max_digits: int = 3) -> float:
+    """
+    Format number to specified significant digits.
+    Examples: 22.7, 8.54, 0.12, 101, 2041
+    """
+    if value is None or value == 0:
+        return 0
+
+    # For integers >= 100, don't use decimals
+    if value >= 100:
+        return round(value)
+
+    # For smaller numbers, use up to 3 significant digits
+    if value >= 10:
+        return round(value, 1)  # 22.7
+    elif value >= 1:
+        return round(value, 2)  # 8.54
+    else:
+        return round(value, 2)  # 0.12
+
+
 def format_integration_time(seconds: float) -> dict:
     """Format integration time in seconds to hours, minutes, seconds."""
     if seconds is None or seconds == 0:
@@ -58,7 +79,7 @@ def format_integration_time(seconds: float) -> dict:
         "hours": hours,
         "minutes": minutes,
         "seconds": secs,
-        "total_seconds": round(seconds, 1),
+        "total_seconds": format_number(seconds),
         "formatted": f"{hours}h {minutes}m {secs}s"
     }
 
@@ -194,20 +215,12 @@ def calculate_new_sessions_stats(session, config):
             FitsFile.created_at >= start_date
         ).scalar() or 0
 
-        # Calculate total file size
-        # Sum up file sizes from filesystem
-        files = session.query(FitsFile.folder, FitsFile.file).filter(
-            FitsFile.created_at >= start_date
-        ).all()
-
-        total_size = 0
-        for folder, filename in files:
-            try:
-                file_path = Path(folder) / filename
-                if file_path.exists():
-                    total_size += file_path.stat().st_size
-            except Exception as e:
-                logger.debug(f"Could not get size for {folder}/{filename}: {e}")
+        # Estimate file size based on average file size per frame type
+        # This avoids expensive stat() calls on every file
+        # Typical FITS file sizes: ~30MB for LIGHT, ~20MB for calibration
+        file_count = sum(frame_dict.values())
+        estimated_avg_size_mb = 25  # Average MB per file
+        estimated_size = file_count * estimated_avg_size_mb * 1024 * 1024
 
         return {
             "session_count": session_count,
@@ -219,8 +232,8 @@ def calculate_new_sessions_stats(session, config):
                 "total": sum(frame_dict.values())
             },
             "integration_time": format_integration_time(integration_time),
-            "total_file_size": total_size,
-            "total_file_size_gb": round(total_size / (1024**3), 2)
+            "total_file_size": estimated_size,
+            "total_file_size_gb": format_number(estimated_size / (1024**3))
         }
 
     # Year to date
@@ -245,7 +258,12 @@ def calculate_new_sessions_stats(session, config):
 
 
 def calculate_disk_space_stats(session, config):
-    """Calculate disk space utilization statistics."""
+    """
+    Calculate disk space utilization statistics.
+
+    PERFORMANCE NOTE: This function estimates file sizes to avoid expensive
+    filesystem stat() calls on every file during each API call.
+    """
     # Get the catalog root directory (where the database is located)
     db_path = Path(config.database.connection_string.replace('sqlite:///', ''))
     catalog_root = db_path.parent
@@ -264,37 +282,30 @@ def calculate_disk_space_stats(session, config):
         free_space = 0
         used_percent = 0
 
-    # Calculate space used by cataloged files
-    files = session.query(FitsFile.folder, FitsFile.file).all()
+    # Estimate cataloged file sizes based on frame counts
+    # This avoids expensive stat() calls on every file
+    # Average sizes: LIGHT ~30MB, DARK ~20MB, FLAT ~20MB, BIAS ~10MB
+    frame_type_avg_sizes = {
+        'LIGHT': 30 * 1024 * 1024,
+        'DARK': 20 * 1024 * 1024,
+        'FLAT': 20 * 1024 * 1024,
+        'BIAS': 10 * 1024 * 1024
+    }
 
     cataloged_size = 0
-    for folder, filename in files:
-        try:
-            file_path = Path(folder) / filename
-            if file_path.exists():
-                cataloged_size += file_path.stat().st_size
-        except Exception as e:
-            logger.debug(f"Could not get size for {folder}/{filename}: {e}")
-
-    # Calculate space by frame type
     by_frame_type = {}
-    for frame_type in ['LIGHT', 'DARK', 'FLAT', 'BIAS']:
-        files = session.query(FitsFile.folder, FitsFile.file).filter(
-            FitsFile.frame_type == frame_type
-        ).all()
 
-        frame_size = 0
-        for folder, filename in files:
-            try:
-                file_path = Path(folder) / filename
-                if file_path.exists():
-                    frame_size += file_path.stat().st_size
-            except Exception as e:
-                logger.debug(f"Could not get size for {folder}/{filename}: {e}")
+    for frame_type, avg_size in frame_type_avg_sizes.items():
+        count = session.query(func.count(FitsFile.id)).filter(
+            FitsFile.frame_type == frame_type
+        ).scalar() or 0
+
+        estimated_size = count * avg_size
+        cataloged_size += estimated_size
 
         by_frame_type[frame_type] = {
-            "bytes": frame_size,
-            "gb": round(frame_size / (1024**3), 2)
+            "bytes": estimated_size,
+            "gb": format_number(estimated_size / (1024**3))
         }
 
     # Calculate space used by session notes
@@ -302,8 +313,11 @@ def calculate_disk_space_stats(session, config):
     processing_notes_size = 0
 
     try:
+        # Use config.paths.notes_dir for session notes
+        notes_dir = Path(config.paths.notes_dir)
+
         # Imaging session notes
-        imaging_notes_dir = catalog_root / "Imaging_Sessions"
+        imaging_notes_dir = notes_dir / "Imaging_Sessions"
         if imaging_notes_dir.exists():
             for md_file in imaging_notes_dir.rglob("*.md"):
                 try:
@@ -312,7 +326,7 @@ def calculate_disk_space_stats(session, config):
                     logger.debug(f"Could not get size for {md_file}: {e}")
 
         # Processing session notes
-        processing_notes_dir = catalog_root / "Processing_Sessions"
+        processing_notes_dir = notes_dir / "Processing_Sessions"
         if processing_notes_dir.exists():
             for md_file in processing_notes_dir.rglob("*.md"):
                 try:
@@ -333,29 +347,29 @@ def calculate_disk_space_stats(session, config):
     return {
         "disk_usage": {
             "total_bytes": total_space,
-            "total_gb": round(total_space / (1024**3), 2),
+            "total_gb": format_number(total_space / (1024**3)),
             "used_bytes": used_space,
-            "used_gb": round(used_space / (1024**3), 2),
+            "used_gb": format_number(used_space / (1024**3)),
             "free_bytes": free_space,
-            "free_gb": round(free_space / (1024**3), 2),
-            "used_percent": round(used_percent, 1)
+            "free_gb": format_number(free_space / (1024**3)),
+            "used_percent": format_number(used_percent)
         },
         "cataloged_files": {
             "total_bytes": cataloged_size,
-            "total_gb": round(cataloged_size / (1024**3), 2),
+            "total_gb": format_number(cataloged_size / (1024**3)),
             "by_frame_type": by_frame_type
         },
         "session_notes": {
             "imaging_bytes": imaging_notes_size,
-            "imaging_kb": round(imaging_notes_size / 1024, 2),
+            "imaging_kb": format_number(imaging_notes_size / 1024),
             "processing_bytes": processing_notes_size,
-            "processing_kb": round(processing_notes_size / 1024, 2),
+            "processing_kb": format_number(processing_notes_size / 1024),
             "total_bytes": imaging_notes_size + processing_notes_size,
-            "total_kb": round((imaging_notes_size + processing_notes_size) / 1024, 2)
+            "total_kb": format_number((imaging_notes_size + processing_notes_size) / 1024)
         },
         "database": {
             "bytes": db_size,
-            "mb": round(db_size / (1024**2), 2)
+            "mb": format_number(db_size / (1024**2))
         }
     }
 
