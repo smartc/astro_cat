@@ -14,10 +14,36 @@ from file_organizer import FileOrganizer
 from fits_processor import OptimizedFitsProcessor
 from web.dependencies import get_config, get_db_service
 import web.background_tasks as bg_tasks
+from web import dashboard_cache
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/operations")
+
+
+def refresh_dashboard_cache():
+    """
+    Refresh dashboard statistics cache after file operations.
+
+    This should be called after any operation that adds/removes/moves files.
+    """
+    try:
+        app_module = sys.modules['web.app']
+        config = app_module.config
+        db_service = app_module.db_service
+
+        if not config or not db_service:
+            logger.warning("Cannot refresh cache: config or db_service not available")
+            return
+
+        session = db_service.db_manager.get_session()
+        logger.info("Refreshing dashboard cache after file operation...")
+        dashboard_cache.calculate_and_cache_disk_space(session, config)
+        session.close()
+        logger.info("Dashboard cache refreshed successfully")
+
+    except Exception as e:
+        logger.error(f"Error refreshing dashboard cache: {e}", exc_info=True)
 
 
 # ============================================================================
@@ -81,8 +107,11 @@ def _run_scan_sync(task_id: str):
                 'duplicates': duplicates,
                 'sessions': len(sessions)
             }
-            
-            bg_tasks.set_task_status(task_id, "completed", 
+
+            # Refresh dashboard cache with new file counts
+            refresh_dashboard_cache()
+
+            bg_tasks.set_task_status(task_id, "completed",
                 f"Scan completed: {new_files} new files, {duplicates} duplicates", 100,
                 new_files=new_files, duplicates=duplicates, results=results)
         else:
@@ -90,7 +119,7 @@ def _run_scan_sync(task_id: str):
             results = {'added': 0, 'duplicates': 0, 'sessions': 0}
             bg_tasks.set_task_status(task_id, "completed", "No new files found", 100,
                 results=results)
-                        
+
     except Exception as e:
         logger.error(f"Scan failed: {e}", exc_info=True)
         bg_tasks.set_task_status(task_id, "failed", f"Scan failed: {str(e)}", 0)
@@ -176,11 +205,14 @@ def _run_migration_sync(task_id: str):
             message_parts.append(f"{stats['left_for_review']} files left for review")
         
         completion_message = "Migration completed: " + ", ".join(message_parts)
-        
+
+        # Refresh dashboard cache after moving files
+        refresh_dashboard_cache()
+
         bg_tasks.set_task_status(task_id, "completed", completion_message, 100, results=stats)
-        
+
         logger.info(f"Migration operation {task_id} completed: {stats}")
-        
+
     except Exception as e:
         logger.error(f"Migration failed: {e}", exc_info=True)
         bg_tasks.set_task_status(task_id, "failed", f"Migration failed: {str(e)}", 0)
@@ -339,7 +371,11 @@ async def remove_missing_files(
     try:
         validator = FitsValidator(db_service)
         stats = validator.remove_missing_files(dry_run=dry_run)
-        
+
+        # Refresh cache if actually removed files (not dry run)
+        if not dry_run and stats.get('removed', 0) > 0:
+            refresh_dashboard_cache()
+
         return {
             "message": "Dry run completed" if dry_run else "Missing files removed",
             "stats": stats
@@ -378,12 +414,16 @@ async def cleanup_duplicates(config = Depends(get_config)):
         # Delete the folder and all contents
         shutil.rmtree(duplicates_folder)
         logger.info(f"Deleted duplicates folder with {file_count} files")
-        
+
+        # Refresh cache after deleting files
+        if file_count > 0:
+            refresh_dashboard_cache()
+
         return {
             "message": f"Deleted {file_count} duplicate files",
             "deleted": file_count
         }
-        
+
     except Exception as e:
         logger.error(f"Error cleaning up duplicates: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -418,12 +458,16 @@ async def cleanup_bad_files(config = Depends(get_config)):
         # Delete the folder and all contents
         shutil.rmtree(bad_files_folder)
         logger.info(f"Deleted bad files folder with {file_count} files")
-        
+
+        # Refresh cache after deleting files
+        if file_count > 0:
+            refresh_dashboard_cache()
+
         return {
             "message": f"Deleted {file_count} bad files",
             "deleted": file_count
         }
-        
+
     except Exception as e:
         logger.error(f"Error cleaning up bad files: {e}")
         raise HTTPException(status_code=500, detail=str(e))

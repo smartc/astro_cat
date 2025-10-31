@@ -408,65 +408,77 @@ const DashboardTab = {
                     </div>
                 </div>
 
-                <!-- Space by Category -->
+                <!-- Space by Category - Totals -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div class="flex justify-between items-center p-4 bg-gradient-to-r from-blue-100 to-blue-50 rounded-lg border-2 border-blue-200">
+                        <span class="font-bold text-gray-800">Raw FITS Total</span>
+                        <span class="text-2xl font-bold text-blue-700">{{ catalogedFilesSize }} GB</span>
+                    </div>
+                    <div class="flex justify-between items-center p-4 bg-gradient-to-r from-orange-100 to-orange-50 rounded-lg border-2 border-orange-200">
+                        <span class="font-bold text-gray-800">Processed Total</span>
+                        <span class="text-2xl font-bold text-orange-700">{{ processedFilesTotal }} GB</span>
+                    </div>
+                    <div class="flex justify-between items-center p-4 bg-gradient-to-r from-purple-100 to-purple-50 rounded-lg border-2 border-purple-200">
+                        <span class="font-bold text-gray-800">Other Data Total</span>
+                        <span class="text-2xl font-bold text-purple-700">{{ otherDataTotalMB }} MB</span>
+                    </div>
+                </div>
+
+                <!-- Space by Category - Details -->
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <!-- By Frame Type -->
+                    <!-- Raw FITS Files -->
                     <div>
-                        <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">Raw FITS Files</h3>
+                        <h3 class="text-md font-semibold text-gray-700 mb-3 border-b-2 border-blue-200 pb-2">Raw FITS Files</h3>
                         <div class="space-y-2">
                             <div class="flex justify-between items-center p-2 bg-blue-50 rounded">
                                 <span class="font-medium text-gray-700">LIGHT</span>
                                 <span class="text-blue-600 font-semibold">{{ diskSpaceLightFrames }} GB</span>
                             </div>
-                            <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
+                            <div class="flex justify-between items-center p-2 bg-blue-50 rounded">
                                 <span class="font-medium text-gray-700">DARK</span>
-                                <span class="text-gray-600 font-semibold">{{ diskSpaceDarkFrames }} GB</span>
+                                <span class="text-blue-600 font-semibold">{{ diskSpaceDarkFrames }} GB</span>
                             </div>
-                            <div class="flex justify-between items-center p-2 bg-green-50 rounded">
+                            <div class="flex justify-between items-center p-2 bg-blue-50 rounded">
                                 <span class="font-medium text-gray-700">FLAT</span>
-                                <span class="text-green-600 font-semibold">{{ diskSpaceFlatFrames }} GB</span>
+                                <span class="text-blue-600 font-semibold">{{ diskSpaceFlatFrames }} GB</span>
                             </div>
-                            <div class="flex justify-between items-center p-2 bg-purple-50 rounded">
+                            <div class="flex justify-between items-center p-2 bg-blue-50 rounded">
                                 <span class="font-medium text-gray-700">BIAS</span>
-                                <span class="text-purple-600 font-semibold">{{ diskSpaceBiasFrames }} GB</span>
+                                <span class="text-blue-600 font-semibold">{{ diskSpaceBiasFrames }} GB</span>
                             </div>
                         </div>
                     </div>
 
                     <!-- Processed Files -->
                     <div>
-                        <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">Processed Files</h3>
+                        <h3 class="text-md font-semibold text-gray-700 mb-3 border-b-2 border-orange-200 pb-2">Processed Files</h3>
                         <div class="space-y-2">
                             <div class="flex justify-between items-center p-2 bg-orange-50 rounded">
                                 <span class="font-medium text-gray-700">Intermediate</span>
                                 <span class="text-orange-600 font-semibold">{{ processedFilesIntermediate }} GB</span>
                             </div>
-                            <div class="flex justify-between items-center p-2 bg-teal-50 rounded">
+                            <div class="flex justify-between items-center p-2 bg-orange-50 rounded">
                                 <span class="font-medium text-gray-700">Final</span>
-                                <span class="text-teal-600 font-semibold">{{ processedFilesFinal }} GB</span>
-                            </div>
-                            <div class="flex justify-between items-center p-2 bg-amber-50 rounded">
-                                <span class="font-medium text-gray-700">Total Processed</span>
-                                <span class="text-amber-700 font-bold">{{ processedFilesTotal }} GB</span>
+                                <span class="text-orange-600 font-semibold">{{ processedFilesFinal }} GB</span>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Session Notes and Database -->
+                    <!-- Other Data -->
                     <div>
-                        <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">Other Data</h3>
+                        <h3 class="text-md font-semibold text-gray-700 mb-3 border-b-2 border-purple-200 pb-2">Other Data</h3>
                         <div class="space-y-2">
-                            <div class="flex justify-between items-center p-2 bg-indigo-50 rounded">
+                            <div class="flex justify-between items-center p-2 bg-purple-50 rounded">
                                 <span class="font-medium text-gray-700">Imaging Session Notes</span>
-                                <span class="text-indigo-600 font-semibold">{{ sessionNotesImaging }} KB</span>
+                                <span class="text-purple-600 font-semibold">{{ sessionNotesImaging }} KB</span>
                             </div>
-                            <div class="flex justify-between items-center p-2 bg-cyan-50 rounded">
+                            <div class="flex justify-between items-center p-2 bg-purple-50 rounded">
                                 <span class="font-medium text-gray-700">Processing Session Notes</span>
-                                <span class="text-cyan-600 font-semibold">{{ sessionNotesProcessing }} KB</span>
+                                <span class="text-purple-600 font-semibold">{{ sessionNotesProcessing }} KB</span>
                             </div>
-                            <div class="flex justify-between items-center p-2 bg-pink-50 rounded">
+                            <div class="flex justify-between items-center p-2 bg-purple-50 rounded">
                                 <span class="font-medium text-gray-700">Database</span>
-                                <span class="text-pink-600 font-semibold">{{ databaseSize }} MB</span>
+                                <span class="text-purple-600 font-semibold">{{ databaseSize }} MB</span>
                             </div>
                         </div>
                     </div>
@@ -588,6 +600,17 @@ const DashboardTab = {
         },
         processedFilesTotal() {
             return this.stats.disk_space?.processed_files?.total_gb || 0;
+        },
+        otherDataTotalMB() {
+            // Calculate total: session notes (KB) + database (MB) converted to MB
+            const notesKB = (this.sessionNotesImaging || 0) + (this.sessionNotesProcessing || 0);
+            const notesMB = notesKB / 1024;
+            const dbMB = this.databaseSize || 0;
+            const total = notesMB + dbMB;
+            // Format to 3 significant digits
+            if (total >= 100) return Math.round(total);
+            if (total >= 10) return Math.round(total * 10) / 10;
+            return Math.round(total * 100) / 100;
         }
     },
     
