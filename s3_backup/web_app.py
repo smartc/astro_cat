@@ -759,30 +759,39 @@ backup_tasks_by_session = {}
 async def run_backup_task(task_id: str, session_id: str, backup_func, *args, **kwargs):
     """Run a backup task in the background."""
     try:
-        # Track by session_id
-        backup_tasks_by_session[session_id] = {
-            "status": "running", 
+        # Track by both task_id and session_id
+        task_info = {
+            "status": "running",
             "progress": 0,
             "started_at": datetime.now(),
-            "task_id": task_id
+            "task_id": task_id,
+            "session_id": session_id
         }
-        
+        backup_tasks[task_id] = task_info
+        backup_tasks_by_session[session_id] = task_info
+
         result = await asyncio.to_thread(backup_func, *args, **kwargs)
-        
-        backup_tasks_by_session[session_id] = {
-            "status": "complete", 
+
+        task_info = {
+            "status": "complete",
             "result": result,
             "completed_at": datetime.now(),
-            "task_id": task_id
+            "task_id": task_id,
+            "session_id": session_id
         }
+        backup_tasks[task_id] = task_info
+        backup_tasks_by_session[session_id] = task_info
         return result
     except Exception as e:
-        backup_tasks_by_session[session_id] = {
-            "status": "error", 
+        task_info = {
+            "status": "error",
             "error": str(e),
             "completed_at": datetime.now(),
-            "task_id": task_id
+            "task_id": task_id,
+            "session_id": session_id
         }
+        backup_tasks[task_id] = task_info
+        backup_tasks_by_session[session_id] = task_info
         logger.error(f"Backup task {task_id} failed: {e}")
         raise
 
@@ -1026,7 +1035,6 @@ async def backup_session_notes(request: BackupRequest):
                                 existing.file_size_bytes = result.file_size
                                 existing.verified = True
                             else:
-                                from datetime import datetime
                                 backup_note = S3BackupSessionNote(
                                     session_id=session_id,
                                     session_year=year,
@@ -1138,7 +1146,6 @@ async def backup_processing_notes(request: BackupRequest):
                                 existing.uploaded_at = datetime.now()
                                 existing.file_size_bytes = result.file_size
                             else:
-                                from datetime import datetime
                                 backup_proc = S3BackupProcessingSession(
                                     processing_session_id=session_id,
                                     s3_bucket=backup_manager.s3_config.bucket,
