@@ -148,6 +148,16 @@ async def startup_event():
         logger.info("Initializing processing session manager...")
         processing_manager = ProcessingSessionManager(config, db_service)
         logger.info("✓ Processing session manager initialized")
+
+        # Load dashboard cache
+        logger.info("Loading dashboard statistics cache...")
+        from web import dashboard_cache
+        dashboard_cache.load_cache()
+        cache_age = dashboard_cache.get_cache_age()
+        if cache_age is not None:
+            logger.info(f"✓ Dashboard cache loaded (age: {cache_age/3600:.1f} hours)")
+        else:
+            logger.info("✓ Dashboard cache initialized (empty)")
         
         # Start WebDAV server (add this near the end, before the final success message)
         if config and config.paths.processing_dir:

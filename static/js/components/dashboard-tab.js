@@ -409,10 +409,10 @@ const DashboardTab = {
                 </div>
 
                 <!-- Space by Category -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <!-- By Frame Type -->
                     <div>
-                        <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">Space by Frame Type</h3>
+                        <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">Raw FITS Files</h3>
                         <div class="space-y-2">
                             <div class="flex justify-between items-center p-2 bg-blue-50 rounded">
                                 <span class="font-medium text-gray-700">LIGHT</span>
@@ -429,6 +429,25 @@ const DashboardTab = {
                             <div class="flex justify-between items-center p-2 bg-purple-50 rounded">
                                 <span class="font-medium text-gray-700">BIAS</span>
                                 <span class="text-purple-600 font-semibold">{{ diskSpaceBiasFrames }} GB</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Processed Files -->
+                    <div>
+                        <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">Processed Files</h3>
+                        <div class="space-y-2">
+                            <div class="flex justify-between items-center p-2 bg-orange-50 rounded">
+                                <span class="font-medium text-gray-700">Intermediate</span>
+                                <span class="text-orange-600 font-semibold">{{ processedFilesIntermediate }} GB</span>
+                            </div>
+                            <div class="flex justify-between items-center p-2 bg-teal-50 rounded">
+                                <span class="font-medium text-gray-700">Final</span>
+                                <span class="text-teal-600 font-semibold">{{ processedFilesFinal }} GB</span>
+                            </div>
+                            <div class="flex justify-between items-center p-2 bg-amber-50 rounded">
+                                <span class="font-medium text-gray-700">Total Processed</span>
+                                <span class="text-amber-700 font-bold">{{ processedFilesTotal }} GB</span>
                             </div>
                         </div>
                     </div>
@@ -560,6 +579,15 @@ const DashboardTab = {
         },
         databaseSize() {
             return this.stats.disk_space?.database?.mb || 0;
+        },
+        processedFilesIntermediate() {
+            return this.stats.disk_space?.processed_files?.intermediate_gb || 0;
+        },
+        processedFilesFinal() {
+            return this.stats.disk_space?.processed_files?.final_gb || 0;
+        },
+        processedFilesTotal() {
+            return this.stats.disk_space?.processed_files?.total_gb || 0;
         }
     },
     

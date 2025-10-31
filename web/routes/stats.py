@@ -11,16 +11,10 @@ from typing import Optional
 
 from models import FitsFile, Session as ImagingSession, ProcessingSession, ProcessingSessionFile
 from web.dependencies import get_db_service, get_config
+from web import dashboard_cache
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
-
-# Cache for disk space calculations (expensive operations)
-_disk_space_cache = {
-    "data": None,
-    "timestamp": None,
-    "ttl": 300  # Cache for 5 minutes (300 seconds)
-}
 
 
 def count_physical_files_in_folder(folder_path: Path, extensions: list = None) -> int:
@@ -273,19 +267,25 @@ def calculate_new_sessions_stats(session, config):
     }
 
 
-def calculate_disk_space_stats_actual(session, config):
+def calculate_disk_space_stats(session, config):
     """
-    Calculate actual disk space utilization statistics using filesystem stat() calls.
+    Get disk space statistics from persistent cache.
 
-    This is expensive, so results are cached for 5 minutes.
+    The cache is updated by catalog operations, not on every API call.
+    We only calculate real-time disk usage (fast operation).
     """
-    logger.info("Calculating actual disk space statistics (not cached)...")
+    # Get cached file size data
+    cached_data = dashboard_cache.get_cached_disk_space()
 
-    # Get the catalog root directory (where the database is located)
+    # If no cache, calculate it now (first run or after invalidation)
+    if cached_data is None:
+        logger.info("No cached disk space data, calculating now...")
+        cached_data = dashboard_cache.calculate_and_cache_disk_space(session, config)
+
+    # Get real-time disk usage (fast operation)
     db_path = Path(config.database.connection_string.replace('sqlite:///', ''))
     catalog_root = db_path.parent
 
-    # Get disk usage stats for the catalog drive (fast operation)
     try:
         disk_usage = shutil.disk_usage(catalog_root)
         total_space = disk_usage.total
@@ -299,69 +299,8 @@ def calculate_disk_space_stats_actual(session, config):
         free_space = 0
         used_percent = 0
 
-    # Calculate actual cataloged file sizes by frame type
-    cataloged_size = 0
-    by_frame_type = {}
-
-    for frame_type in ['LIGHT', 'DARK', 'FLAT', 'BIAS']:
-        files = session.query(FitsFile.folder, FitsFile.file).filter(
-            FitsFile.frame_type == frame_type
-        ).all()
-
-        frame_size = 0
-        for folder, filename in files:
-            try:
-                file_path = Path(folder) / filename
-                if file_path.exists():
-                    frame_size += file_path.stat().st_size
-            except Exception as e:
-                logger.debug(f"Could not get size for {folder}/{filename}: {e}")
-
-        cataloged_size += frame_size
-        by_frame_type[frame_type] = {
-            "bytes": frame_size,
-            "gb": format_number(frame_size / (1024**3))
-        }
-
-    logger.info(f"Calculated cataloged files size: {cataloged_size / (1024**3):.2f} GB")
-
-    # Calculate space used by session notes
-    imaging_notes_size = 0
-    processing_notes_size = 0
-
-    try:
-        # Use config.paths.notes_dir for session notes
-        notes_dir = Path(config.paths.notes_dir)
-
-        # Imaging session notes
-        imaging_notes_dir = notes_dir / "Imaging_Sessions"
-        if imaging_notes_dir.exists():
-            for md_file in imaging_notes_dir.rglob("*.md"):
-                try:
-                    imaging_notes_size += md_file.stat().st_size
-                except Exception as e:
-                    logger.debug(f"Could not get size for {md_file}: {e}")
-
-        # Processing session notes
-        processing_notes_dir = notes_dir / "Processing_Sessions"
-        if processing_notes_dir.exists():
-            for md_file in processing_notes_dir.rglob("*.md"):
-                try:
-                    processing_notes_size += md_file.stat().st_size
-                except Exception as e:
-                    logger.debug(f"Could not get size for {md_file}: {e}")
-    except Exception as e:
-        logger.error(f"Error calculating session notes size: {e}")
-
-    # Calculate database size
-    db_size = 0
-    try:
-        if db_path.exists():
-            db_size = db_path.stat().st_size
-    except Exception as e:
-        logger.error(f"Error getting database size: {e}")
-
-    return {
+    # Combine real-time disk usage with cached file sizes
+    result = {
         "disk_usage": {
             "total_bytes": total_space,
             "total_gb": format_number(total_space / (1024**3)),
@@ -371,56 +310,29 @@ def calculate_disk_space_stats_actual(session, config):
             "free_gb": format_number(free_space / (1024**3)),
             "used_percent": format_number(used_percent)
         },
-        "cataloged_files": {
-            "total_bytes": cataloged_size,
-            "total_gb": format_number(cataloged_size / (1024**3)),
-            "by_frame_type": by_frame_type
-        },
-        "session_notes": {
-            "imaging_bytes": imaging_notes_size,
-            "imaging_kb": format_number(imaging_notes_size / 1024),
-            "processing_bytes": processing_notes_size,
-            "processing_kb": format_number(processing_notes_size / 1024),
-            "total_bytes": imaging_notes_size + processing_notes_size,
-            "total_kb": format_number((imaging_notes_size + processing_notes_size) / 1024)
-        },
-        "database": {
-            "bytes": db_size,
-            "mb": format_number(db_size / (1024**2))
-        }
+        **cached_data  # Include all cached data (cataloged_files, processed_files, session_notes, database)
     }
 
+    # Apply format_number to cached values
+    if "cataloged_files" in result:
+        result["cataloged_files"]["total_gb"] = format_number(result["cataloged_files"]["total_gb"])
+        for frame_type in result["cataloged_files"].get("by_frame_type", {}).values():
+            frame_type["gb"] = format_number(frame_type["gb"])
 
-def calculate_disk_space_stats(session, config):
-    """
-    Get disk space statistics with caching.
+    if "processed_files" in result:
+        result["processed_files"]["intermediate_gb"] = format_number(result["processed_files"]["intermediate_gb"])
+        result["processed_files"]["final_gb"] = format_number(result["processed_files"]["final_gb"])
+        result["processed_files"]["total_gb"] = format_number(result["processed_files"]["total_gb"])
 
-    Returns cached data if available and not expired (< 5 minutes old).
-    Otherwise calculates actual stats and updates cache.
-    """
-    global _disk_space_cache
+    if "session_notes" in result:
+        result["session_notes"]["imaging_kb"] = format_number(result["session_notes"]["imaging_kb"])
+        result["session_notes"]["processing_kb"] = format_number(result["session_notes"]["processing_kb"])
+        result["session_notes"]["total_kb"] = format_number(result["session_notes"]["total_kb"])
 
-    now = datetime.now()
+    if "database" in result:
+        result["database"]["mb"] = format_number(result["database"]["mb"])
 
-    # Check if cache is valid
-    if (_disk_space_cache["data"] is not None and
-        _disk_space_cache["timestamp"] is not None):
-
-        age_seconds = (now - _disk_space_cache["timestamp"]).total_seconds()
-
-        if age_seconds < _disk_space_cache["ttl"]:
-            logger.debug(f"Using cached disk space stats (age: {age_seconds:.1f}s)")
-            return _disk_space_cache["data"]
-
-    # Cache miss or expired - calculate actual stats
-    logger.info("Disk space cache expired or empty, recalculating...")
-    stats = calculate_disk_space_stats_actual(session, config)
-
-    # Update cache
-    _disk_space_cache["data"] = stats
-    _disk_space_cache["timestamp"] = now
-
-    return stats
+    return result
 
 
 @router.get("/stats")
@@ -592,4 +504,39 @@ async def get_stats(db_service = Depends(get_db_service), config = Depends(get_c
         
     except Exception as e:
         logger.error(f"Error getting stats: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/stats/refresh-disk-cache")
+async def refresh_disk_cache(db_service = Depends(get_db_service), config = Depends(get_config)):
+    """
+    Manually refresh the disk space cache.
+
+    This endpoint should be called after catalog operations that add/remove files.
+    """
+    try:
+        session = db_service.db_manager.get_session()
+        logger.info("Manual disk cache refresh requested")
+
+        # Recalculate and cache disk space stats
+        disk_stats = dashboard_cache.calculate_and_cache_disk_space(session, config)
+
+        session.close()
+
+        cache_age = dashboard_cache.get_cache_age()
+
+        return {
+            "success": True,
+            "message": "Disk space cache refreshed successfully",
+            "cache_age_seconds": cache_age,
+            "summary": {
+                "cataloged_files_gb": disk_stats["cataloged_files"]["total_gb"],
+                "processed_files_gb": disk_stats.get("processed_files", {}).get("total_gb", 0),
+                "session_notes_kb": disk_stats["session_notes"]["total_kb"],
+                "database_mb": disk_stats["database"]["mb"]
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error refreshing disk cache: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
