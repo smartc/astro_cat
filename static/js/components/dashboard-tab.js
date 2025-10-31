@@ -174,16 +174,19 @@ const DashboardTab = {
                     <!-- By Year -->
                     <div>
                         <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">By Year</h3>
-                        <div v-if="integrationTimeGraphByYear && integrationTimeGraphByYear.length > 0" class="space-y-3">
-                            <div v-for="item in integrationTimeGraphByYear" :key="item.label" class="space-y-1">
-                                <div class="flex justify-between text-sm">
-                                    <span class="font-medium text-gray-700">{{ item.label }}</span>
-                                    <span class="text-blue-600 font-semibold">{{ formatIntegrationTime()(item.value) }}</span>
-                                </div>
-                                <div class="w-full bg-gray-200 rounded-full h-2.5">
-                                    <div class="bg-blue-600 h-2.5 rounded-full" :style="{ width: item.percentage + '%' }"></div>
-                                </div>
-                            </div>
+                        <div v-if="integrationTimeGraphByYear && integrationTimeGraphByYear.length > 0">
+                            <svg :height="integrationTimeGraphByYear.length * 30 + 10" class="w-full">
+                                <g v-for="(item, index) in integrationTimeGraphByYear" :key="item.label">
+                                    <!-- Background bar -->
+                                    <rect :y="index * 30 + 5" x="80" width="calc(100% - 200px)" height="18" fill="#e5e7eb" rx="4"/>
+                                    <!-- Data bar -->
+                                    <rect :y="index * 30 + 5" x="80" :width="`calc((100% - 200px) * ${item.percentage / 100})`" height="18" fill="#2563eb" rx="4"/>
+                                    <!-- Label -->
+                                    <text :y="index * 30 + 17" x="5" class="text-sm font-medium fill-gray-700">{{ item.label }}</text>
+                                    <!-- Value -->
+                                    <text :y="index * 30 + 17" :x="`calc(100% - 110px)`" class="text-sm font-semibold fill-blue-600">{{ formatIntegrationTime()(item.value) }}</text>
+                                </g>
+                            </svg>
                         </div>
                         <div v-else class="text-gray-500 text-sm italic">No data</div>
                     </div>
@@ -191,16 +194,15 @@ const DashboardTab = {
                     <!-- By Telescope -->
                     <div>
                         <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">By Telescope</h3>
-                        <div v-if="integrationTimeGraphByTelescope && integrationTimeGraphByTelescope.length > 0" class="space-y-3">
-                            <div v-for="item in integrationTimeGraphByTelescope" :key="item.label" class="space-y-1">
-                                <div class="flex justify-between text-sm">
-                                    <span class="font-medium text-gray-700 truncate mr-2">{{ item.label }}</span>
-                                    <span class="text-blue-600 font-semibold whitespace-nowrap">{{ formatIntegrationTime()(item.value) }}</span>
-                                </div>
-                                <div class="w-full bg-gray-200 rounded-full h-2.5">
-                                    <div class="bg-blue-600 h-2.5 rounded-full" :style="{ width: item.percentage + '%' }"></div>
-                                </div>
-                            </div>
+                        <div v-if="integrationTimeGraphByTelescope && integrationTimeGraphByTelescope.length > 0">
+                            <svg :height="integrationTimeGraphByTelescope.length * 30 + 10" class="w-full">
+                                <g v-for="(item, index) in integrationTimeGraphByTelescope" :key="item.label">
+                                    <rect :y="index * 30 + 5" x="100" width="calc(100% - 220px)" height="18" fill="#e5e7eb" rx="4"/>
+                                    <rect :y="index * 30 + 5" x="100" :width="`calc((100% - 220px) * ${item.percentage / 100})`" height="18" fill="#2563eb" rx="4"/>
+                                    <text :y="index * 30 + 17" x="5" class="text-sm font-medium fill-gray-700" style="max-width: 90px; overflow: hidden; text-overflow: ellipsis;">{{ item.label }}</text>
+                                    <text :y="index * 30 + 17" :x="`calc(100% - 110px)`" class="text-sm font-semibold fill-blue-600">{{ formatIntegrationTime()(item.value) }}</text>
+                                </g>
+                            </svg>
                         </div>
                         <div v-else class="text-gray-500 text-sm italic">No data</div>
                     </div>
@@ -208,16 +210,15 @@ const DashboardTab = {
                     <!-- By Camera -->
                     <div>
                         <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">By Camera</h3>
-                        <div v-if="integrationTimeGraphByCamera && integrationTimeGraphByCamera.length > 0" class="space-y-3">
-                            <div v-for="item in integrationTimeGraphByCamera" :key="item.label" class="space-y-1">
-                                <div class="flex justify-between text-sm">
-                                    <span class="font-medium text-gray-700 truncate mr-2">{{ item.label }}</span>
-                                    <span class="text-blue-600 font-semibold whitespace-nowrap">{{ formatIntegrationTime()(item.value) }}</span>
-                                </div>
-                                <div class="w-full bg-gray-200 rounded-full h-2.5">
-                                    <div class="bg-blue-600 h-2.5 rounded-full" :style="{ width: item.percentage + '%' }"></div>
-                                </div>
-                            </div>
+                        <div v-if="integrationTimeGraphByCamera && integrationTimeGraphByCamera.length > 0">
+                            <svg :height="integrationTimeGraphByCamera.length * 30 + 10" class="w-full">
+                                <g v-for="(item, index) in integrationTimeGraphByCamera" :key="item.label">
+                                    <rect :y="index * 30 + 5" x="100" width="calc(100% - 220px)" height="18" fill="#e5e7eb" rx="4"/>
+                                    <rect :y="index * 30 + 5" x="100" :width="`calc((100% - 220px) * ${item.percentage / 100})`" height="18" fill="#2563eb" rx="4"/>
+                                    <text :y="index * 30 + 17" x="5" class="text-sm font-medium fill-gray-700">{{ item.label }}</text>
+                                    <text :y="index * 30 + 17" :x="`calc(100% - 110px)`" class="text-sm font-semibold fill-blue-600">{{ formatIntegrationTime()(item.value) }}</text>
+                                </g>
+                            </svg>
                         </div>
                         <div v-else class="text-gray-500 text-sm italic">No data</div>
                     </div>
@@ -239,16 +240,19 @@ const DashboardTab = {
                     <!-- By Year -->
                     <div>
                         <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">By Year</h3>
-                        <div v-if="objectCountGraphByYear && objectCountGraphByYear.length > 0" class="space-y-3">
-                            <div v-for="item in objectCountGraphByYear" :key="item.label" class="space-y-1">
-                                <div class="flex justify-between text-sm">
-                                    <span class="font-medium text-gray-700">{{ item.label }}</span>
-                                    <span class="text-purple-600 font-semibold">{{ item.value }}</span>
-                                </div>
-                                <div class="w-full bg-gray-200 rounded-full h-2.5">
-                                    <div class="bg-purple-600 h-2.5 rounded-full" :style="{ width: item.percentage + '%' }"></div>
-                                </div>
-                            </div>
+                        <div v-if="objectCountGraphByYear && objectCountGraphByYear.length > 0">
+                            <svg :height="objectCountGraphByYear.length * 30 + 10" class="w-full">
+                                <g v-for="(item, index) in objectCountGraphByYear" :key="item.label">
+                                    <!-- Background bar -->
+                                    <rect :y="index * 30 + 5" x="80" width="calc(100% - 200px)" height="18" fill="#e5e7eb" rx="4"/>
+                                    <!-- Data bar -->
+                                    <rect :y="index * 30 + 5" x="80" :width="`calc((100% - 200px) * ${item.percentage / 100})`" height="18" fill="#9333ea" rx="4"/>
+                                    <!-- Label -->
+                                    <text :y="index * 30 + 17" x="5" class="text-sm font-medium fill-gray-700">{{ item.label }}</text>
+                                    <!-- Value -->
+                                    <text :y="index * 30 + 17" :x="`calc(100% - 110px)`" class="text-sm font-semibold fill-purple-600">{{ item.value }}</text>
+                                </g>
+                            </svg>
                         </div>
                         <div v-else class="text-gray-500 text-sm italic">No data</div>
                     </div>
@@ -256,16 +260,15 @@ const DashboardTab = {
                     <!-- By Telescope -->
                     <div>
                         <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">By Telescope</h3>
-                        <div v-if="objectCountGraphByTelescope && objectCountGraphByTelescope.length > 0" class="space-y-3">
-                            <div v-for="item in objectCountGraphByTelescope" :key="item.label" class="space-y-1">
-                                <div class="flex justify-between text-sm">
-                                    <span class="font-medium text-gray-700 truncate mr-2">{{ item.label }}</span>
-                                    <span class="text-purple-600 font-semibold">{{ item.value }}</span>
-                                </div>
-                                <div class="w-full bg-gray-200 rounded-full h-2.5">
-                                    <div class="bg-purple-600 h-2.5 rounded-full" :style="{ width: item.percentage + '%' }"></div>
-                                </div>
-                            </div>
+                        <div v-if="objectCountGraphByTelescope && objectCountGraphByTelescope.length > 0">
+                            <svg :height="objectCountGraphByTelescope.length * 30 + 10" class="w-full">
+                                <g v-for="(item, index) in objectCountGraphByTelescope" :key="item.label">
+                                    <rect :y="index * 30 + 5" x="100" width="calc(100% - 220px)" height="18" fill="#e5e7eb" rx="4"/>
+                                    <rect :y="index * 30 + 5" x="100" :width="`calc((100% - 220px) * ${item.percentage / 100})`" height="18" fill="#9333ea" rx="4"/>
+                                    <text :y="index * 30 + 17" x="5" class="text-sm font-medium fill-gray-700" style="max-width: 90px; overflow: hidden; text-overflow: ellipsis;">{{ item.label }}</text>
+                                    <text :y="index * 30 + 17" :x="`calc(100% - 110px)`" class="text-sm font-semibold fill-purple-600">{{ item.value }}</text>
+                                </g>
+                            </svg>
                         </div>
                         <div v-else class="text-gray-500 text-sm italic">No data</div>
                     </div>
@@ -273,16 +276,15 @@ const DashboardTab = {
                     <!-- By Camera -->
                     <div>
                         <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">By Camera</h3>
-                        <div v-if="objectCountGraphByCamera && objectCountGraphByCamera.length > 0" class="space-y-3">
-                            <div v-for="item in objectCountGraphByCamera" :key="item.label" class="space-y-1">
-                                <div class="flex justify-between text-sm">
-                                    <span class="font-medium text-gray-700 truncate mr-2">{{ item.label }}</span>
-                                    <span class="text-purple-600 font-semibold">{{ item.value }}</span>
-                                </div>
-                                <div class="w-full bg-gray-200 rounded-full h-2.5">
-                                    <div class="bg-purple-600 h-2.5 rounded-full" :style="{ width: item.percentage + '%' }"></div>
-                                </div>
-                            </div>
+                        <div v-if="objectCountGraphByCamera && objectCountGraphByCamera.length > 0">
+                            <svg :height="objectCountGraphByCamera.length * 30 + 10" class="w-full">
+                                <g v-for="(item, index) in objectCountGraphByCamera" :key="item.label">
+                                    <rect :y="index * 30 + 5" x="100" width="calc(100% - 220px)" height="18" fill="#e5e7eb" rx="4"/>
+                                    <rect :y="index * 30 + 5" x="100" :width="`calc((100% - 220px) * ${item.percentage / 100})`" height="18" fill="#9333ea" rx="4"/>
+                                    <text :y="index * 30 + 17" x="5" class="text-sm font-medium fill-gray-700">{{ item.label }}</text>
+                                    <text :y="index * 30 + 17" :x="`calc(100% - 110px)`" class="text-sm font-semibold fill-purple-600">{{ item.value }}</text>
+                                </g>
+                            </svg>
                         </div>
                         <div v-else class="text-gray-500 text-sm italic">No data</div>
                     </div>
@@ -572,23 +574,23 @@ const DashboardTab = {
         },
 
         integrationTimeGraphByYear() {
-            return this.convertToBarGraphData(this.integrationTimeByYear, 'total_seconds');
+            return this.convertToBarGraphData(this.integrationTimeByYear, 'total_seconds', true); // Sort by year
         },
         integrationTimeGraphByTelescope() {
-            return this.convertToBarGraphData(this.integrationTimeByTelescope, 'total_seconds');
+            return this.convertToBarGraphData(this.integrationTimeByTelescope, 'total_seconds', false); // Sort by value
         },
         integrationTimeGraphByCamera() {
-            return this.convertToBarGraphData(this.integrationTimeByCamera, 'total_seconds');
+            return this.convertToBarGraphData(this.integrationTimeByCamera, 'total_seconds', false); // Sort by value
         },
 
         objectCountGraphByYear() {
-            return this.convertToBarGraphData(this.objectCountByYear);
+            return this.convertToBarGraphData(this.objectCountByYear, null, true); // Sort by year
         },
         objectCountGraphByTelescope() {
-            return this.convertToBarGraphData(this.objectCountByTelescope);
+            return this.convertToBarGraphData(this.objectCountByTelescope, null, false); // Sort by value
         },
         objectCountGraphByCamera() {
-            return this.convertToBarGraphData(this.objectCountByCamera);
+            return this.convertToBarGraphData(this.objectCountByCamera, null, false); // Sort by value
         },
 
         // New Sessions
@@ -666,7 +668,7 @@ const DashboardTab = {
 
     methods: {
         // Helper to convert object to sorted array with percentages for bar graphs
-        convertToBarGraphData(dataObj, valueKey = null) {
+        convertToBarGraphData(dataObj, valueKey = null, sortByLabel = false) {
             if (!dataObj || Object.keys(dataObj).length === 0) return [];
 
             const entries = Object.entries(dataObj).map(([label, value]) => {
@@ -677,8 +679,12 @@ const DashboardTab = {
                 return { label, value: numValue };
             });
 
-            // Sort by value descending
-            entries.sort((a, b) => b.value - a.value);
+            // Sort by label (for years) or by value descending
+            if (sortByLabel) {
+                entries.sort((a, b) => a.label.localeCompare(b.label));
+            } else {
+                entries.sort((a, b) => b.value - a.value);
+            }
 
             // Calculate max for scaling
             const maxValue = Math.max(...entries.map(e => e.value), 1);
