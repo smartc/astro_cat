@@ -169,15 +169,20 @@ const DashboardTab = {
                     <p class="text-3xl font-bold text-blue-600">{{ integrationTimeTotal }}</p>
                 </div>
 
-                <!-- By Year, Telescope, Camera -->
+                <!-- By Year, Telescope, Camera - Bar Graphs -->
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <!-- By Year -->
                     <div>
                         <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">By Year</h3>
-                        <div v-if="integrationTimeByYear && Object.keys(integrationTimeByYear).length > 0" class="space-y-2">
-                            <div v-for="(time, year) in integrationTimeByYear" :key="year" class="flex justify-between items-center p-2 bg-gray-50 rounded">
-                                <span class="font-medium text-gray-700">{{ year }}</span>
-                                <span class="text-blue-600 font-semibold">{{ time.formatted }}</span>
+                        <div v-if="integrationTimeGraphByYear && integrationTimeGraphByYear.length > 0" class="space-y-3">
+                            <div v-for="item in integrationTimeGraphByYear" :key="item.label" class="space-y-1">
+                                <div class="flex justify-between text-sm">
+                                    <span class="font-medium text-gray-700">{{ item.label }}</span>
+                                    <span class="text-blue-600 font-semibold">{{ formatIntegrationTime()(item.value) }}</span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                                    <div class="bg-blue-600 h-2.5 rounded-full" :style="{ width: item.percentage + '%' }"></div>
+                                </div>
                             </div>
                         </div>
                         <div v-else class="text-gray-500 text-sm italic">No data</div>
@@ -186,10 +191,15 @@ const DashboardTab = {
                     <!-- By Telescope -->
                     <div>
                         <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">By Telescope</h3>
-                        <div v-if="integrationTimeByTelescope && Object.keys(integrationTimeByTelescope).length > 0" class="space-y-2">
-                            <div v-for="(time, telescope) in integrationTimeByTelescope" :key="telescope" class="flex justify-between items-center p-2 bg-gray-50 rounded">
-                                <span class="font-medium text-gray-700 truncate mr-2">{{ telescope }}</span>
-                                <span class="text-blue-600 font-semibold whitespace-nowrap">{{ time.formatted }}</span>
+                        <div v-if="integrationTimeGraphByTelescope && integrationTimeGraphByTelescope.length > 0" class="space-y-3">
+                            <div v-for="item in integrationTimeGraphByTelescope" :key="item.label" class="space-y-1">
+                                <div class="flex justify-between text-sm">
+                                    <span class="font-medium text-gray-700 truncate mr-2">{{ item.label }}</span>
+                                    <span class="text-blue-600 font-semibold whitespace-nowrap">{{ formatIntegrationTime()(item.value) }}</span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                                    <div class="bg-blue-600 h-2.5 rounded-full" :style="{ width: item.percentage + '%' }"></div>
+                                </div>
                             </div>
                         </div>
                         <div v-else class="text-gray-500 text-sm italic">No data</div>
@@ -198,10 +208,15 @@ const DashboardTab = {
                     <!-- By Camera -->
                     <div>
                         <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">By Camera</h3>
-                        <div v-if="integrationTimeByCamera && Object.keys(integrationTimeByCamera).length > 0" class="space-y-2">
-                            <div v-for="(time, camera) in integrationTimeByCamera" :key="camera" class="flex justify-between items-center p-2 bg-gray-50 rounded">
-                                <span class="font-medium text-gray-700 truncate mr-2">{{ camera }}</span>
-                                <span class="text-blue-600 font-semibold whitespace-nowrap">{{ time.formatted }}</span>
+                        <div v-if="integrationTimeGraphByCamera && integrationTimeGraphByCamera.length > 0" class="space-y-3">
+                            <div v-for="item in integrationTimeGraphByCamera" :key="item.label" class="space-y-1">
+                                <div class="flex justify-between text-sm">
+                                    <span class="font-medium text-gray-700 truncate mr-2">{{ item.label }}</span>
+                                    <span class="text-blue-600 font-semibold whitespace-nowrap">{{ formatIntegrationTime()(item.value) }}</span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                                    <div class="bg-blue-600 h-2.5 rounded-full" :style="{ width: item.percentage + '%' }"></div>
+                                </div>
                             </div>
                         </div>
                         <div v-else class="text-gray-500 text-sm italic">No data</div>
@@ -219,15 +234,20 @@ const DashboardTab = {
                     <p class="text-3xl font-bold text-purple-600">{{ objectCountTotal }}</p>
                 </div>
 
-                <!-- By Year, Telescope, Camera -->
+                <!-- By Year, Telescope, Camera - Bar Graphs -->
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <!-- By Year -->
                     <div>
                         <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">By Year</h3>
-                        <div v-if="objectCountByYear && Object.keys(objectCountByYear).length > 0" class="space-y-2">
-                            <div v-for="(count, year) in objectCountByYear" :key="year" class="flex justify-between items-center p-2 bg-gray-50 rounded">
-                                <span class="font-medium text-gray-700">{{ year }}</span>
-                                <span class="text-purple-600 font-semibold">{{ count }}</span>
+                        <div v-if="objectCountGraphByYear && objectCountGraphByYear.length > 0" class="space-y-3">
+                            <div v-for="item in objectCountGraphByYear" :key="item.label" class="space-y-1">
+                                <div class="flex justify-between text-sm">
+                                    <span class="font-medium text-gray-700">{{ item.label }}</span>
+                                    <span class="text-purple-600 font-semibold">{{ item.value }}</span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                                    <div class="bg-purple-600 h-2.5 rounded-full" :style="{ width: item.percentage + '%' }"></div>
+                                </div>
                             </div>
                         </div>
                         <div v-else class="text-gray-500 text-sm italic">No data</div>
@@ -236,10 +256,15 @@ const DashboardTab = {
                     <!-- By Telescope -->
                     <div>
                         <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">By Telescope</h3>
-                        <div v-if="objectCountByTelescope && Object.keys(objectCountByTelescope).length > 0" class="space-y-2">
-                            <div v-for="(count, telescope) in objectCountByTelescope" :key="telescope" class="flex justify-between items-center p-2 bg-gray-50 rounded">
-                                <span class="font-medium text-gray-700 truncate mr-2">{{ telescope }}</span>
-                                <span class="text-purple-600 font-semibold">{{ count }}</span>
+                        <div v-if="objectCountGraphByTelescope && objectCountGraphByTelescope.length > 0" class="space-y-3">
+                            <div v-for="item in objectCountGraphByTelescope" :key="item.label" class="space-y-1">
+                                <div class="flex justify-between text-sm">
+                                    <span class="font-medium text-gray-700 truncate mr-2">{{ item.label }}</span>
+                                    <span class="text-purple-600 font-semibold">{{ item.value }}</span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                                    <div class="bg-purple-600 h-2.5 rounded-full" :style="{ width: item.percentage + '%' }"></div>
+                                </div>
                             </div>
                         </div>
                         <div v-else class="text-gray-500 text-sm italic">No data</div>
@@ -248,10 +273,15 @@ const DashboardTab = {
                     <!-- By Camera -->
                     <div>
                         <h3 class="text-md font-semibold text-gray-700 mb-3 border-b pb-2">By Camera</h3>
-                        <div v-if="objectCountByCamera && Object.keys(objectCountByCamera).length > 0" class="space-y-2">
-                            <div v-for="(count, camera) in objectCountByCamera" :key="camera" class="flex justify-between items-center p-2 bg-gray-50 rounded">
-                                <span class="font-medium text-gray-700 truncate mr-2">{{ camera }}</span>
-                                <span class="text-purple-600 font-semibold">{{ count }}</span>
+                        <div v-if="objectCountGraphByCamera && objectCountGraphByCamera.length > 0" class="space-y-3">
+                            <div v-for="item in objectCountGraphByCamera" :key="item.label" class="space-y-1">
+                                <div class="flex justify-between text-sm">
+                                    <span class="font-medium text-gray-700 truncate mr-2">{{ item.label }}</span>
+                                    <span class="text-purple-600 font-semibold">{{ item.value }}</span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                                    <div class="bg-purple-600 h-2.5 rounded-full" :style="{ width: item.percentage + '%' }"></div>
+                                </div>
                             </div>
                         </div>
                         <div v-else class="text-gray-500 text-sm italic">No data</div>
@@ -539,6 +569,67 @@ const DashboardTab = {
         },
         objectCountByCamera() {
             return this.stats.object_counts?.by_camera || {};
+        },
+
+        // Helper methods for bar graphs
+        getBarGraphData() {
+            // Helper to convert object to sorted array with percentages
+            return (dataObj, valueKey = null) => {
+                if (!dataObj || Object.keys(dataObj).length === 0) return [];
+
+                const entries = Object.entries(dataObj).map(([label, value]) => {
+                    // If value is an object (like integration time), extract the seconds
+                    const numValue = valueKey && typeof value === 'object'
+                        ? value[valueKey]
+                        : (typeof value === 'number' ? value : 0);
+                    return { label, value: numValue };
+                });
+
+                // Sort by value descending
+                entries.sort((a, b) => b.value - a.value);
+
+                // Calculate max for scaling
+                const maxValue = Math.max(...entries.map(e => e.value), 1);
+
+                // Add percentage for bar width
+                return entries.map(e => ({
+                    ...e,
+                    percentage: (e.value / maxValue) * 100
+                }));
+            };
+        },
+
+        integrationTimeGraphByYear() {
+            return this.getBarGraphData()(this.integrationTimeByYear, 'total_seconds');
+        },
+        integrationTimeGraphByTelescope() {
+            return this.getBarGraphData()(this.integrationTimeByTelescope, 'total_seconds');
+        },
+        integrationTimeGraphByCamera() {
+            return this.getBarGraphData()(this.integrationTimeByCamera, 'total_seconds');
+        },
+
+        objectCountGraphByYear() {
+            return this.getBarGraphData()(this.objectCountByYear);
+        },
+        objectCountGraphByTelescope() {
+            return this.getBarGraphData()(this.objectCountByTelescope);
+        },
+        objectCountGraphByCamera() {
+            return this.getBarGraphData()(this.objectCountByCamera);
+        },
+
+        // Format integration time for display
+        formatIntegrationTime() {
+            return (seconds) => {
+                if (!seconds) return '0h';
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                if (hours > 0) {
+                    return `${hours}h ${minutes}m`;
+                }
+                return `${minutes}m`;
+            };
         },
 
         // New Sessions
