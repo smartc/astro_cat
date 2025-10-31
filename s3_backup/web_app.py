@@ -22,6 +22,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from config import load_config
 from models import DatabaseManager, DatabaseService, Session as SessionModel
 from s3_backup.manager import S3BackupManager, S3BackupConfig
+from s3_backup.processing_file_backup import ProcessingSessionFileBackup
 from s3_backup.models import Base as BackupBase, S3BackupArchive, S3BackupSessionNote, S3BackupProcessingSession, S3BackupProcessedFileRecord, S3BackupProcessingSessionSummary
 from processed_catalog.models import ProcessedFile
 
@@ -42,6 +43,7 @@ app.add_middleware(
 
 # Global services
 backup_manager: Optional[S3BackupManager] = None
+processing_file_backup: Optional[ProcessingSessionFileBackup] = None
 db_manager: Optional[DatabaseManager] = None
 db_service: Optional[DatabaseService] = None
 
@@ -442,31 +444,34 @@ async def toggle_enabled():
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
-    global backup_manager, db_manager, db_service
-    
+    global backup_manager, processing_file_backup, db_manager, db_service
+
     try:
         config, cameras, telescopes, filter_mappings = load_config()
         db_manager = DatabaseManager(config.database.connection_string)
         db_service = DatabaseService(db_manager)
-        
+
         BackupBase.metadata.create_all(bind=db_manager.engine)
-        
+
         s3_config = S3BackupConfig('s3_config.json')
-        
+
         if not s3_config.enabled:
             logger.warning("S3 backup is disabled in s3_config.json")
-        
+
         base_dir = Path(config.paths.image_dir).parent if hasattr(config.paths, 'image_dir') else None
         backup_manager = S3BackupManager(db_service, s3_config, base_dir)
-        
+
+        # Initialize processing file backup manager
+        processing_file_backup = ProcessingSessionFileBackup(config, s3_config, db_service)
+
         # load S3 data cache
         load_cache()
-        
+
         # Start background cache update task
         asyncio.create_task(update_storage_cache())
 
         logger.info("S3 Backup web app initialized successfully")
-        
+
     except Exception as e:
         logger.error(f"Failed to initialize S3 backup web app: {e}")
         raise
@@ -1219,24 +1224,24 @@ async def backup_processed_intermediate(request: BackupRequest):
         
         def do_backup():
             stats = {"uploaded": 0, "skipped": 0, "failed": 0}
-            
+
             for ps in sessions[:request.limit] if request.limit else sessions:
                 try:
-                    result = backup_manager.backup_session_files(
+                    result = processing_file_backup.backup_session_files(
                         session_id=ps.id,
                         subfolders=['intermediate'],
                         file_types=None,
                         force=request.force
                     )
-                    
+
                     stats['uploaded'] += result.get('uploaded', 0)
                     stats['skipped'] += result.get('skipped', 0)
                     stats['failed'] += result.get('failed', 0)
-                    
+
                 except Exception as e:
                     logger.error(f"Failed to backup intermediate files for {ps.id}: {e}")
                     stats['failed'] += 1
-            
+
             return stats
 
         task_id = f"intermediate_backup_{asyncio.current_task().get_name()}"
@@ -1278,24 +1283,24 @@ async def backup_processed_final(request: BackupRequest):
         
         def do_backup():
             stats = {"uploaded": 0, "skipped": 0, "failed": 0}
-            
+
             for ps in sessions[:request.limit] if request.limit else sessions:
                 try:
-                    result = backup_manager.backup_session_files(
+                    result = processing_file_backup.backup_session_files(
                         session_id=ps.id,
                         subfolders=['final'],
                         file_types=None,
                         force=request.force
                     )
-                    
+
                     stats['uploaded'] += result.get('uploaded', 0)
                     stats['skipped'] += result.get('skipped', 0)
                     stats['failed'] += result.get('failed', 0)
-                    
+
                 except Exception as e:
                     logger.error(f"Failed to backup final files for {ps.id}: {e}")
                     stats['failed'] += 1
-            
+
             return stats
 
         task_id = f"final_backup_{asyncio.current_task().get_name()}"
@@ -1521,30 +1526,30 @@ async def get_processing_session_backup_status(session_id: str):
 @app.post("/api/processing-session/{session_id}/backup-intermediate")
 async def backup_processing_intermediate_single(session_id: str, force: bool = Query(False)):
     """Backup intermediate files for a single processing session."""
-    if not backup_manager:
-        raise HTTPException(status_code=503, detail="Backup manager not initialized")
-    
-    if not backup_manager.s3_config.enabled:
+    if not processing_file_backup:
+        raise HTTPException(status_code=503, detail="Processing file backup manager not initialized")
+
+    if not processing_file_backup.s3_config.enabled:
         raise HTTPException(status_code=400, detail="S3 backup is disabled")
-    
+
     try:
         def do_backup():
-            result = backup_manager.backup_session_files(
+            result = processing_file_backup.backup_session_files(
                 session_id=session_id,
                 subfolders=['intermediate'],
                 file_types=None,
                 force=force
             )
             return result
-        
+
         result = await asyncio.to_thread(do_backup)
-        
+
         return {
             "success": True,
             "message": f"Backup complete for intermediate files",
             "stats": result
         }
-        
+
     except Exception as e:
         logger.error(f"Error backing up intermediate files for {session_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1553,30 +1558,30 @@ async def backup_processing_intermediate_single(session_id: str, force: bool = Q
 @app.post("/api/processing-session/{session_id}/backup-final")
 async def backup_processing_final_single(session_id: str, force: bool = Query(False)):
     """Backup final files for a single processing session."""
-    if not backup_manager:
-        raise HTTPException(status_code=503, detail="Backup manager not initialized")
-    
-    if not backup_manager.s3_config.enabled:
+    if not processing_file_backup:
+        raise HTTPException(status_code=503, detail="Processing file backup manager not initialized")
+
+    if not processing_file_backup.s3_config.enabled:
         raise HTTPException(status_code=400, detail="S3 backup is disabled")
-    
+
     try:
         def do_backup():
-            result = backup_manager.backup_session_files(
+            result = processing_file_backup.backup_session_files(
                 session_id=session_id,
                 subfolders=['final'],
                 file_types=None,
                 force=force
             )
             return result
-        
+
         result = await asyncio.to_thread(do_backup)
-        
+
         return {
             "success": True,
             "message": f"Backup complete for final files",
             "stats": result
         }
-        
+
     except Exception as e:
         logger.error(f"Error backing up final files for {session_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
