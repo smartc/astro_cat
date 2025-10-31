@@ -571,65 +571,24 @@ const DashboardTab = {
             return this.stats.object_counts?.by_camera || {};
         },
 
-        // Helper methods for bar graphs
-        getBarGraphData() {
-            // Helper to convert object to sorted array with percentages
-            return (dataObj, valueKey = null) => {
-                if (!dataObj || Object.keys(dataObj).length === 0) return [];
-
-                const entries = Object.entries(dataObj).map(([label, value]) => {
-                    // If value is an object (like integration time), extract the seconds
-                    const numValue = valueKey && typeof value === 'object'
-                        ? value[valueKey]
-                        : (typeof value === 'number' ? value : 0);
-                    return { label, value: numValue };
-                });
-
-                // Sort by value descending
-                entries.sort((a, b) => b.value - a.value);
-
-                // Calculate max for scaling
-                const maxValue = Math.max(...entries.map(e => e.value), 1);
-
-                // Add percentage for bar width
-                return entries.map(e => ({
-                    ...e,
-                    percentage: (e.value / maxValue) * 100
-                }));
-            };
-        },
-
         integrationTimeGraphByYear() {
-            return this.getBarGraphData()(this.integrationTimeByYear, 'total_seconds');
+            return this.convertToBarGraphData(this.integrationTimeByYear, 'total_seconds');
         },
         integrationTimeGraphByTelescope() {
-            return this.getBarGraphData()(this.integrationTimeByTelescope, 'total_seconds');
+            return this.convertToBarGraphData(this.integrationTimeByTelescope, 'total_seconds');
         },
         integrationTimeGraphByCamera() {
-            return this.getBarGraphData()(this.integrationTimeByCamera, 'total_seconds');
+            return this.convertToBarGraphData(this.integrationTimeByCamera, 'total_seconds');
         },
 
         objectCountGraphByYear() {
-            return this.getBarGraphData()(this.objectCountByYear);
+            return this.convertToBarGraphData(this.objectCountByYear);
         },
         objectCountGraphByTelescope() {
-            return this.getBarGraphData()(this.objectCountByTelescope);
+            return this.convertToBarGraphData(this.objectCountByTelescope);
         },
         objectCountGraphByCamera() {
-            return this.getBarGraphData()(this.objectCountByCamera);
-        },
-
-        // Format integration time for display
-        formatIntegrationTime() {
-            return (seconds) => {
-                if (!seconds) return '0h';
-                const hours = Math.floor(seconds / 3600);
-                const minutes = Math.floor((seconds % 3600) / 60);
-                if (hours > 0) {
-                    return `${hours}h ${minutes}m`;
-                }
-                return `${minutes}m`;
-            };
+            return this.convertToBarGraphData(this.objectCountByCamera);
         },
 
         // New Sessions
@@ -704,8 +663,46 @@ const DashboardTab = {
             return Math.round(total * 100) / 100;
         }
     },
-    
+
     methods: {
+        // Helper to convert object to sorted array with percentages for bar graphs
+        convertToBarGraphData(dataObj, valueKey = null) {
+            if (!dataObj || Object.keys(dataObj).length === 0) return [];
+
+            const entries = Object.entries(dataObj).map(([label, value]) => {
+                // If value is an object (like integration time), extract the seconds
+                const numValue = valueKey && typeof value === 'object'
+                    ? value[valueKey]
+                    : (typeof value === 'number' ? value : 0);
+                return { label, value: numValue };
+            });
+
+            // Sort by value descending
+            entries.sort((a, b) => b.value - a.value);
+
+            // Calculate max for scaling
+            const maxValue = Math.max(...entries.map(e => e.value), 1);
+
+            // Add percentage for bar width
+            return entries.map(e => ({
+                ...e,
+                percentage: (e.value / maxValue) * 100
+            }));
+        },
+
+        // Format integration time for display
+        formatIntegrationTime() {
+            return (seconds) => {
+                if (!seconds) return '0h';
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                if (hours > 0) {
+                    return `${hours}h ${minutes}m`;
+                }
+                return `${minutes}m`;
+            };
+        },
+
         async checkOperationStatus() {
             try {
                 const response = await fetch('/api/operations/current');
