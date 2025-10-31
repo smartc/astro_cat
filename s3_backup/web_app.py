@@ -828,33 +828,33 @@ async def backup_raw_files(request: BackupRequest):
         
         # Start backup in background
         task_id = f"raw_backup_{asyncio.current_task().get_name()}"
-        
+
         def do_backup():
             stats = {"uploaded": 0, "failed": 0, "total": len(sessions_to_backup)}
-            
+
             for session in sessions_to_backup:
                 try:
                     from datetime import datetime
                     year = datetime.strptime(session.session_date, '%Y-%m-%d').year
-                    
+
                     result = backup_manager.backup_session(
                         session.session_id,
                         year,
                         cleanup_archives=True
                     )
-                    
+
                     if result.success:
                         stats["uploaded"] += 1
                     else:
                         stats["failed"] += 1
-                        
+
                 except Exception as e:
                     logger.error(f"Failed to backup session {session.session_id}: {e}")
                     stats["failed"] += 1
-            
+
             return stats
-        
-        asyncio.create_task(run_backup_task(task_id, do_backup))
+
+        asyncio.create_task(run_backup_task(task_id, task_id, do_backup))
         
         return BackupResponse(
             success=True,
@@ -1059,10 +1059,10 @@ async def backup_session_notes(request: BackupRequest):
                 
             finally:
                 session_db.close()
-        
+
         task_id = f"notes_backup_{asyncio.current_task().get_name()}"
-        asyncio.create_task(run_backup_task(task_id, do_backup))
-        
+        asyncio.create_task(run_backup_task(task_id, task_id, do_backup))
+
         return BackupResponse(
             success=True,
             message=f"Started backup of {len(markdown_files)} session notes",
@@ -1169,10 +1169,10 @@ async def backup_processing_notes(request: BackupRequest):
                 
             finally:
                 session_db.close()
-        
+
         task_id = f"proc_notes_backup_{asyncio.current_task().get_name()}"
-        asyncio.create_task(run_backup_task(task_id, do_backup))
-        
+        asyncio.create_task(run_backup_task(task_id, task_id, do_backup))
+
         return BackupResponse(
             success=True,
             message=f"Started backup of {len(markdown_files)} processing notes",
@@ -1231,10 +1231,10 @@ async def backup_processed_intermediate(request: BackupRequest):
                     stats['failed'] += 1
             
             return stats
-        
+
         task_id = f"intermediate_backup_{asyncio.current_task().get_name()}"
-        asyncio.create_task(run_backup_task(task_id, do_backup))
-        
+        asyncio.create_task(run_backup_task(task_id, task_id, do_backup))
+
         return BackupResponse(
             success=True,
             message=f"Started backup of intermediate files",
@@ -1290,10 +1290,10 @@ async def backup_processed_final(request: BackupRequest):
                     stats['failed'] += 1
             
             return stats
-        
+
         task_id = f"final_backup_{asyncio.current_task().get_name()}"
-        asyncio.create_task(run_backup_task(task_id, do_backup))
-        
+        asyncio.create_task(run_backup_task(task_id, task_id, do_backup))
+
         return BackupResponse(
             success=True,
             message=f"Started backup of final files",
