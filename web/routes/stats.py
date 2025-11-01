@@ -114,7 +114,7 @@ def format_time_for_display(seconds: float) -> str:
     return f"{minutes}m"
 
 
-def generate_integration_time_chart(data_dict: dict, title: str, max_value: float = None) -> str:
+def generate_integration_time_chart(data_dict: dict, title: str) -> str:
     """Generate a vertical bar chart for integration time using Pygal."""
     if not data_dict:
         return None
@@ -129,7 +129,8 @@ def generate_integration_time_chart(data_dict: dict, title: str, max_value: floa
     # Create chart with custom configuration
     chart = pygal.Bar(
         style=custom_style,
-        height=350,
+        height=400,
+        width=400,
         show_legend=False,
         truncate_label=-1,
         x_label_rotation=45 if not is_year_data else 0,
@@ -137,7 +138,12 @@ def generate_integration_time_chart(data_dict: dict, title: str, max_value: floa
         print_zeroes=False,
         show_y_guides=False,  # Remove horizontal gridlines
         show_x_guides=False,  # Remove vertical gridlines
-        range=(0, max_value) if max_value else None,  # Set explicit range for consistent scaling
+        tooltip_border_radius=5,
+        tooltip_font_size=14,
+        no_data_text='No data available',
+        explicit_size=True,  # Use explicit dimensions
+        margin=40,  # Consistent margins
+        spacing=10,  # Bar spacing
     )
     chart.title = title
 
@@ -156,7 +162,7 @@ def generate_integration_time_chart(data_dict: dict, title: str, max_value: floa
     return chart.render(is_unicode=True)
 
 
-def generate_object_count_chart(data_dict: dict, title: str, max_value: int = None) -> str:
+def generate_object_count_chart(data_dict: dict, title: str) -> str:
     """Generate a vertical bar chart for object counts using Pygal."""
     if not data_dict:
         return None
@@ -171,7 +177,8 @@ def generate_object_count_chart(data_dict: dict, title: str, max_value: int = No
     # Create chart with custom configuration
     chart = pygal.Bar(
         style=custom_style,
-        height=350,
+        height=400,
+        width=400,
         show_legend=False,
         truncate_label=-1,
         x_label_rotation=45 if not is_year_data else 0,
@@ -179,7 +186,12 @@ def generate_object_count_chart(data_dict: dict, title: str, max_value: int = No
         print_zeroes=False,
         show_y_guides=False,  # Remove horizontal gridlines
         show_x_guides=False,  # Remove vertical gridlines
-        range=(0, max_value) if max_value else None,  # Set explicit range for consistent scaling
+        tooltip_border_radius=5,
+        tooltip_font_size=14,
+        no_data_text='No data available',
+        explicit_size=True,  # Use explicit dimensions
+        margin=40,  # Consistent margins
+        spacing=10,  # Bar spacing
     )
     chart.title = title
 
@@ -237,19 +249,10 @@ def calculate_integration_time_stats(session):
 
     by_camera = {cam: format_integration_time(time) for cam, time in by_camera_raw if cam}
 
-    # Calculate max value across all three datasets for consistent scaling
-    max_seconds = 0
-    for data_dict in [by_year, by_telescope, by_camera]:
-        if data_dict:
-            max_seconds = max(max_seconds, max(d['total_seconds'] for d in data_dict.values()))
-
-    # Convert to hours and add 10% padding for better visual appearance
-    max_hours = (max_seconds / 3600) * 1.1 if max_seconds > 0 else None
-
-    # Generate charts with consistent scaling
-    chart_by_year = generate_integration_time_chart(by_year, "Integration Time by Year", max_hours)
-    chart_by_telescope = generate_integration_time_chart(by_telescope, "Integration Time by Telescope", max_hours)
-    chart_by_camera = generate_integration_time_chart(by_camera, "Integration Time by Camera", max_hours)
+    # Generate charts with consistent physical dimensions for visual alignment
+    chart_by_year = generate_integration_time_chart(by_year, "Integration Time by Year")
+    chart_by_telescope = generate_integration_time_chart(by_telescope, "Integration Time by Telescope")
+    chart_by_camera = generate_integration_time_chart(by_camera, "Integration Time by Camera")
 
     return {
         "total": format_integration_time(total_time),
@@ -312,19 +315,10 @@ def calculate_object_count_stats(session):
 
     by_camera = {cam: count for cam, count in by_camera_raw if cam}
 
-    # Calculate max value across all three datasets for consistent scaling
-    max_count = 0
-    for data_dict in [by_year, by_telescope, by_camera]:
-        if data_dict:
-            max_count = max(max_count, max(data_dict.values()))
-
-    # Add 10% padding for better visual appearance
-    max_count_scaled = int(max_count * 1.1) if max_count > 0 else None
-
-    # Generate charts with consistent scaling
-    chart_by_year = generate_object_count_chart(by_year, "Object Count by Year", max_count_scaled)
-    chart_by_telescope = generate_object_count_chart(by_telescope, "Object Count by Telescope", max_count_scaled)
-    chart_by_camera = generate_object_count_chart(by_camera, "Object Count by Camera", max_count_scaled)
+    # Generate charts with consistent physical dimensions for visual alignment
+    chart_by_year = generate_object_count_chart(by_year, "Object Count by Year")
+    chart_by_telescope = generate_object_count_chart(by_telescope, "Object Count by Telescope")
+    chart_by_camera = generate_object_count_chart(by_camera, "Object Count by Camera")
 
     return {
         "total": total_objects,
