@@ -738,7 +738,8 @@ async def get_processing_session_files(
                 "id": file.id,
                 "file": file.file,
                 "folder": file.folder,
-                "imaging_session_id": file.imaging_session_id,  # Updated from session_id
+                "imaging_session_id": file.imaging_session_id,  # New name (Phase 3)
+                "session_id": file.imaging_session_id,  # Backward compatibility
                 "frame_type": file.frame_type,
                 "camera": file.camera,
                 "telescope": file.telescope,
