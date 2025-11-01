@@ -82,6 +82,19 @@ def check_prerequisites(db_path):
         conn.close()
         return False
 
+    # Check if imaging_sessions table already exists (partial migration?)
+    cursor.execute("""
+        SELECT name FROM sqlite_master
+        WHERE type='table' AND name='imaging_sessions'
+    """)
+
+    if cursor.fetchone():
+        print("✗ Table 'imaging_sessions' already exists")
+        print("  Database may be partially migrated or corrupted")
+        print("  Please restore from backup before attempting migration")
+        conn.close()
+        return False
+
     conn.close()
     return True
 
@@ -207,7 +220,9 @@ def migrate_schema(db_path):
             FROM fits_files
         """)
 
-        rows = cursor.rowcount
+        # Get actual count (rowcount doesn't work for CREATE TABLE AS SELECT)
+        cursor.execute("SELECT COUNT(*) FROM fits_files_new")
+        rows = cursor.fetchone()[0]
         print(f"      ✓ Copied {rows} FITS files")
 
         print("      Swapping tables...")
@@ -220,18 +235,18 @@ def migrate_schema(db_path):
         print("\n[3/5] Recreating indexes...")
 
         # Imaging sessions indexes
-        cursor.execute("CREATE INDEX idx_session_date ON imaging_sessions(date)")
-        cursor.execute("CREATE INDEX idx_session_telescope_camera ON imaging_sessions(telescope, camera)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_session_date ON imaging_sessions(date)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_session_telescope_camera ON imaging_sessions(telescope, camera)")
         print("      ✓ Imaging sessions indexes created")
 
         # FITS files indexes
-        cursor.execute("CREATE UNIQUE INDEX idx_fits_md5 ON fits_files(md5sum)")
-        cursor.execute("CREATE INDEX idx_fits_imaging_session ON fits_files(imaging_session_id)")
-        cursor.execute("CREATE INDEX idx_fits_object ON fits_files(object)")
-        cursor.execute("CREATE INDEX idx_fits_obs_date ON fits_files(obs_date)")
-        cursor.execute("CREATE INDEX idx_fits_camera ON fits_files(camera)")
-        cursor.execute("CREATE INDEX idx_fits_telescope ON fits_files(telescope)")
-        cursor.execute("CREATE INDEX idx_fits_frame_type ON fits_files(frame_type)")
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_fits_md5 ON fits_files(md5sum)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_fits_imaging_session ON fits_files(imaging_session_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_fits_object ON fits_files(object)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_fits_obs_date ON fits_files(obs_date)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_fits_camera ON fits_files(camera)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_fits_telescope ON fits_files(telescope)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_fits_frame_type ON fits_files(frame_type)")
         print("      ✓ FITS files indexes created")
 
         # ====================================================================
