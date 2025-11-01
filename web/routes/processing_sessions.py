@@ -137,43 +137,55 @@ async def get_processing_session(
             if frame_type in frame_counts:
                 frame_counts[frame_type] = count
         
-        # Get all files in the session
-        files = session.query(FitsFile).join(ProcessingSessionFile).filter(
-            ProcessingSessionFile.processing_session_id == session_id
+        # Build object-level summaries using SQL aggregation (LIGHT frames only)
+        # This is MUCH faster than loading all files into memory
+        from sqlalchemy import case
+
+        light_frame_summary = session.query(
+            func.coalesce(FitsFile.object, 'UNKNOWN').label('object_name'),
+            func.coalesce(FitsFile.filter, 'No Filter').label('filter_name'),
+            FitsFile.exposure,
+            func.count(FitsFile.id).label('file_count'),
+            func.sum(FitsFile.exposure).label('total_exposure'),
+            func.group_concat(FitsFile.id).label('file_ids')
+        ).join(ProcessingSessionFile).filter(
+            ProcessingSessionFile.processing_session_id == session_id,
+            FitsFile.frame_type == 'LIGHT',
+            FitsFile.exposure.isnot(None)
+        ).group_by(
+            func.coalesce(FitsFile.object, 'UNKNOWN'),
+            func.coalesce(FitsFile.filter, 'No Filter'),
+            FitsFile.exposure
         ).all()
-        
-        # Build object-level summaries (LIGHT frames only)
+
+        # Build hierarchical structure from aggregated data
         objects_data = {}
-        
-        for file in files:
-            if file.frame_type == 'LIGHT':
-                obj_name = file.object or 'UNKNOWN'
-                
-                if obj_name not in objects_data:
-                    objects_data[obj_name] = {
-                        'name': obj_name,
-                        'total_files': 0,
-                        'filter_data': {}
-                    }
-                
-                objects_data[obj_name]['total_files'] += 1
-                
-                # Track filter-level data with exposure breakdown
-                if file.exposure:
-                    filter_name = file.filter or 'No Filter'
-                    
-                    if filter_name not in objects_data[obj_name]['filter_data']:
-                        objects_data[obj_name]['filter_data'][filter_name] = {
-                            'total_exposure': 0,
-                            'exposures': {}
-                        }
-                    
-                    objects_data[obj_name]['filter_data'][filter_name]['total_exposure'] += file.exposure
-                    
-                    exp_time = file.exposure
-                    if exp_time not in objects_data[obj_name]['filter_data'][filter_name]['exposures']:
-                        objects_data[obj_name]['filter_data'][filter_name]['exposures'][exp_time] = []
-                    objects_data[obj_name]['filter_data'][filter_name]['exposures'][exp_time].append(file.id)
+
+        for row in light_frame_summary:
+            obj_name = row.object_name
+            filter_name = row.filter_name
+            exp_time = row.exposure
+            file_count = row.file_count
+            total_exp = row.total_exposure
+            file_ids = [int(fid) for fid in row.file_ids.split(',')]
+
+            if obj_name not in objects_data:
+                objects_data[obj_name] = {
+                    'name': obj_name,
+                    'total_files': 0,
+                    'filter_data': {}
+                }
+
+            objects_data[obj_name]['total_files'] += file_count
+
+            if filter_name not in objects_data[obj_name]['filter_data']:
+                objects_data[obj_name]['filter_data'][filter_name] = {
+                    'total_exposure': 0,
+                    'exposures': {}
+                }
+
+            objects_data[obj_name]['filter_data'][filter_name]['total_exposure'] += total_exp
+            objects_data[obj_name]['filter_data'][filter_name]['exposures'][exp_time] = file_ids
         
         # Convert to frontend format
         objects_list = []
@@ -538,20 +550,24 @@ async def remove_object_from_session(
         if not ps:
             raise HTTPException(status_code=404, detail="Processing session not found")
         
-        # Get all LIGHT files for this object
-        light_files_to_remove = session.query(FitsFile).join(ProcessingSessionFile).filter(
+        # Get IDs of all LIGHT files for this object
+        light_file_ids = session.query(FitsFile.id).join(ProcessingSessionFile).filter(
             ProcessingSessionFile.processing_session_id == session_id,
             FitsFile.frame_type == 'LIGHT',
             FitsFile.object == object_name
         ).all()
-        
-        if not light_files_to_remove:
+
+        if not light_file_ids:
             raise HTTPException(status_code=404, detail=f"No light frames found for object '{object_name}'")
+
+        light_file_ids = [f[0] for f in light_file_ids]  # Extract IDs from tuples
         
-        light_file_ids = [f.id for f in light_files_to_remove]
-        
-        # Get remaining LIGHT files (after removal)
-        remaining_lights = session.query(FitsFile).join(ProcessingSessionFile).filter(
+        # Get remaining LIGHT files (after removal) - only load needed columns
+        from sqlalchemy.orm import load_only
+
+        remaining_lights = session.query(FitsFile).options(
+            load_only(FitsFile.camera, FitsFile.exposure, FitsFile.telescope, FitsFile.filter, FitsFile.object)
+        ).join(ProcessingSessionFile).filter(
             ProcessingSessionFile.processing_session_id == session_id,
             FitsFile.frame_type == 'LIGHT',
             FitsFile.object != object_name
@@ -572,18 +588,24 @@ async def remove_object_from_session(
                     if f.telescope and f.telescope != 'UNKNOWN' and f.filter and f.filter not in ['UNKNOWN', 'NONE']:
                         needed_camera_telescope_filters.add((f.camera, f.telescope, f.filter))
             
-            # Get current calibration files
-            current_darks = session.query(FitsFile).join(ProcessingSessionFile).filter(
+            # Get current calibration files - only load needed columns for orphan detection
+            current_darks = session.query(FitsFile).options(
+                load_only(FitsFile.id, FitsFile.camera, FitsFile.exposure)
+            ).join(ProcessingSessionFile).filter(
                 ProcessingSessionFile.processing_session_id == session_id,
                 FitsFile.frame_type == 'DARK'
             ).all()
-            
-            current_flats = session.query(FitsFile).join(ProcessingSessionFile).filter(
+
+            current_flats = session.query(FitsFile).options(
+                load_only(FitsFile.id, FitsFile.camera, FitsFile.telescope, FitsFile.filter)
+            ).join(ProcessingSessionFile).filter(
                 ProcessingSessionFile.processing_session_id == session_id,
                 FitsFile.frame_type == 'FLAT'
             ).all()
-            
-            current_bias = session.query(FitsFile).join(ProcessingSessionFile).filter(
+
+            current_bias = session.query(FitsFile).options(
+                load_only(FitsFile.id, FitsFile.camera)
+            ).join(ProcessingSessionFile).filter(
                 ProcessingSessionFile.processing_session_id == session_id,
                 FitsFile.frame_type == 'BIAS'
             ).all()
@@ -611,21 +633,21 @@ async def remove_object_from_session(
             
             files_to_remove_ids = light_file_ids + orphaned_cal_ids
         else:
-            # No remaining lights, remove all files
-            all_files = session.query(FitsFile).join(ProcessingSessionFile).filter(
+            # No remaining lights, remove all files - just get IDs
+            all_file_ids = session.query(FitsFile.id).join(ProcessingSessionFile).filter(
                 ProcessingSessionFile.processing_session_id == session_id
             ).all()
-            files_to_remove_ids = [f.id for f in all_files]
+            files_to_remove_ids = [f[0] for f in all_file_ids]
         
         # Remove symlinks from staging folder
         if ps.folder_path:
             staging_path = Path(ps.folder_path)
             if staging_path.exists():
                 for file_id in files_to_remove_ids:
-                    file_obj = session.query(FitsFile).filter(FitsFile.id == file_id).first()
-                    if file_obj and file_obj.file:
-                        # Use the 'file' attribute which contains the filename
-                        filename = file_obj.file
+                    # Only load the filename, not all 70+ columns
+                    result = session.query(FitsFile.file).filter(FitsFile.id == file_id).first()
+                    if result:
+                        filename = result[0]
                         
                         # Check in raw/lights and raw/calibration subfolders
                         possible_paths = [
@@ -684,14 +706,31 @@ async def get_processing_session_files(
         List of files with id, session_id, frame_type, camera, telescope, obs_date, etc.
     """
     try:
-        # Query all files in this processing session
-        files = session.query(FitsFile).join(ProcessingSessionFile).filter(
+        from sqlalchemy.orm import load_only
+
+        # Query files with only needed columns (11 instead of 70+)
+        # This is MUCH faster than loading all columns
+        files = session.query(FitsFile).options(
+            load_only(
+                FitsFile.id,
+                FitsFile.file,
+                FitsFile.folder,
+                FitsFile.imaging_session_id,
+                FitsFile.frame_type,
+                FitsFile.camera,
+                FitsFile.telescope,
+                FitsFile.filter,
+                FitsFile.exposure,
+                FitsFile.obs_date,
+                FitsFile.object
+            )
+        ).join(ProcessingSessionFile).filter(
             ProcessingSessionFile.processing_session_id == session_id
         ).all()
-        
+
         if not files:
             return []
-        
+
         # Build response with relevant file metadata
         files_data = []
         for file in files:
@@ -699,7 +738,7 @@ async def get_processing_session_files(
                 "id": file.id,
                 "file": file.file,
                 "folder": file.folder,
-                "session_id": file.session_id,
+                "imaging_session_id": file.imaging_session_id,  # Updated from session_id
                 "frame_type": file.frame_type,
                 "camera": file.camera,
                 "telescope": file.telescope,
@@ -708,7 +747,7 @@ async def get_processing_session_files(
                 "obs_date": file.obs_date,
                 "object": file.object
             })
-        
+
         return files_data
         
     except Exception as e:
