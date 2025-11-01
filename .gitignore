@@ -206,8 +206,10 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# S3 Backup
+# S3 Backup & Cached Data
 s3_config.json
+storage_categories_cache.json
+dashboard_stats_cache.json
 *.tar.gz
 _archive_temp/
 
