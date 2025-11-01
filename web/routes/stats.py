@@ -8,6 +8,8 @@ from pathlib import Path
 import logging
 import shutil
 from typing import Optional
+import pygal
+from pygal.style import Style
 
 from models import FitsFile, Session as ImagingSession, ProcessingSession, ProcessingSessionFile
 from web.dependencies import get_db_service, get_config
@@ -15,6 +17,21 @@ from web import dashboard_cache
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
+
+# Custom Pygal style
+custom_style = Style(
+    background='transparent',
+    plot_background='transparent',
+    foreground='#333',
+    foreground_strong='#333',
+    foreground_subtle='#999',
+    colors=('#2563eb', '#9333ea', '#ea580c', '#16a34a', '#0891b2'),
+    font_family='system-ui, -apple-system, sans-serif',
+    label_font_size=12,
+    major_label_font_size=12,
+    value_font_size=12,
+    tooltip_font_size=14,
+)
 
 
 def count_physical_files_in_folder(folder_path: Path, extensions: list = None) -> int:
@@ -86,6 +103,86 @@ def format_integration_time(seconds: float) -> dict:
     }
 
 
+def format_time_for_display(seconds: float) -> str:
+    """Format time in seconds to compact display string."""
+    if seconds is None or seconds == 0:
+        return "0h"
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+
+def generate_integration_time_chart(data_dict: dict, title: str, color: str = '#2563eb') -> str:
+    """Generate a vertical bar chart for integration time using Pygal."""
+    if not data_dict:
+        return None
+
+    # Sort by label for years, by value for equipment
+    is_year_data = all(key.isdigit() and len(key) == 4 for key in data_dict.keys())
+    if is_year_data:
+        sorted_items = sorted(data_dict.items(), key=lambda x: x[0])
+    else:
+        sorted_items = sorted(data_dict.items(), key=lambda x: x[1]['total_seconds'], reverse=True)
+
+    # Create chart
+    chart = pygal.Bar(
+        style=custom_style,
+        height=300,
+        show_legend=False,
+        truncate_label=-1,
+        x_label_rotation=45 if not is_year_data else 0,
+        print_values=False,
+        print_zeroes=False,
+    )
+    chart.title = title
+
+    # Add data with formatted tooltips
+    chart.x_labels = [item[0] for item in sorted_items]
+    values = []
+    for label, time_data in sorted_items:
+        seconds = time_data['total_seconds']
+        formatted = format_time_for_display(seconds)
+        values.append({'value': seconds / 3600, 'label': f"{label}: {formatted}"})  # Convert to hours for chart
+
+    chart.add('Integration Time', values)
+
+    return chart.render(is_unicode=True)
+
+
+def generate_object_count_chart(data_dict: dict, title: str, color: str = '#9333ea') -> str:
+    """Generate a vertical bar chart for object counts using Pygal."""
+    if not data_dict:
+        return None
+
+    # Sort by label for years, by value for equipment
+    is_year_data = all(key.isdigit() and len(key) == 4 for key in data_dict.keys())
+    if is_year_data:
+        sorted_items = sorted(data_dict.items(), key=lambda x: x[0])
+    else:
+        sorted_items = sorted(data_dict.items(), key=lambda x: x[1], reverse=True)
+
+    # Create chart
+    chart = pygal.Bar(
+        style=custom_style,
+        height=300,
+        show_legend=False,
+        truncate_label=-1,
+        x_label_rotation=45 if not is_year_data else 0,
+        print_values=False,
+        print_zeroes=False,
+    )
+    chart.title = title
+
+    # Add data
+    chart.x_labels = [item[0] for item in sorted_items]
+    values = [{'value': item[1], 'label': f"{item[0]}: {item[1]} objects"} for item in sorted_items]
+    chart.add('Object Count', values)
+
+    return chart.render(is_unicode=True)
+
+
 def calculate_integration_time_stats(session):
     """Calculate integration time statistics for LIGHT frames."""
     # Total integration time
@@ -126,11 +223,21 @@ def calculate_integration_time_stats(session):
 
     by_camera = {cam: format_integration_time(time) for cam, time in by_camera_raw if cam}
 
+    # Generate charts
+    chart_by_year = generate_integration_time_chart(by_year, "Integration Time by Year")
+    chart_by_telescope = generate_integration_time_chart(by_telescope, "Integration Time by Telescope")
+    chart_by_camera = generate_integration_time_chart(by_camera, "Integration Time by Camera")
+
     return {
         "total": format_integration_time(total_time),
         "by_year": by_year,
         "by_telescope": by_telescope,
-        "by_camera": by_camera
+        "by_camera": by_camera,
+        "charts": {
+            "by_year": chart_by_year,
+            "by_telescope": chart_by_telescope,
+            "by_camera": chart_by_camera
+        }
     }
 
 
@@ -182,11 +289,21 @@ def calculate_object_count_stats(session):
 
     by_camera = {cam: count for cam, count in by_camera_raw if cam}
 
+    # Generate charts
+    chart_by_year = generate_object_count_chart(by_year, "Object Count by Year")
+    chart_by_telescope = generate_object_count_chart(by_telescope, "Object Count by Telescope")
+    chart_by_camera = generate_object_count_chart(by_camera, "Object Count by Camera")
+
     return {
         "total": total_objects,
         "by_year": by_year,
         "by_telescope": by_telescope,
-        "by_camera": by_camera
+        "by_camera": by_camera,
+        "charts": {
+            "by_year": chart_by_year,
+            "by_telescope": chart_by_telescope,
+            "by_camera": chart_by_camera
+        }
     }
 
 
