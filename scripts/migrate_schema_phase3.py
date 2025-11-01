@@ -525,6 +525,39 @@ def main():
     # Ensure all indexes are created (in case any were missed during migration)
     create_missing_indexes(db_path)
 
+    # Optimize database (reclaim space from dropped tables)
+    print("\n" + "="*60)
+    print("Optimizing Database")
+    print("="*60)
+    print("Running VACUUM to reclaim space...")
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # Get size before VACUUM
+    cursor.execute("SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()")
+    size_before = cursor.fetchone()[0]
+
+    cursor.execute("VACUUM")
+    conn.close()
+
+    # Get size after VACUUM
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()")
+    size_after = cursor.fetchone()[0]
+    conn.close()
+
+    size_saved = size_before - size_after
+    size_saved_mb = size_saved / (1024 * 1024)
+    size_after_mb = size_after / (1024 * 1024)
+
+    print(f"✓ Database optimized")
+    print(f"  Size before: {size_before / (1024 * 1024):.2f} MB")
+    print(f"  Size after:  {size_after_mb:.2f} MB")
+    if size_saved > 0:
+        print(f"  Space reclaimed: {size_saved_mb:.2f} MB")
+
     # Success
     print("\n" + "="*60)
     print("MIGRATION COMPLETE!")
