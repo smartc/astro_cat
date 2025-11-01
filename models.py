@@ -9,7 +9,7 @@ from sqlalchemy import (
     create_engine, Column, Index, ForeignKey, event
 )
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, synonym
 from sqlalchemy.sql import func
 
 Base = declarative_base()
@@ -45,12 +45,21 @@ class FitsFile(Base):
     dec = Column(String(20))
     
     # Image dimensions - Python names mapped to DB columns for clarity
-    width_pixels = Column('x', Integer)  # Maps Python 'width_pixels' to DB 'x'
-    height_pixels = Column('y', Integer)  # Maps Python 'height_pixels' to DB 'y'
-    # Legacy aliases for backwards compatibility
-    x = width_pixels
-    y = height_pixels
-    
+    # Column mapping: width_pixels -> x, height_pixels -> y
+    width_pixels = Column('x', Integer)
+    height_pixels = Column('y', Integer)
+
+    # Backward compatibility synonyms for old code (works in queries too)
+    x = synonym('width_pixels')
+    y = synonym('height_pixels')
+
+    # Session relationship - Python name mapped to DB column
+    # Column mapping: imaging_session_id -> session_id
+    imaging_session_id = Column('session_id', String(50), ForeignKey('sessions.session_id'))
+
+    # Backward compatibility synonym
+    session_id = synonym('imaging_session_id')
+
     # Frame classification
     frame_type = Column(String(20))
     filter = Column(String(20))
@@ -159,15 +168,15 @@ class FitsFile(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Session relationship - Python name mapped to DB column
+    # Column mapping: imaging_session_id -> session_id
     imaging_session_id = Column('session_id', String(50), ForeignKey('sessions.session_id'))
-    # Legacy alias for backwards compatibility
-    session_id = imaging_session_id
 
     __table_args__ = (
         Index('idx_object_date', 'object', 'obs_date'),
         Index('idx_camera_telescope', 'camera', 'telescope'),
         Index('idx_frame_type_filter', 'frame_type', 'filter'),
-        Index('idx_session', 'session_id'),
+        # Index must reference DB column name when using column mapping
+        Index('idx_session', 'session_id'),  # DB column, not Python attr
         Index('idx_location', 'latitude', 'longitude'),
         Index('idx_validation_score', 'validation_score'),
         Index('idx_migration_ready', 'migration_ready'),
@@ -237,6 +246,10 @@ class ImagingSession(Base):
 
     Replaces old 'Session' class name for clarity. Maps to existing
     'sessions' table - no schema changes.
+
+    Column mapping (Python attr -> DB column):
+    - id -> session_id
+    - date -> session_date
     """
     __tablename__ = 'sessions'
 
@@ -261,12 +274,13 @@ class ImagingSession(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Legacy aliases for backwards compatibility
-    session_id = id
-    session_date = date
+    # Backward compatibility synonyms for old code (works in queries too)
+    session_id = synonym('id')
+    session_date = synonym('date')
 
     __table_args__ = (
-        Index('idx_session_date', 'date'),
+        # Indexes must reference DB column names when using column mapping
+        Index('idx_session_date', 'session_date'),
         Index('idx_session_telescope_camera', 'telescope', 'camera'),
     )
 
