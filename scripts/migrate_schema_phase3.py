@@ -193,10 +193,31 @@ def migrate_schema(db_path):
 
         # Add optional columns if they exist
         optional_columns = [
+            # Camera/Sensor settings
             'gain', 'offset', 'egain', 'binning_x', 'binning_y',
-            'readout_mode', 'sensor_temp', 'set_temp', 'cooler_power',
-            'airmass', 'altitude', 'azimuth', 'software',
-            'validation_score', 'validation_notes', 'migration_status'
+            'sensor_temp', 'readout_mode', 'bayerpat', 'iso_speed',
+            # Guiding information
+            'guide_rms', 'guide_fwhm', 'guide_rms_ra', 'guide_rms_dec',
+            # Weather conditions
+            'ambient_temp', 'dewpoint', 'humidity', 'pressure', 'sky_temp',
+            'sky_quality_mpsas', 'sky_brightness', 'wind_speed', 'wind_direction',
+            'wind_gust', 'cloud_cover', 'seeing_fwhm',
+            # Focus information
+            'focuser_position', 'focuser_temp',
+            # Software and observer
+            'software_creator', 'software_modifier', 'observer', 'site_name',
+            # Airmass and timing
+            'airmass', 'exposure_start', 'exposure_end',
+            # Additional quality metrics
+            'star_count', 'median_fwhm', 'eccentricity',
+            # Boltwood Cloud Sensor
+            'boltwood_cloud', 'boltwood_wind', 'boltwood_rain', 'boltwood_daylight',
+            # File management
+            'bad', 'file_not_found',
+            # Original location tracking
+            'orig_file', 'orig_folder',
+            # Validation fields
+            'validation_score', 'migration_ready', 'validation_notes'
         ]
 
         for col in optional_columns:
