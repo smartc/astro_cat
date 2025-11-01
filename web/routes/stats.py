@@ -157,18 +157,18 @@ def generate_integration_time_chart(data_dict: dict, title: str) -> str:
     # Use consistent dimensions and margins to align chart areas across all three charts
     chart = pygal.Bar(
         style=custom_style,
-        height=612,  # 1.75x the original 350px
+        height=600,
         show_legend=False,
         truncate_label=-1,
-        x_label_rotation=45 if not is_year_data else 0,
+#        x_label_rotation=45 if not is_year_data else 0,
         print_values=False,
         print_zeroes=False,
-        show_y_guides=False,  # Remove horizontal gridlines
-        show_x_guides=False,  # Remove vertical gridlines
-        margin_bottom=80,  # Fixed bottom margin to align chart areas
+        show_y_guides=False,
+        show_x_guides=False,
         margin_top=40,
-        margin_left=60,
         margin_right=20,
+        margin_bottom=90,
+        margin_left=80,
     )
     chart.title = title
 
@@ -209,18 +209,18 @@ def generate_object_count_chart(data_dict: dict, title: str) -> str:
     # Use consistent dimensions and margins to align chart areas across all three charts
     chart = pygal.Bar(
         style=custom_style,
-        height=612,  # 1.75x the original 350px
+        height=600,
         show_legend=False,
         truncate_label=-1,
-        x_label_rotation=45 if not is_year_data else 0,
+#        x_label_rotation=45 if not is_year_data else 0,
         print_values=False,
         print_zeroes=False,
-        show_y_guides=False,  # Remove horizontal gridlines
-        show_x_guides=False,  # Remove vertical gridlines
-        margin_bottom=80,  # Fixed bottom margin to align chart areas
+        show_y_guides=False,
+        show_x_guides=False,
         margin_top=40,
-        margin_left=60,
         margin_right=20,
+        margin_bottom=90,
+        margin_left=80,
     )
     chart.title = title
 
