@@ -558,6 +558,26 @@ def main():
     if size_saved > 0:
         print(f"  Space reclaimed: {size_saved_mb:.2f} MB")
 
+    # Run ANALYZE to rebuild query optimizer statistics
+    print("\n" + "="*60)
+    print("Rebuilding Query Optimizer Statistics")
+    print("="*60)
+    print("Running ANALYZE...")
+    print("(This helps SQLite choose optimal query execution plans)")
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("ANALYZE")
+    conn.commit()
+
+    # Show statistics count
+    cursor.execute("SELECT COUNT(*) FROM sqlite_stat1")
+    stat_count = cursor.fetchone()[0]
+    conn.close()
+
+    print(f"✓ Statistics rebuilt: {stat_count} entries")
+    print("  Query optimizer now has table/index statistics")
+
     # Success
     print("\n" + "="*60)
     print("MIGRATION COMPLETE!")
