@@ -114,6 +114,33 @@ def format_time_for_display(seconds: float) -> str:
     return f"{minutes}m"
 
 
+def add_svg_tooltips(svg_string: str, tooltips: list) -> str:
+    """
+    Add native SVG <title> elements for tooltips since Vue v-html doesn't execute JavaScript.
+
+    Pygal embeds JavaScript for tooltips, but when we use v-html in Vue, scripts don't execute.
+    Instead, we add SVG <title> elements which provide native browser tooltips.
+    """
+    import re
+
+    # Find all rect elements that represent bars (they have class 'reactive')
+    # Add a <title> child element to each
+    for i, tooltip_text in enumerate(tooltips):
+        # Pattern to find the i-th bar rect element
+        # Pygal bars have class="reactive" and are in order
+        pattern = r'(<rect[^>]*class="[^"]*reactive[^"]*"[^>]*>)'
+
+        matches = list(re.finditer(pattern, svg_string))
+        if i < len(matches):
+            match = matches[i]
+            # Insert <title> right after the opening <rect> tag
+            insert_pos = match.end()
+            title_element = f'<title>{tooltip_text}</title>'
+            svg_string = svg_string[:insert_pos] + title_element + svg_string[insert_pos:]
+
+    return svg_string
+
+
 def generate_integration_time_chart(data_dict: dict, title: str) -> str:
     """Generate a vertical bar chart for integration time using Pygal."""
     if not data_dict:
@@ -145,19 +172,25 @@ def generate_integration_time_chart(data_dict: dict, title: str) -> str:
     )
     chart.title = title
 
-    # Prepare all data points for a single series
+    # Prepare all data points and tooltip texts
     chart.x_labels = [item[0] for item in sorted_items]
     values = []
+    tooltip_texts = []
     for label, time_data in sorted_items:
         seconds = time_data['total_seconds']
         formatted = format_time_for_display(seconds)
-        # Add value with custom tooltip showing category and formatted time
-        values.append({'value': seconds / 3600, 'label': f"{label}: {formatted}"})
+        tooltip_text = f"{label}: {formatted}"
+        values.append(seconds / 3600)  # Convert to hours for chart
+        tooltip_texts.append(tooltip_text)
 
     # Add all bars as a single series
     chart.add('Integration Time', values)
 
-    return chart.render(is_unicode=True)
+    # Render and add SVG tooltips
+    svg_string = chart.render(is_unicode=True)
+    svg_string = add_svg_tooltips(svg_string, tooltip_texts)
+
+    return svg_string
 
 
 def generate_object_count_chart(data_dict: dict, title: str) -> str:
@@ -191,18 +224,24 @@ def generate_object_count_chart(data_dict: dict, title: str) -> str:
     )
     chart.title = title
 
-    # Prepare all data points for a single series
+    # Prepare all data points and tooltip texts
     chart.x_labels = [item[0] for item in sorted_items]
     values = []
+    tooltip_texts = []
     for label, count in sorted_items:
         plural = "objects" if count != 1 else "object"
-        # Add value with custom tooltip showing category and count
-        values.append({'value': count, 'label': f"{label}: {count} {plural}"})
+        tooltip_text = f"{label}: {count} {plural}"
+        values.append(count)
+        tooltip_texts.append(tooltip_text)
 
     # Add all bars as a single series
     chart.add('Object Count', values)
 
-    return chart.render(is_unicode=True)
+    # Render and add SVG tooltips
+    svg_string = chart.render(is_unicode=True)
+    svg_string = add_svg_tooltips(svg_string, tooltip_texts)
+
+    return svg_string
 
 
 def calculate_integration_time_stats(session):
