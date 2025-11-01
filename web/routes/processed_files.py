@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from models import ProcessingSession
-from processed_catalog.models import ProcessedFile
+# Import all models from main models.py
+from models import ProcessingSession, ProcessedFile
 from web.dependencies import get_db_session
 
 logger = logging.getLogger(__name__)

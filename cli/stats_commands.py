@@ -9,8 +9,8 @@ from cli.utils import (
     get_db_service,
     format_size
 )
-from models import FitsFile
-from processed_catalog.models import ProcessedFile
+# Import all models from main models.py
+from models import FitsFile, ProcessedFile
 
 
 def register_commands(cli):

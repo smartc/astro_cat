@@ -6,7 +6,8 @@ This module handles cataloging of processed astrophotography output files
 """
 
 from .cataloger import ProcessedFileCataloger
-from .models import ProcessedFile, ProcessingSession
+# Import models from main models.py, not local models.py
+from models import ProcessedFile, ProcessingSession
 from .metadata_extractor import (
     extract_processed_file_metadata,
     extract_jpg_metadata,

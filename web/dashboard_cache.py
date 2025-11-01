@@ -105,7 +105,7 @@ def calculate_and_cache_disk_space(db_session, config) -> dict:
     # Calculate processed file sizes (intermediate and final)
     try:
         # Import here to avoid circular dependency
-        from processed_catalog.models import ProcessedFile
+        from models import ProcessedFile
 
         # Get intermediate files
         intermediate_files = db_session.query(ProcessedFile.file_size).filter(

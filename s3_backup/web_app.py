@@ -20,11 +20,11 @@ from pydantic import BaseModel
 sys.path.append(str(Path(__file__).parent.parent))
 
 from config import load_config
-from models import DatabaseManager, DatabaseService, Session as SessionModel
+# Import all models from main models.py
+from models import DatabaseManager, DatabaseService, Session as SessionModel, ProcessedFile
 from s3_backup.manager import S3BackupManager, S3BackupConfig
 from s3_backup.processing_file_backup import ProcessingSessionFileBackup
 from s3_backup.models import Base as BackupBase, S3BackupArchive, S3BackupSessionNote, S3BackupProcessingSession, S3BackupProcessedFileRecord, S3BackupProcessingSessionSummary
-from processed_catalog.models import ProcessedFile
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -114,7 +114,8 @@ async def _get_storage_categories_internal(session_db):
     """Internal function with all the logic from get_storage_categories."""
     from sqlalchemy import func
     from s3_backup.models import S3BackupSessionNote, S3BackupProcessingSession, S3BackupProcessedFileRecord
-    from processed_catalog.models import ProcessedFile
+    # Import from main models.py
+    from models import ProcessedFile
 
     if not db_service:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1433,7 +1434,8 @@ async def get_processing_session_backup_status(session_id: str):
     try:
         from sqlalchemy import func
         from s3_backup.models import S3BackupProcessedFileRecord
-        from processed_catalog.models import ProcessedFile
+        # Import from main models.py
+        from models import ProcessedFile
         
         session_db = db_service.db_manager.get_session()
         

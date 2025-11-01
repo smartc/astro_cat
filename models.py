@@ -1,10 +1,11 @@
 """Database models for FITS Cataloger - EXTENDED VERSION with ALL original methods."""
 
+import warnings
 from datetime import datetime
 from typing import Optional, List, Dict, Tuple
 
 from sqlalchemy import (
-    Boolean, DateTime, Float, Integer, String, Text, 
+    Boolean, DateTime, Float, Integer, String, Text,
     create_engine, Column, Index, ForeignKey, event
 )
 from sqlalchemy.ext.declarative import declarative_base
@@ -43,9 +44,12 @@ class FitsFile(Base):
     ra = Column(String(20))
     dec = Column(String(20))
     
-    # Image dimensions
-    x = Column(Integer)
-    y = Column(Integer)
+    # Image dimensions - Python names mapped to DB columns for clarity
+    width_pixels = Column('x', Integer)  # Maps Python 'width_pixels' to DB 'x'
+    height_pixels = Column('y', Integer)  # Maps Python 'height_pixels' to DB 'y'
+    # Legacy aliases for backwards compatibility
+    x = width_pixels
+    y = height_pixels
     
     # Frame classification
     frame_type = Column(String(20))
@@ -153,7 +157,11 @@ class FitsFile(Base):
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    session_id = Column(String(50))
+
+    # Session relationship - Python name mapped to DB column
+    imaging_session_id = Column('session_id', String(50), ForeignKey('sessions.session_id'))
+    # Legacy alias for backwards compatibility
+    session_id = imaging_session_id
 
     __table_args__ = (
         Index('idx_object_date', 'object', 'obs_date'),
@@ -223,12 +231,18 @@ class FilterMapping(Base):
     notes = Column(Text)
 
 
-class Session(Base):
-    """Imaging sessions table."""
+class ImagingSession(Base):
+    """
+    Auto-detected imaging sessions from FITS file metadata.
+
+    Replaces old 'Session' class name for clarity. Maps to existing
+    'sessions' table - no schema changes.
+    """
     __tablename__ = 'sessions'
 
-    session_id = Column(String(50), primary_key=True)
-    session_date = Column(String(10), nullable=False)
+    # Map Python names to existing DB columns
+    id = Column('session_id', String(50), primary_key=True)
+    date = Column('session_date', String(10), nullable=False)
     telescope = Column(String(50))
     camera = Column(String(50))
     site_name = Column(String(100))
@@ -237,77 +251,106 @@ class Session(Base):
     elevation = Column(Float)
     observer = Column(String(100))
     notes = Column(Text)
-    
-    # Extended session metadata
+
+    # Session quality metrics
     avg_seeing = Column(Float)
     avg_sky_quality = Column(Float)
     avg_cloud_cover = Column(Float)
-    
-    # Metadata
+
+    # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+
+    # Legacy aliases for backwards compatibility
+    session_id = id
+    session_date = date
+
     __table_args__ = (
-        Index('idx_session_date', 'session_date'),
+        Index('idx_session_date', 'date'),
         Index('idx_session_telescope_camera', 'telescope', 'camera'),
     )
 
 
+# Deprecated alias for backwards compatibility
+Session = ImagingSession
+
+
 class ProcessingSession(Base):
-    """Processing session for selected FITS files."""
+    """
+    User-created processing sessions for selected FITS files.
+
+    Consolidated from models.py and processed_catalog/models.py.
+    Contains all fields from both versions.
+    """
     __tablename__ = 'processing_sessions'
-    
+
+    # Basic identification
     id = Column(String(50), primary_key=True)
     name = Column(String(255), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+    folder_path = Column(String(500))
+
     # Metadata
     objects = Column(Text)  # JSON array of object names
     notes = Column(Text)
     status = Column(String(20), default='not_started')
     version = Column(Integer, default=1)
-    
+
     # External references
     astrobin_url = Column(String(500))
     social_urls = Column(Text)  # JSON array
-    
+
     # Processing timeline
     processing_started = Column(DateTime)
     processing_completed = Column(DateTime)
-    
-    # File system
-    folder_path = Column(String(500))
-    
+
+    # Target metadata (from processed_catalog version)
+    primary_target = Column(String(255))
+    target_type = Column(String(50))  # Galaxy, Nebula, Star Cluster, etc.
+    image_type = Column(String(50))   # RGB, SHO, HOO, LRGB, etc.
+
+    # Coordinates (from light frames)
+    ra = Column(String(50))
+    dec = Column(String(50))
+
+    # Integration metadata
+    total_integration_seconds = Column(Integer)
+    date_range_start = Column(DateTime)
+    date_range_end = Column(DateTime)
+
+    # Timestamps - standardized
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
     __table_args__ = (
         Index('idx_processing_status', 'status'),
         Index('idx_processing_created', 'created_at'),
         Index('idx_processing_objects', 'objects'),
+        Index('idx_processing_primary_target', 'primary_target'),
     )
 
 
 class ProcessingSessionFile(Base):
     """Files included in a processing session."""
     __tablename__ = 'processing_session_files'
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     processing_session_id = Column(String(50), ForeignKey('processing_sessions.id', ondelete='CASCADE'))
     fits_file_id = Column(Integer, ForeignKey('fits_files.id', ondelete='CASCADE'))
-    
+
     # Original file information
     original_path = Column(String(500), nullable=False)
     original_filename = Column(String(255), nullable=False)
-    
+
     # Staged file information
     staged_path = Column(String(500), nullable=False)
     staged_filename = Column(String(255), nullable=False)
     subfolder = Column(String(50), nullable=False)
-    
+
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     file_size = Column(Integer)
     frame_type = Column(String(20))
-    
+
     __table_args__ = (
         Index('idx_processing_file_session', 'processing_session_id'),
         Index('idx_processing_file_fits', 'fits_file_id'),
@@ -315,16 +358,93 @@ class ProcessingSessionFile(Base):
     )
 
 
+class ProcessedFile(Base):
+    """
+    Catalog of processed/output files from processing sessions.
+
+    Moved from processed_catalog.models.py to consolidate models.
+    Tracks JPG, XISF, XOSM (with .data), and PXIPROJECT files
+    that are outputs of astrophotography processing.
+    """
+    __tablename__ = 'processed_files'
+
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Link to processing session
+    processing_session_id = Column(String(50), ForeignKey('processing_sessions.id', ondelete='CASCADE'))
+
+    # File identification
+    file_path = Column(String(500), nullable=False, unique=True)  # Full path - enforces no duplicates
+    filename = Column(String(255), nullable=False)
+    file_type = Column(String(20), nullable=False)  # jpg, jpeg, xisf, xosm, pxiproject
+    subfolder = Column(String(50))  # final, intermediate, etc.
+
+    # File metrics
+    file_size = Column(Integer)  # bytes (aggregate for folders/paired files)
+    created_date = Column(DateTime)
+    modified_date = Column(DateTime)
+    md5sum = Column(String(32))  # For integrity checking
+
+    # Companion handling (for .xosm + .data)
+    has_companion = Column(Boolean, default=False)
+    companion_path = Column(String(500))  # Path to .data folder
+    companion_size = Column(Integer)  # Size of companion in bytes
+
+    # Image-specific metadata (null for project files)
+    image_width = Column(Integer)
+    image_height = Column(Integer)
+    bit_depth = Column(Integer)
+    color_space = Column(String(50))  # RGB, Grayscale, etc.
+
+    # Processing context
+    associated_object = Column(String(255))  # Auto-detected from session objects
+    processing_stage = Column(String(50))  # final, intermediate, test
+
+    # Flexible metadata storage
+    metadata_json = Column(Text)  # Store format-specific metadata as JSON
+
+    # User annotations
+    notes = Column(Text)
+
+    # Timestamps
+    cataloged_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_processed_session', 'processing_session_id'),
+        Index('idx_processed_type', 'file_type'),
+        Index('idx_processed_subfolder', 'subfolder'),
+        Index('idx_processed_object', 'associated_object'),
+        Index('idx_processed_stage', 'processing_stage'),
+    )
+
+    def __repr__(self):
+        return f"<ProcessedFile(id={self.id}, filename='{self.filename}', type='{self.file_type}')>"
+
+
 class SystemSettings(Base):
     """Runtime system settings that persist across restarts."""
     __tablename__ = 'system_settings'
-    
+
     key = Column(String(50), primary_key=True)
     value = Column(String(255), nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+
     def __repr__(self):
         return f"<SystemSettings(key='{self.key}', value='{self.value}')>"
+
+
+class SchemaVersion(Base):
+    """Track database schema version for migrations."""
+    __tablename__ = 'schema_version'
+
+    version = Column(Integer, primary_key=True)
+    applied_at = Column(DateTime, default=datetime.utcnow)
+    description = Column(String(255))
+
+    # Current version is 1 (pre-refactor schema)
+    # Phase 3 will create version 2 (refactored schema)
 
 
 class DatabaseManager:
@@ -477,15 +597,21 @@ class DatabaseService:
         finally:
             session.close()
     
-    def add_session(self, session_data: dict) -> bool:
-        """Add a new session record."""
+    def add_imaging_session(self, session_data: dict) -> bool:
+        """Add a new imaging session record."""
         session = self.db_manager.get_session()
         try:
+            # Map old field names to new ones if present
+            if 'session_id' in session_data and 'id' not in session_data:
+                session_data['id'] = session_data.pop('session_id')
+            if 'session_date' in session_data and 'date' not in session_data:
+                session_data['date'] = session_data.pop('session_date')
+
             # Check if session already exists
-            existing = session.query(Session).filter_by(
-                session_id=session_data['session_id']
+            existing = session.query(ImagingSession).filter_by(
+                id=session_data['id']
             ).first()
-            
+
             if existing:
                 # Update existing session with any new data
                 for key, value in session_data.items():
@@ -494,17 +620,27 @@ class DatabaseService:
                 existing.updated_at = datetime.utcnow()
             else:
                 # Create new session
-                new_session = Session(**session_data)
+                new_session = ImagingSession(**session_data)
                 session.add(new_session)
-            
+
             session.commit()
             return True
-            
+
         except Exception as e:
             session.rollback()
             raise e
         finally:
             session.close()
+
+    # Deprecated - for backwards compatibility
+    def add_session(self, session_data: dict) -> bool:
+        """Deprecated: Use add_imaging_session() instead."""
+        warnings.warn(
+            "add_session() is deprecated, use add_imaging_session()",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return self.add_imaging_session(session_data)
     
     def log_object_processing_failure(self, filename: str, raw_name: str, 
                                      proposed_name: str = None, error: str = None):
@@ -525,13 +661,40 @@ class DatabaseService:
         finally:
             session.close()
 
-    def get_sessions(self) -> List[Session]:
-        """Get all sessions."""
+    def get_imaging_session(self, session_id: str) -> Optional[ImagingSession]:
+        """Get imaging session by ID."""
         session = self.db_manager.get_session()
         try:
-            return session.query(Session).order_by(Session.session_date.desc()).all()
+            return session.query(ImagingSession).filter_by(id=session_id).first()
         finally:
             session.close()
+
+    def get_imaging_sessions(self) -> List[ImagingSession]:
+        """Get all imaging sessions."""
+        session = self.db_manager.get_session()
+        try:
+            return session.query(ImagingSession).order_by(ImagingSession.date.desc()).all()
+        finally:
+            session.close()
+
+    # Deprecated - for backwards compatibility
+    def get_session(self, session_id: str) -> Optional[ImagingSession]:
+        """Deprecated: Use get_imaging_session() instead."""
+        warnings.warn(
+            "get_session() is deprecated, use get_imaging_session()",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return self.get_imaging_session(session_id)
+
+    def get_sessions(self) -> List[ImagingSession]:
+        """Deprecated: Use get_imaging_sessions() instead."""
+        warnings.warn(
+            "get_sessions() is deprecated, use get_imaging_sessions()",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return self.get_imaging_sessions()
 
     def get_setting(self, key: str, default=None):
         """Get a system setting value."""
@@ -583,51 +746,51 @@ class DatabaseService:
     def get_orphaned_records(self) -> Dict[str, int]:
         """Get counts of orphaned records across all tables."""
         session = self.db_manager.get_session()
-        
+
         try:
-            orphaned_imaging_sessions = session.query(Session).filter(
-                ~Session.session_id.in_(
-                    session.query(FitsFile.session_id).distinct()
+            orphaned_imaging_sessions = session.query(ImagingSession).filter(
+                ~ImagingSession.id.in_(
+                    session.query(FitsFile.imaging_session_id).distinct()
                 )
             ).count()
-            
+
             orphaned_processing_sessions = session.query(ProcessingSession).filter(
                 ~ProcessingSession.id.in_(
                     session.query(ProcessingSessionFile.processing_session_id).distinct()
                 )
             ).count()
-            
+
             orphaned_ps_files = session.query(ProcessingSessionFile).filter(
                 ~ProcessingSessionFile.fits_file_id.in_(
                     session.query(FitsFile.id).distinct()
                 )
             ).count()
-            
+
             return {
                 'imaging_sessions': orphaned_imaging_sessions,
                 'processing_sessions': orphaned_processing_sessions,
                 'processing_session_files': orphaned_ps_files,
-                'total': (orphaned_imaging_sessions + orphaned_processing_sessions + 
+                'total': (orphaned_imaging_sessions + orphaned_processing_sessions +
                          orphaned_ps_files)
             }
-            
+
         finally:
             session.close()
-    
+
     def cleanup_orphaned_imaging_sessions(self) -> int:
         """Remove imaging sessions with no associated files."""
         session = self.db_manager.get_session()
-        
+
         try:
-            deleted = session.query(Session).filter(
-                ~Session.session_id.in_(
-                    session.query(FitsFile.session_id).distinct()
+            deleted = session.query(ImagingSession).filter(
+                ~ImagingSession.id.in_(
+                    session.query(FitsFile.imaging_session_id).distinct()
                 )
             ).delete(synchronize_session=False)
-            
+
             session.commit()
             return deleted
-            
+
         except Exception as e:
             session.rollback()
             raise

@@ -11,8 +11,8 @@ from cli.utils import (
     get_db_service,
     format_table_row
 )
-from models import FitsFile, Session, ProcessingSession, Camera, Telescope, FilterMapping
-from processed_catalog.models import ProcessedFile
+# Import all models from main models.py
+from models import FitsFile, Session, ProcessingSession, Camera, Telescope, FilterMapping, ProcessedFile
 
 
 def register_commands(cli):

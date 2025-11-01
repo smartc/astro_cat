@@ -15,7 +15,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from tqdm import tqdm
 
-from .models import Base, ProcessingSession, ProcessedFile
+# Import from main models.py
+from models import Base, ProcessingSession, ProcessedFile
 from .metadata_extractor import extract_processed_file_metadata
 
 logger = logging.getLogger(__name__)

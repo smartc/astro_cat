@@ -14,10 +14,9 @@ import boto3
 from botocore.exceptions import ClientError
 from tqdm import tqdm
 
-from models import ProcessingSession
-from processed_catalog.models import ProcessedFile
+# Import all models from main models.py
+from models import ProcessingSession, ProcessedFile, DatabaseManager
 from s3_backup.models import S3BackupProcessedFileRecord
-from models import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
