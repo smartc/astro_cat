@@ -191,36 +191,39 @@ def calculate_object_count_stats(session):
 
 
 def calculate_new_sessions_stats(session, config):
-    """Calculate statistics for newly added imaging sessions."""
+    """Calculate statistics for imaging sessions based on observation date."""
     now = datetime.now()
 
     def get_stats_for_period(start_date):
-        """Get stats for a specific time period."""
-        # Count imaging sessions created in this period
+        """Get stats for a specific time period based on observation date."""
+        # Count imaging sessions by session_date (observation date)
         session_count = session.query(ImagingSession).filter(
-            ImagingSession.created_at >= start_date
+            ImagingSession.session_date >= start_date.strftime('%Y-%m-%d')
         ).count()
 
-        # Count frames by type added in this period
+        # Count frames by type based on observation date
         frame_counts = session.query(
             FitsFile.frame_type,
             func.count(FitsFile.id).label('count')
         ).filter(
-            FitsFile.created_at >= start_date
+            FitsFile.obs_date >= start_date.strftime('%Y-%m-%d'),
+            FitsFile.obs_date.isnot(None)
         ).group_by(FitsFile.frame_type).all()
 
         frame_dict = {ft: count for ft, count in frame_counts}
 
-        # Total integration time for LIGHT frames
+        # Total integration time for LIGHT frames based on observation date
         integration_time = session.query(func.sum(FitsFile.exposure)).filter(
             FitsFile.frame_type == 'LIGHT',
-            FitsFile.created_at >= start_date
+            FitsFile.obs_date >= start_date.strftime('%Y-%m-%d'),
+            FitsFile.obs_date.isnot(None)
         ).scalar() or 0
 
-        # Calculate actual file sizes for recently added files
-        # This is reasonable since we're only looking at recent files
+        # Calculate actual file sizes for files from this observation period
+        # This is reasonable since we're only looking at recent observations
         files = session.query(FitsFile.folder, FitsFile.file).filter(
-            FitsFile.created_at >= start_date
+            FitsFile.obs_date >= start_date.strftime('%Y-%m-%d'),
+            FitsFile.obs_date.isnot(None)
         ).all()
 
         total_size = 0
