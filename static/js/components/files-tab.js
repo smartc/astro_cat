@@ -310,15 +310,15 @@ const FilesTab = {
                                 </th>
                                 
                                 <th class="header-cell text-left">
-                                    <div @click="$root.sortBy('session_id')" class="sort-header">
+                                    <div @click="$root.sortBy('imaging_session_id')" class="sort-header">
                                         <div class="header-title justify-start">
                                             <span>Session</span>
-                                            <span v-if="fileSorting.sort_by === 'session_id'" class="ml-1">
+                                            <span v-if="fileSorting.sort_by === 'imaging_session_id'" class="ml-1">
                                                 {{ fileSorting.sort_order === 'asc' ? '↑' : '↓' }}
                                             </span>
                                         </div>
                                     </div>
-                                    <input v-model="searchFilters.session_id" placeholder="Session..." class="filter-input">
+                                    <input v-model="searchFilters.imaging_session_id" placeholder="Session..." class="filter-input">
                                 </th>
                             </tr>
                         </thead>
@@ -350,8 +350,8 @@ const FilesTab = {
                                 <td class="table-cell-right exp-col">{{ file.exposure ? file.exposure + 's' : 'N/A' }}</td>
                                 <td class="table-cell-right date-col">{{ file.obs_date || 'N/A' }}</td>
                                 <td class="table-cell-left">
-                                    <span @click="$root.navigateToSession(file.session_id)" class="session-link">
-                                        {{ file.session_id || 'N/A' }}
+                                    <span @click="$root.navigateToSession(file.imaging_session_id)" class="session-link">
+                                        {{ file.imaging_session_id || 'N/A' }}
                                     </span>
                                 </td>
                             </tr>

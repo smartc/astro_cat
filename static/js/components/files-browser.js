@@ -20,7 +20,7 @@ const FilesBrowserComponent = {
             },
             searchFilters: {
                 filename: '',
-                session_id: '',
+                imaging_session_id: '',
                 exposure_min: '',
                 exposure_max: '',
                 date_start: '',
@@ -346,7 +346,7 @@ const FilesBrowserComponent = {
         navigateToSession(sessionId) {
             if (sessionId && sessionId !== 'N/A') {
                 this.activeTab = 'imaging-sessions';
-                this.searchFilters.session_id = sessionId;
+                this.searchFilters.imaging_session_id = sessionId;
                 this.loadFiles();
             }
         }

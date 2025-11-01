@@ -633,14 +633,14 @@ const ProcessingSessionDetailsModal = {
                 const files = response.data;
                 
                 const sessionMap = new Map();
-                
+
                 files.forEach(file => {
-                    if (!file.session_id) return;
-                    
-                    const key = file.session_id;
+                    if (!file.imaging_session_id) return;
+
+                    const key = file.imaging_session_id;
                     if (!sessionMap.has(key)) {
                         sessionMap.set(key, {
-                            session_id: file.session_id,
+                            session_id: file.imaging_session_id,
                             obs_date: file.obs_date || 'Unknown',
                             camera: file.camera || 'Unknown',
                             telescope: file.telescope || 'Unknown',

@@ -52,7 +52,7 @@ async def get_files(
     objects: Optional[str] = Query(None, description="Comma-separated objects"),
     filters: Optional[str] = Query(None, description="Comma-separated filters"),
     filename: Optional[str] = None,
-    session_id: Optional[str] = None,
+    imaging_session_id: Optional[str] = None,
     exposure_min: Optional[float] = None,
     exposure_max: Optional[float] = None,
     date_start: Optional[str] = None,
@@ -94,9 +94,9 @@ async def get_files(
         
         if filename:
             query = query.filter(FitsFile.file.like(f'%{filename}%'))
-        
-        if session_id:
-            query = query.filter(FitsFile.session_id == session_id)
+
+        if imaging_session_id:
+            query = query.filter(FitsFile.imaging_session_id == imaging_session_id)
         
         if exposure_min is not None:
             query = query.filter(FitsFile.exposure >= exposure_min)
@@ -140,7 +140,7 @@ async def get_files(
                     "obs_timestamp": f.obs_timestamp.isoformat() if f.obs_timestamp else None,
                     "ra": f.ra,
                     "dec": f.dec,
-                    "session_id": f.session_id,
+                    "imaging_session_id": f.imaging_session_id,
                     "bad": f.bad,
                     "file_not_found": f.file_not_found,
                     "validation_score": f.validation_score
@@ -167,7 +167,7 @@ async def get_file_ids(
     objects: Optional[str] = Query(None),
     filters: Optional[str] = Query(None),
     filename: Optional[str] = None,
-    session_id: Optional[str] = None,
+    imaging_session_id: Optional[str] = Query(None),
     exposure_min: Optional[float] = None,
     exposure_max: Optional[float] = None,
     date_start: Optional[str] = None,
@@ -207,9 +207,9 @@ async def get_file_ids(
         
         if filename:
             query = query.filter(FitsFile.file.like(f'%{filename}%'))
-        
-        if session_id:
-            query = query.filter(FitsFile.session_id == session_id)
+
+        if imaging_session_id:
+            query = query.filter(FitsFile.imaging_session_id == imaging_session_id)
         
         if exposure_min is not None:
             query = query.filter(FitsFile.exposure >= exposure_min)

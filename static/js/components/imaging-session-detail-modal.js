@@ -683,7 +683,7 @@ window.ImagingSessionDetailModal = {
             if (this.selectedSessionId) {
                 this.closeSessionDetails();
                 this.$root.activeTab = 'files';
-                this.$root.searchFilters.session_id = this.selectedSessionId;
+                this.$root.searchFilters.imaging_session_id = this.selectedSessionId;
                 this.$root.loadFiles();
             }
         },
@@ -735,7 +735,7 @@ window.ImagingSessionDetailModal = {
         async getObjectFileIds(objectName) {
             try {
                 const params = new URLSearchParams({
-                    session_id: this.selectedSessionId,
+                    imaging_session_id: this.selectedSessionId,
                     objects: objectName,
                     frame_types: 'LIGHT'
                 });
