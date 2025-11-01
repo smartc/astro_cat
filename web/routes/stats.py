@@ -127,10 +127,10 @@ def generate_integration_time_chart(data_dict: dict, title: str) -> str:
         sorted_items = sorted(data_dict.items(), key=lambda x: x[1]['total_seconds'], reverse=True)
 
     # Create chart with custom configuration
+    # Use consistent dimensions and margins to align chart areas across all three charts
     chart = pygal.Bar(
         style=custom_style,
-        height=400,
-        width=400,
+        height=350,
         show_legend=False,
         truncate_label=-1,
         x_label_rotation=45 if not is_year_data else 0,
@@ -138,12 +138,10 @@ def generate_integration_time_chart(data_dict: dict, title: str) -> str:
         print_zeroes=False,
         show_y_guides=False,  # Remove horizontal gridlines
         show_x_guides=False,  # Remove vertical gridlines
-        tooltip_border_radius=5,
-        tooltip_font_size=14,
-        no_data_text='No data available',
-        explicit_size=True,  # Use explicit dimensions
-        margin=40,  # Consistent margins
-        spacing=10,  # Bar spacing
+        margin_bottom=80,  # Fixed bottom margin to align chart areas
+        margin_top=40,
+        margin_left=60,
+        margin_right=20,
     )
     chart.title = title
 
@@ -175,10 +173,10 @@ def generate_object_count_chart(data_dict: dict, title: str) -> str:
         sorted_items = sorted(data_dict.items(), key=lambda x: x[1], reverse=True)
 
     # Create chart with custom configuration
+    # Use consistent dimensions and margins to align chart areas across all three charts
     chart = pygal.Bar(
         style=custom_style,
-        height=400,
-        width=400,
+        height=350,
         show_legend=False,
         truncate_label=-1,
         x_label_rotation=45 if not is_year_data else 0,
@@ -186,12 +184,10 @@ def generate_object_count_chart(data_dict: dict, title: str) -> str:
         print_zeroes=False,
         show_y_guides=False,  # Remove horizontal gridlines
         show_x_guides=False,  # Remove vertical gridlines
-        tooltip_border_radius=5,
-        tooltip_font_size=14,
-        no_data_text='No data available',
-        explicit_size=True,  # Use explicit dimensions
-        margin=40,  # Consistent margins
-        spacing=10,  # Bar spacing
+        margin_bottom=80,  # Fixed bottom margin to align chart areas
+        margin_top=40,
+        margin_left=60,
+        margin_right=20,
     )
     chart.title = title
 
