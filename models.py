@@ -1,4 +1,16 @@
-"""Database models for FITS Cataloger - EXTENDED VERSION with ALL original methods."""
+"""Database models for FITS Cataloger - Phase 3 (Post-Migration).
+
+This is the Phase 3 version of models.py with all column mapping removed.
+After running the Phase 3 migration script, replace models.py with this file.
+
+Changes from Phase 2:
+- Removed all Column() name mapping
+- ImagingSession now uses 'imaging_sessions' table directly
+- Updated foreign key references
+- Updated index definitions
+- Kept backward compatibility synonyms temporarily with deprecation warnings
+- Kept deprecated Session alias temporarily with deprecation warning
+"""
 
 import warnings
 from datetime import datetime
@@ -27,68 +39,66 @@ class ObjectProcessingLog(Base):
 
 
 class FitsFile(Base):
-    """Main table for FITS file metadata - EXTENDED VERSION."""
+    """Main table for FITS file metadata - Phase 3 (No column mapping)."""
     __tablename__ = 'fits_files'
 
     # Primary identification
     id = Column(Integer, primary_key=True, autoincrement=True)
     file = Column(String(255), nullable=False)
     folder = Column(String(500), nullable=False)
-    
+
     # Target and observation info
     object = Column(String(100))
     obs_date = Column(String(10))
     obs_timestamp = Column(DateTime)
-    
+
     # Coordinates
     ra = Column(String(20))
     dec = Column(String(20))
-    
-    # Image dimensions - Python names mapped to DB columns for clarity
-    # Column mapping: width_pixels -> x, height_pixels -> y
-    width_pixels = Column('x', Integer)
-    height_pixels = Column('y', Integer)
 
-    # Backward compatibility synonyms for old code (works in queries too)
+    # Image dimensions - Direct column names (no mapping)
+    width_pixels = Column(Integer)
+    height_pixels = Column(Integer)
+
+    # Backward compatibility synonyms (deprecated - will be removed in Phase 4)
     x = synonym('width_pixels')
     y = synonym('height_pixels')
 
-    # Session relationship - Python name mapped to DB column
-    # Column mapping: imaging_session_id -> session_id
-    imaging_session_id = Column('session_id', String(50), ForeignKey('sessions.session_id'))
+    # Session relationship - Direct column name (no mapping)
+    imaging_session_id = Column(String(50), ForeignKey('imaging_sessions.id'))
 
-    # Backward compatibility synonym
+    # Backward compatibility synonym (deprecated - will be removed in Phase 4)
     session_id = synonym('imaging_session_id')
 
     # Frame classification
     frame_type = Column(String(20))
     filter = Column(String(20))
-    
+
     # Optical parameters
     focal_length = Column(Float)
     exposure = Column(Float)
-    
+
     # Equipment
     camera = Column(String(50))
     telescope = Column(String(50))
-    
+
     # File hash
     md5sum = Column(String(32), unique=True, index=True)
-    
+
     # Location data
     latitude = Column(Float)
     longitude = Column(Float)
     elevation = Column(Float)
-    
+
     # Field of view data
     fov_x = Column(Float)
     fov_y = Column(Float)
     pixel_scale = Column(Float)
-    
+
     # ========================================================================
-    # EXTENDED METADATA FIELDS - ADDED IN SCHEMA V2
+    # EXTENDED METADATA FIELDS
     # ========================================================================
-    
+
     # Camera/Sensor settings
     gain = Column(Integer)
     offset = Column(Integer)
@@ -99,13 +109,13 @@ class FitsFile(Base):
     readout_mode = Column(String(50))
     bayerpat = Column(String(10))
     iso_speed = Column(Integer)
-    
+
     # Guiding information
     guide_rms = Column(Float)
     guide_fwhm = Column(Float)
     guide_rms_ra = Column(Float)
     guide_rms_dec = Column(Float)
-    
+
     # Weather conditions
     ambient_temp = Column(Float)
     dewpoint = Column(Float)
@@ -119,64 +129,55 @@ class FitsFile(Base):
     wind_gust = Column(Float)
     cloud_cover = Column(Float)
     seeing_fwhm = Column(Float)
-    
+
     # Focus information
     focuser_position = Column(Integer)
     focuser_temp = Column(Float)
-    
+
     # Software and observer
     software_creator = Column(String(100))
     software_modifier = Column(String(100))
     observer = Column(String(100))
     site_name = Column(String(100))
-    
+
     # Airmass and timing
     airmass = Column(Float)
     exposure_start = Column(DateTime)
     exposure_end = Column(DateTime)
-    
+
     # Additional quality metrics
     star_count = Column(Integer)
     median_fwhm = Column(Float)
     eccentricity = Column(Float)
-    
+
     # Boltwood Cloud Sensor
     boltwood_cloud = Column(Float)
     boltwood_wind = Column(Float)
     boltwood_rain = Column(Float)
     boltwood_daylight = Column(Float)
-    
-    # ========================================================================
-    # END EXTENDED FIELDS
-    # ========================================================================
-    
+
     # File management fields
     bad = Column(Boolean, default=False)
     file_not_found = Column(Boolean, default=False)
-    
+
     # Original location tracking
     orig_file = Column(String(255))
     orig_folder = Column(String(500))
-    
+
     # Validation fields
     validation_score = Column(Float)
     migration_ready = Column(Boolean, default=False)
     validation_notes = Column(Text)
-    
+
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # Session relationship - Python name mapped to DB column
-    # Column mapping: imaging_session_id -> session_id
-    imaging_session_id = Column('session_id', String(50), ForeignKey('sessions.session_id'))
 
     __table_args__ = (
         Index('idx_object_date', 'object', 'obs_date'),
         Index('idx_camera_telescope', 'camera', 'telescope'),
         Index('idx_frame_type_filter', 'frame_type', 'filter'),
-        # Index must reference DB column name when using column mapping
-        Index('idx_session', 'session_id'),  # DB column, not Python attr
+        Index('idx_imaging_session', 'imaging_session_id'),
         Index('idx_location', 'latitude', 'longitude'),
         Index('idx_validation_score', 'validation_score'),
         Index('idx_migration_ready', 'migration_ready'),
@@ -244,18 +245,14 @@ class ImagingSession(Base):
     """
     Auto-detected imaging sessions from FITS file metadata.
 
-    Replaces old 'Session' class name for clarity. Maps to existing
-    'sessions' table - no schema changes.
-
-    Column mapping (Python attr -> DB column):
-    - id -> session_id
-    - date -> session_date
+    Phase 3: Direct column names (no mapping).
+    Table renamed from 'sessions' to 'imaging_sessions'.
     """
-    __tablename__ = 'sessions'
+    __tablename__ = 'imaging_sessions'
 
-    # Map Python names to existing DB columns
-    id = Column('session_id', String(50), primary_key=True)
-    date = Column('session_date', String(10), nullable=False)
+    # Direct column names (no mapping)
+    id = Column(String(50), primary_key=True)
+    date = Column(String(10), nullable=False)
     telescope = Column(String(50))
     camera = Column(String(50))
     site_name = Column(String(100))
@@ -274,18 +271,17 @@ class ImagingSession(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Backward compatibility synonyms for old code (works in queries too)
+    # Backward compatibility synonyms (deprecated - will be removed in Phase 4)
     session_id = synonym('id')
     session_date = synonym('date')
 
     __table_args__ = (
-        # Indexes must reference DB column names when using column mapping
-        Index('idx_session_date', 'session_date'),
+        Index('idx_session_date', 'date'),
         Index('idx_session_telescope_camera', 'telescope', 'camera'),
     )
 
 
-# Deprecated alias for backwards compatibility
+# Deprecated alias for backwards compatibility (will be removed in Phase 4)
 Session = ImagingSession
 
 
@@ -457,13 +453,10 @@ class SchemaVersion(Base):
     applied_at = Column(DateTime, default=datetime.utcnow)
     description = Column(String(255))
 
-    # Current version is 1 (pre-refactor schema)
-    # Phase 3 will create version 2 (refactored schema)
-
 
 class DatabaseManager:
     """Database connection and session management."""
-    
+
     def __init__(self, connection_string: str):
         self.engine = create_engine(connection_string, echo=False)
 
@@ -475,15 +468,15 @@ class DatabaseManager:
                 cursor.close()
 
         self.SessionLocal = sessionmaker(bind=self.engine)
-    
+
     def create_tables(self):
         """Create all tables."""
         Base.metadata.create_all(bind=self.engine)
-    
+
     def get_session(self):
         """Get a database session."""
         return self.SessionLocal()
-    
+
     def close(self):
         """Close the database connection."""
         self.engine.dispose()
@@ -491,10 +484,10 @@ class DatabaseManager:
 
 class DatabaseService:
     """High-level database operations."""
-    
+
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
-    
+
     def add_fits_file(self, fits_data: dict) -> Tuple[bool, bool]:
         """Add a new FITS file record. Returns (success, is_duplicate)."""
         session = self.db_manager.get_session()
@@ -502,21 +495,21 @@ class DatabaseService:
             existing = session.query(FitsFile).filter_by(
                 md5sum=fits_data.get('md5sum')
             ).first()
-            
+
             if existing:
                 return True, True
-            
+
             fits_file = FitsFile(**fits_data)
             session.add(fits_file)
             session.commit()
             return True, False
-            
+
         except Exception as e:
             session.rollback()
             raise e
         finally:
             session.close()
-        
+
     def get_cameras(self) -> List[Camera]:
         """Get all cameras."""
         session = self.db_manager.get_session()
@@ -524,7 +517,7 @@ class DatabaseService:
             return session.query(Camera).filter_by(active=True).all()
         finally:
             session.close()
-    
+
     def get_telescopes(self) -> List[Telescope]:
         """Get all telescopes."""
         session = self.db_manager.get_session()
@@ -532,7 +525,7 @@ class DatabaseService:
             return session.query(Telescope).filter_by(active=True).all()
         finally:
             session.close()
-    
+
     def get_filter_mappings(self) -> Dict[str, str]:
         """Get filter name mappings."""
         session = self.db_manager.get_session()
@@ -541,8 +534,8 @@ class DatabaseService:
             return {m.raw_name: m.standard_name for m in mappings}
         finally:
             session.close()
-    
-    def initialize_equipment(self, cameras: List[dict], telescopes: List[dict], 
+
+    def initialize_equipment(self, cameras: List[dict], telescopes: List[dict],
                            filter_mappings: Dict[str, str]):
         """Initialize equipment tables from config."""
         session = self.db_manager.get_session()
@@ -552,13 +545,13 @@ class DatabaseService:
                 if not existing:
                     camera = Camera(**cam_data)
                     session.add(camera)
-            
+
             for tel_data in telescopes:
                 existing = session.query(Telescope).filter_by(name=tel_data['name']).first()
                 if not existing:
                     telescope = Telescope(**tel_data)
                     session.add(telescope)
-            
+
             for raw_name, standard_name in filter_mappings.items():
                 existing = session.query(FilterMapping).filter_by(raw_name=raw_name).first()
                 if not existing:
@@ -567,60 +560,54 @@ class DatabaseService:
                         standard_name=standard_name
                     )
                     session.add(mapping)
-            
+
             session.commit()
         except Exception as e:
             session.rollback()
             raise e
         finally:
             session.close()
-    
+
     def get_database_stats(self) -> Dict:
         """Get database statistics."""
         session = self.db_manager.get_session()
         try:
             stats = {}
-            
+
             # Total files
             total_files = session.query(FitsFile).count()
             stats['total_files'] = total_files
-            
+
             # Files by frame type
             frame_type_counts = session.query(
-                FitsFile.frame_type, 
+                FitsFile.frame_type,
                 func.count(FitsFile.id)
             ).group_by(FitsFile.frame_type).all()
             stats['by_frame_type'] = {ft: count for ft, count in frame_type_counts}
-            
+
             # Files by camera
             camera_counts = session.query(
-                FitsFile.camera, 
+                FitsFile.camera,
                 func.count(FitsFile.id)
             ).group_by(FitsFile.camera).all()
             stats['by_camera'] = {cam: count for cam, count in camera_counts}
-            
+
             # Files by telescope
             telescope_counts = session.query(
-                FitsFile.telescope, 
+                FitsFile.telescope,
                 func.count(FitsFile.id)
             ).group_by(FitsFile.telescope).all()
             stats['by_telescope'] = {tel: count for tel, count in telescope_counts}
-            
+
             return stats
-            
+
         finally:
             session.close()
-    
+
     def add_imaging_session(self, session_data: dict) -> bool:
         """Add a new imaging session record."""
         session = self.db_manager.get_session()
         try:
-            # Map old field names to new ones if present
-            if 'session_id' in session_data and 'id' not in session_data:
-                session_data['id'] = session_data.pop('session_id')
-            if 'session_date' in session_data and 'date' not in session_data:
-                session_data['date'] = session_data.pop('session_date')
-
             # Check if session already exists
             existing = session.query(ImagingSession).filter_by(
                 id=session_data['id']
@@ -646,35 +633,6 @@ class DatabaseService:
         finally:
             session.close()
 
-    # Deprecated - for backwards compatibility
-    def add_session(self, session_data: dict) -> bool:
-        """Deprecated: Use add_imaging_session() instead."""
-        warnings.warn(
-            "add_session() is deprecated, use add_imaging_session()",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        return self.add_imaging_session(session_data)
-    
-    def log_object_processing_failure(self, filename: str, raw_name: str, 
-                                     proposed_name: str = None, error: str = None):
-        """Log object name processing failure."""
-        session = self.db_manager.get_session()
-        try:
-            log_entry = ObjectProcessingLog(
-                filename=filename,
-                raw_object_name=raw_name,
-                proposed_object_name=proposed_name,
-                error_message=error
-            )
-            session.add(log_entry)
-            session.commit()
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
-
     def get_imaging_session(self, session_id: str) -> Optional[ImagingSession]:
         """Get imaging session by ID."""
         session = self.db_manager.get_session()
@@ -690,25 +648,6 @@ class DatabaseService:
             return session.query(ImagingSession).order_by(ImagingSession.date.desc()).all()
         finally:
             session.close()
-
-    # Deprecated - for backwards compatibility
-    def get_session(self, session_id: str) -> Optional[ImagingSession]:
-        """Deprecated: Use get_imaging_session() instead."""
-        warnings.warn(
-            "get_session() is deprecated, use get_imaging_session()",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        return self.get_imaging_session(session_id)
-
-    def get_sessions(self) -> List[ImagingSession]:
-        """Deprecated: Use get_imaging_sessions() instead."""
-        warnings.warn(
-            "get_sessions() is deprecated, use get_imaging_sessions()",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        return self.get_imaging_sessions()
 
     def get_setting(self, key: str, default=None):
         """Get a system setting value."""
@@ -810,47 +749,47 @@ class DatabaseService:
             raise
         finally:
             session.close()
-    
+
     def cleanup_orphaned_processing_sessions(self) -> int:
         """Remove processing sessions with no staged files."""
         session = self.db_manager.get_session()
-        
+
         try:
             deleted = session.query(ProcessingSession).filter(
                 ~ProcessingSession.id.in_(
                     session.query(ProcessingSessionFile.processing_session_id).distinct()
                 )
             ).delete(synchronize_session=False)
-            
+
             session.commit()
             return deleted
-            
+
         except Exception as e:
             session.rollback()
             raise
         finally:
             session.close()
-    
+
     def cleanup_orphaned_ps_files(self) -> int:
         """Remove processing_session_files referencing deleted fits_files."""
         session = self.db_manager.get_session()
-        
+
         try:
             deleted = session.query(ProcessingSessionFile).filter(
                 ~ProcessingSessionFile.fits_file_id.in_(
                     session.query(FitsFile.id).distinct()
                 )
             ).delete(synchronize_session=False)
-            
+
             session.commit()
             return deleted
-            
+
         except Exception as e:
             session.rollback()
             raise
         finally:
             session.close()
-    
+
     def cleanup_all_orphans(self) -> Dict[str, int]:
         """Clean up all orphaned records. Returns counts of deleted records."""
         return {

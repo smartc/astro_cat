@@ -149,29 +149,21 @@ MIGRATION COMPLETE!
 ============================================================
 ```
 
-### Step 3: Update models.py
+### Step 3: Run Verification Tests
 
-After successful migration, update the Python code:
+**Note:** The `models.py` file is already updated in this branch with Phase 3 changes.
 
-```bash
-# Backup current models.py
-cp models.py models_phase2_backup.py
-
-# Replace with Phase 3 version
-cp models_phase3.py models.py
-```
-
-**What changed:**
+**What changed in models.py:**
 - `ImagingSession.__tablename__` = `'imaging_sessions'` (was `'sessions'`)
 - `ImagingSession.id` = `Column(String(50), ...)` (was `Column('session_id', ...)`)
 - `ImagingSession.date` = `Column(String(10), ...)` (was `Column('session_date', ...)`)
 - `FitsFile.width_pixels` = `Column(Integer)` (was `Column('x', Integer)`)
 - `FitsFile.height_pixels` = `Column(Integer)` (was `Column('y', Integer)`)
 - `FitsFile.imaging_session_id` = `Column(String(50), ForeignKey('imaging_sessions.id'))` (was `Column('session_id', ...)`)
-- Removed all `synonym()` definitions
-- Removed `Session = ImagingSession` alias
+- **Kept backward compatibility synonyms** for zero-downtime migration
+- **Kept `Session = ImagingSession` alias** for compatibility
 
-### Step 4: Run Verification Tests
+Run verification tests:
 
 ```bash
 # Run automated test suite
@@ -235,7 +227,7 @@ FINAL RESULTS
 🎉 All verification tests passed!
 ```
 
-### Step 5: Test CLI Commands
+### Step 4: Test CLI Commands
 
 Test all major CLI functions:
 
@@ -261,7 +253,7 @@ python main_v2.py stats raw
 
 All commands should work exactly as before.
 
-### Step 6: Test Web Interface
+### Step 5: Test Web Interface
 
 ```bash
 # Start web server
@@ -274,7 +266,7 @@ Test these pages:
 - http://localhost:8080/sessions (Imaging sessions - should still work!)
 - http://localhost:8080/processing (Processing sessions)
 
-### Step 7: Test Database Queries Manually
+### Step 6: Test Database Queries Manually
 
 ```python
 # Quick manual test
@@ -327,8 +319,12 @@ ls -lht ~/Astro/backups/
 # Restore from backup (use most recent Phase 3 backup)
 cp ~/Astro/backups/fits_catalog_pre_phase3_YYYYMMDD_HHMMSS.db ~/Astro/fits_catalog.db
 
-# Restore old models.py
-cp models_phase2_backup.py models.py
+# Revert to previous commit (before Phase 3)
+git checkout HEAD~1 models.py
+
+# Clear Python cache
+find . -name "*.pyc" -delete
+find . -name "__pycache__" -type d -delete
 
 # Restart services
 python run_web.py
@@ -391,12 +387,13 @@ EOF
 
 ### Error: "no such column: x"
 
-**Cause:** Migration completed but models.py not updated
+**Cause:** Migration completed but old models.py still loaded (cache issue)
 
 **Solution:**
 ```bash
-# Update models.py
-cp models_phase3.py models.py
+# Clear Python cache
+find . -name "*.pyc" -delete
+find . -name "__pycache__" -type d -delete
 
 # Restart services
 python run_web.py
@@ -416,7 +413,7 @@ Update any code still using `sessions` table to use `imaging_sessions`.
 
 ### Warning: SQLAlchemy warnings about synonyms
 
-**Cause:** Old models.py loaded before updating
+**Cause:** Python cache issue or multiple models loaded
 
 **Solution:**
 ```bash
@@ -424,17 +421,18 @@ Update any code still using `sessions` table to use `imaging_sessions`.
 find . -name "*.pyc" -delete
 find . -name "__pycache__" -type d -delete
 
-# Ensure models.py is updated
-cp models_phase3.py models.py
-
 # Restart Python processes
+pkill -f run_web.py
+pkill -f file_monitor.py
+
+# Restart services
+python run_web.py
 ```
 
 ## Post-Migration Checklist
 
 - [ ] Migration script completed without errors
 - [ ] Backup created and verified
-- [ ] models.py updated to Phase 3 version
 - [ ] Verification tests pass
 - [ ] CLI commands work
 - [ ] Web interface loads correctly
@@ -473,11 +471,11 @@ ls -lt
 ### New Files
 - `scripts/migrate_schema_phase3.py` - Migration script
 - `scripts/test_phase3_migration.py` - Verification tests
-- `models_phase3.py` - Updated models for Phase 3
 - `PHASE3_MIGRATION.md` - This documentation
+- `PHASE3_COMPATIBILITY.md` - Compatibility analysis
 
 ### Modified Files
-- `models.py` - Updated from Phase 2 to Phase 3 (column mapping removed)
+- `models.py` - Updated from Phase 2 to Phase 3 (column mapping removed, backward compatibility synonyms kept)
 
 ### Generated Files
 - `~/Astro/backups/fits_catalog_pre_phase3_*.db` - Automatic backup

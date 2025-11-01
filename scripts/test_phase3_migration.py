@@ -10,7 +10,8 @@ This script verifies that:
 
 Run this AFTER:
 1. Running scripts/migrate_schema_phase3.py
-2. Replacing models.py with models_phase3.py
+
+Note: models.py is already updated in this branch with Phase 3 changes.
 """
 
 import sys
@@ -396,8 +397,8 @@ def main():
         print("\n⚠️  Some tests failed!")
         print("\nPlease review the errors above and:")
         print("  1. Check that migration script completed successfully")
-        print("  2. Verify models.py was updated to models_phase3.py")
-        print("  3. Check database schema manually with sqlite3")
+        print("  2. Check database schema manually with sqlite3")
+        print("  3. Verify models.py is the Phase 3 version (check file header)")
         print("\nIf problems persist, restore from backup:")
         db_path = Path.home() / 'Astro' / 'fits_catalog.db'
         backup_dir = db_path.parent / 'backups'
