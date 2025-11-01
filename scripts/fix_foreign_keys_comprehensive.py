@@ -64,6 +64,9 @@ def recreate_fits_files(cursor):
     # Disable foreign key checks temporarily (we'll recreate them after)
     cursor.execute("PRAGMA foreign_keys = OFF")
 
+    # Clean up any leftover temporary tables from previous failed runs
+    cursor.execute("DROP TABLE IF EXISTS fits_files_new")
+
     print("Creating fits_files_new with proper schema...")
 
     # Build column definitions
@@ -141,6 +144,9 @@ def recreate_processing_session_files(cursor):
     cursor.execute("SELECT COUNT(*) FROM processing_session_files")
     row_count = cursor.fetchone()[0]
     print(f"\nCurrent rows: {row_count}")
+
+    # Clean up any leftover temporary tables from previous failed runs
+    cursor.execute("DROP TABLE IF EXISTS processing_session_files_new")
 
     # Create new table with correct schema
     print("Creating processing_session_files_new...")
