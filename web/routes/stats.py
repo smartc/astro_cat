@@ -11,7 +11,7 @@ from typing import Optional
 import pygal
 from pygal.style import Style
 
-from models import FitsFile, Session as ImagingSession, ProcessingSession, ProcessingSessionFile
+from models import FitsFile, ImagingSession, ProcessingSession, ProcessingSessionFile
 from web.dependencies import get_db_service, get_config
 from web import dashboard_cache
 

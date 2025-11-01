@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
-from models import Session as SessionModel, FitsFile
+from models import ImagingSession as SessionModel, FitsFile
 from web.dependencies import get_db_session, get_config
 from web.utils import generate_imaging_session_default_content
 

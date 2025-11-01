@@ -12,7 +12,7 @@ from cli.utils import (
     format_table_row
 )
 # Import all models from main models.py
-from models import FitsFile, Session, ProcessingSession, Camera, Telescope, FilterMapping, ProcessedFile
+from models import FitsFile, ImagingSession, ProcessingSession, Camera, Telescope, FilterMapping, ProcessedFile
 
 
 def register_commands(cli):
