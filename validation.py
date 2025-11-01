@@ -510,28 +510,49 @@ class FitsValidator:
     def get_validation_summary(self) -> Dict:
         """Get validation summary statistics."""
         session = self.db_service.db_manager.get_session()
-        
+
         try:
             from sqlalchemy import func
-            
+
+            # Get total files
+            total_files = session.query(func.count(FitsFile.id)).scalar() or 0
+
+            # Get counts by migration category
+            auto_migrate = session.query(func.count(FitsFile.id)).filter(
+                FitsFile.validation_score >= self.AUTO_MIGRATE_THRESHOLD
+            ).scalar() or 0
+
+            needs_review = session.query(func.count(FitsFile.id)).filter(
+                FitsFile.validation_score >= self.REVIEW_THRESHOLD,
+                FitsFile.validation_score < self.AUTO_MIGRATE_THRESHOLD
+            ).scalar() or 0
+
+            manual_only = session.query(func.count(FitsFile.id)).filter(
+                FitsFile.validation_score < self.REVIEW_THRESHOLD
+            ).scalar() or 0
+
             # Get average scores by frame type
             frame_type_stats = session.query(
                 FitsFile.frame_type,
                 func.avg(FitsFile.validation_score).label('avg_score'),
                 func.count(FitsFile.id).label('count')
             ).group_by(FitsFile.frame_type).all()
-            
+
             summary = {
+                'total_files': total_files,
+                'auto_migrate': auto_migrate,
+                'needs_review': needs_review,
+                'manual_only': manual_only,
                 'frame_type_averages': {}
             }
-            
+
             for frame_type, avg_score, count in frame_type_stats:
                 summary['frame_type_averages'][frame_type or 'UNKNOWN'] = {
                     'avg_score': float(avg_score) if avg_score else 0.0,
                     'count': count
                 }
-            
+
             return summary
-            
+
         finally:
             session.close()
