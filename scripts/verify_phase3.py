@@ -17,8 +17,10 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from models import FitsFile, ImagingSession, ProcessingSession, ProcessingSessionFile
-from database_service import DatabaseService
+from models import (
+    FitsFile, ImagingSession, ProcessingSession, ProcessingSessionFile,
+    DatabaseManager, DatabaseService
+)
 import sqlite3
 
 
@@ -273,7 +275,9 @@ def main():
 
     try:
         # Initialize database service
-        db_service = DatabaseService(str(db_path))
+        connection_string = f"sqlite:///{db_path}"
+        db_manager = DatabaseManager(connection_string)
+        db_service = DatabaseService(db_manager)
 
         # Run all checks
         check_table_structure(db_path)
