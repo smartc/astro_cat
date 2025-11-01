@@ -248,8 +248,8 @@ def register_commands(cli):
             for s in sessions:
                 click.echo(format_table_row(
                     [
-                        (s.session_id or 'N/A')[:25],
-                        (str(s.session_date) if s.session_date else 'N/A')[:12],
+                        (s.id or 'N/A')[:25],
+                        (str(s.date) if s.date else 'N/A')[:12],
                         (s.camera or 'Unknown')[:20],
                         (s.telescope or 'Unknown')[:20],
                         str(s.file_count or 0)
