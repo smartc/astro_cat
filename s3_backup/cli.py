@@ -14,7 +14,7 @@ from tabulate import tabulate
 sys.path.append(str(Path(__file__).parent.parent))
 
 from config import load_config
-from models import DatabaseManager, DatabaseService, Session as SessionModel
+from models import DatabaseManager, DatabaseService, ImagingSession as SessionModel
 from s3_backup.manager import S3BackupManager, S3BackupConfig
 from s3_backup.models import Base as BackupBase, S3BackupArchive
 from s3_backup.models import S3BackupSessionNote, S3BackupProcessingSession
@@ -274,17 +274,17 @@ def upload(ctx, session_id, year, limit, skip_existing, no_cleanup):
         query = session_db.query(SessionModel)
         
         if session_id:
-            query = query.filter(SessionModel.session_id == session_id)
+            query = query.filter(SessionModel.id == session_id)
             sessions = query.all()
             if not sessions:
                 click.echo(f"❌ Session not found: {session_id}")
                 return
         elif year:
-            query = query.filter(SessionModel.session_date.like(f"{year}%"))
-            sessions = query.order_by(SessionModel.session_date).all()
+            query = query.filter(SessionModel.date.like(f"{year}%"))
+            sessions = query.order_by(SessionModel.date).all()
         else:
             # Upload all sessions, oldest first
-            sessions = query.order_by(SessionModel.session_date).all()
+            sessions = query.order_by(SessionModel.date).all()
         
         if not sessions:
             click.echo("No sessions found to upload.")
@@ -304,14 +304,14 @@ def upload(ctx, session_id, year, limit, skip_existing, no_cleanup):
                 
                 # Get year for S3 check
                 try:
-                    year_val = datetime.strptime(session_model.session_date, '%Y-%m-%d').year
+                    year_val = datetime.strptime(session_model.date, '%Y-%m-%d').year
                 except:
-                    click.echo(f"⚠️  Skipping {session_model.session_id}: invalid date format")
+                    click.echo(f"⚠️  Skipping {session_model.id}: invalid date format")
                     continue
-                
+
                 # Check if exists in S3 (not just database)
-                if backup_manager.check_archive_exists(session_model.session_id, year_val):
-                    click.echo(f"⏭️  Skipping (already in S3): {session_model.session_id}")
+                if backup_manager.check_archive_exists(session_model.id, year_val):
+                    click.echo(f"⏭️  Skipping (already in S3): {session_model.id}")
                     continue
                 
                 # Add to upload list
@@ -355,10 +355,10 @@ def upload(ctx, session_id, year, limit, skip_existing, no_cleanup):
         # Upload each session
         with tqdm(total=len(sessions), desc="Uploading sessions", unit="session") as pbar:
             for session_model in sessions:
-                pbar.set_description(f"Processing {session_model.session_id[:20]}")
-                
+                pbar.set_description(f"Processing {session_model.id[:20]}")
+
                 result = backup_manager.backup_session(
-                    session_model.session_id,
+                    session_model.id,
                     skip_existing=skip_existing,
                     cleanup_archive=not no_cleanup
                 )
@@ -366,16 +366,16 @@ def upload(ctx, session_id, year, limit, skip_existing, no_cleanup):
                 if result.success:
                     if result.error and "skipped" in result.error.lower():
                         results['skipped'] += 1
-                        tqdm.write(f"⏭️  Skipped (exists): {session_model.session_id}")
+                        tqdm.write(f"⏭️  Skipped (exists): {session_model.id}")
                     else:
                         results['success'] += 1
                         results['total_uploaded_bytes'] += result.compressed_size
-                        
+
                         # Save to database
                         backup_archive = S3BackupArchive(
-                            session_id=session_model.session_id,
-                            session_date=session_model.session_date,
-                            session_year=datetime.strptime(session_model.session_date, '%Y-%m-%d').year,
+                            session_id=session_model.id,
+                            session_date=session_model.date,
+                            session_year=datetime.strptime(session_model.date, '%Y-%m-%d').year,
                             s3_bucket=backup_manager.s3_config.bucket,
                             s3_key=result.s3_key,
                             s3_region=backup_manager.s3_config.region,
@@ -395,13 +395,13 @@ def upload(ctx, session_id, year, limit, skip_existing, no_cleanup):
                         session_db.commit()
                         
                         tqdm.write(
-                            f"✅ {session_model.session_id}: "
+                            f"✅ {session_model.id}: "
                             f"{result.file_count} files, "
                             f"{format_bytes(result.compressed_size)}"
                         )
                 else:
                     results['failed'] += 1
-                    tqdm.write(f"❌ Failed: {session_model.session_id} - {result.error}")
+                    tqdm.write(f"❌ Failed: {session_model.id} - {result.error}")
                 
                 pbar.update(1)
         
@@ -498,29 +498,29 @@ def list_sessions(ctx, year, not_backed_up):
     
     try:
         query = session_db.query(SessionModel)
-        
+
         if year:
-            query = query.filter(SessionModel.session_date.like(f"{year}%"))
-        
-        sessions = query.order_by(SessionModel.session_date).all()
-        
+            query = query.filter(SessionModel.date.like(f"{year}%"))
+
+        sessions = query.order_by(SessionModel.date).all()
+
         # Check backup status
         table_data = []
-        
+
         for session_model in sessions:
             # Check if backed up
             backup_archive = session_db.query(S3BackupArchive).filter(
-                S3BackupArchive.session_id == session_model.session_id
+                S3BackupArchive.session_id == session_model.id
             ).first()
-            
+
             backed_up = backup_archive is not None
-            
+
             if not_backed_up and backed_up:
                 continue
-            
+
             table_data.append([
-                session_model.session_id[:25],
-                session_model.session_date,
+                session_model.id[:25],
+                session_model.date,
                 (session_model.camera or 'Unknown')[:15],
                 (session_model.telescope or 'Unknown')[:15],
                 "✅" if backed_up else "❌",
@@ -632,12 +632,12 @@ def _backup_imaging_markdown(backup_manager, config, session_db, dry_run, limit,
             
             # Get session metadata from database
             imaging_session = session_db.query(SessionModel).filter(
-                SessionModel.session_id == session_id
+                SessionModel.id == session_id
             ).first()
-            
+
             metadata = {
                 'session_id': session_id,
-                'session_date': imaging_session.session_date if imaging_session else '',
+                'session_date': imaging_session.date if imaging_session else '',
                 'type': 'imaging_session'
             }
             
@@ -1260,15 +1260,15 @@ def _sync_fits_archives(backup_manager, session_db, dry_run):
                     continue
                 
                 # Get session info from main database if available
-                from models import Session as SessionModel
+                from models import ImagingSession as SessionModel
                 imaging_session = session_db.query(SessionModel).filter(
-                    SessionModel.session_id == session_id
+                    SessionModel.id == session_id
                 ).first()
-                
+
                 # Create database record
                 archive_record = S3BackupArchive(
                     session_id=session_id,
-                    session_date=imaging_session.session_date if imaging_session else None,
+                    session_date=imaging_session.date if imaging_session else None,
                     session_year=s3_info['year'],
                     s3_bucket=backup_manager.s3_config.bucket,
                     s3_key=s3_info['s3_key'],

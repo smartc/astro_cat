@@ -4,7 +4,7 @@ Utility functions for web interface.
 
 from datetime import datetime
 from sqlalchemy.orm import Session
-from models import Session as SessionModel, FitsFile
+from models import ImagingSession as SessionModel, FitsFile
 
 
 def generate_imaging_session_default_content(session_id: str, session: Session) -> str:
@@ -12,20 +12,20 @@ def generate_imaging_session_default_content(session_id: str, session: Session) 
     
     # Get session info
     imaging_session = session.query(SessionModel).filter(
-        SessionModel.session_id == session_id
+        SessionModel.id == session_id
     ).first()
-    
+
     if not imaging_session:
         return "# Session Not Found\n\nThe requested session could not be found in the database."
-    
+
     # Get files for this session
     files = session.query(FitsFile).filter(
-        FitsFile.session_id == session_id
+        FitsFile.imaging_session_id == session_id
     ).all()
-    
+
     # Build markdown content
     content = f"# Imaging Session: {session_id}\n\n"
-    content += f"**Date:** {imaging_session.session_date}\n\n"
+    content += f"**Date:** {imaging_session.date}\n\n"
     
     if imaging_session.site_name:
         content += f"**Site:** {imaging_session.site_name}\n\n"

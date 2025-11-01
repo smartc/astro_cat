@@ -20,7 +20,7 @@ from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 from tqdm import tqdm
 
-from models import DatabaseService, FitsFile, Session as SessionModel
+from models import DatabaseService, FitsFile, ImagingSession as SessionModel
 
 logger = logging.getLogger(__name__)
 
@@ -510,16 +510,16 @@ class S3BackupManager:
         try:
             # Get session info
             session = session_db.query(SessionModel).filter(
-                SessionModel.session_id == session_id
+                SessionModel.id == session_id
             ).first()
-            
+
             if not session:
                 logger.error(f"Session not found: {session_id}")
                 return None
             
             # Get all files for this session
             files = session_db.query(FitsFile).filter(
-                FitsFile.session_id == session_id
+                FitsFile.imaging_session_id == session_id
             ).all()
             
             if not files:
@@ -729,7 +729,7 @@ class S3BackupManager:
         session_db = self.db_service.db_manager.get_session()
         try:
             files = session_db.query(FitsFile).filter(
-                FitsFile.session_id == session_id,
+                FitsFile.imaging_session_id == session_id,
                 FitsFile.frame_type == 'LIGHT'
             ).all()
             
@@ -777,13 +777,13 @@ class S3BackupManager:
         try:
             # Find session with most LIGHT files (proxy for largest)
             result = session_db.query(
-                FitsFile.session_id,
+                FitsFile.imaging_session_id,
                 func.count(FitsFile.id)
             ).filter(
-                FitsFile.session_id.isnot(None),
+                FitsFile.imaging_session_id.isnot(None),
                 FitsFile.frame_type == 'LIGHT'
             ).group_by(
-                FitsFile.session_id
+                FitsFile.imaging_session_id
             ).order_by(
                 func.count(FitsFile.id).desc()
             ).first()
@@ -850,9 +850,9 @@ class S3BackupManager:
         try:
             # Get session info
             session = session_db.query(SessionModel).filter(
-                SessionModel.session_id == session_id
+                SessionModel.id == session_id
             ).first()
-            
+
             if not session:
                 return ArchiveResult(
                     success=False,
@@ -862,7 +862,7 @@ class S3BackupManager:
             
             # Extract year
             try:
-                year = datetime.strptime(session.session_date, '%Y-%m-%d').year
+                year = datetime.strptime(session.date, '%Y-%m-%d').year
             except:
                 return ArchiveResult(
                     success=False,
@@ -940,7 +940,7 @@ class S3BackupManager:
             from models import FitsFile
             files = [
                 f for f in session_db.query(FitsFile).filter(
-                    FitsFile.session_id == session_id
+                    FitsFile.imaging_session_id == session_id
                 ).all()
                 if Path(f.folder).joinpath(f.file).exists()
             ]
@@ -990,9 +990,9 @@ class S3BackupManager:
             
             # Calculate statistics
             original_size = sum(
-                Path(f.folder).joinpath(f.file).stat().st_size 
+                Path(f.folder).joinpath(f.file).stat().st_size
                 for f in session_db.query(FitsFile).filter(
-                    FitsFile.session_id == session_id
+                    FitsFile.imaging_session_id == session_id
                 ).all()
                 if Path(f.folder).joinpath(f.file).exists()
             )

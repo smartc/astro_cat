@@ -60,15 +60,8 @@ class FitsFile(Base):
     width_pixels = Column(Integer)
     height_pixels = Column(Integer)
 
-    # Backward compatibility synonyms (deprecated - will be removed in Phase 4)
-    x = synonym('width_pixels')
-    y = synonym('height_pixels')
-
     # Session relationship - Direct column name (no mapping)
     imaging_session_id = Column(String(50), ForeignKey('imaging_sessions.id'))
-
-    # Backward compatibility synonym (deprecated - will be removed in Phase 4)
-    session_id = synonym('imaging_session_id')
 
     # Frame classification
     frame_type = Column(String(20))
@@ -271,18 +264,10 @@ class ImagingSession(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Backward compatibility synonyms (deprecated - will be removed in Phase 4)
-    session_id = synonym('id')
-    session_date = synonym('date')
-
     __table_args__ = (
         Index('idx_session_date', 'date'),
         Index('idx_session_telescope_camera', 'telescope', 'camera'),
     )
-
-
-# Deprecated alias for backwards compatibility (will be removed in Phase 4)
-Session = ImagingSession
 
 
 class ProcessingSession(Base):
