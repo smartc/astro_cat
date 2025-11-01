@@ -157,7 +157,7 @@ def generate_integration_time_chart(data_dict: dict, title: str) -> str:
     # Use consistent dimensions and margins to align chart areas across all three charts
     chart = pygal.Bar(
         style=custom_style,
-        height=350,
+        height=612,  # 1.75x the original 350px
         show_legend=False,
         truncate_label=-1,
         x_label_rotation=45 if not is_year_data else 0,
@@ -209,7 +209,7 @@ def generate_object_count_chart(data_dict: dict, title: str) -> str:
     # Use consistent dimensions and margins to align chart areas across all three charts
     chart = pygal.Bar(
         style=custom_style,
-        height=350,
+        height=612,  # 1.75x the original 350px
         show_legend=False,
         truncate_label=-1,
         x_label_rotation=45 if not is_year_data else 0,
