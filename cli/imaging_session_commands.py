@@ -8,7 +8,7 @@ from cli.utils import (
     handle_error,
     get_db_service
 )
-from models import Session
+from models import ImagingSession
 
 
 def register_commands(cli):
@@ -44,8 +44,8 @@ def register_commands(cli):
             db_service = get_db_service(config)
             db_session = db_service.db_manager.get_session()
 
-            session = db_session.query(Session).filter(
-                Session.session_id == session_id
+            session = db_session.query(ImagingSession).filter(
+                ImagingSession.id == session_id
             ).first()
 
             if not session:
@@ -58,8 +58,8 @@ def register_commands(cli):
             click.echo("=" * 70)
             click.echo("IMAGING SESSION INFO")
             click.echo("=" * 70)
-            click.echo(f"\nSession ID:  {session.session_id}")
-            click.echo(f"Date:        {session.session_date or 'Unknown'}")
+            click.echo(f"\nSession ID:  {session.id}")
+            click.echo(f"Date:        {session.date or 'Unknown'}")
             click.echo(f"Camera:      {session.camera or 'Unknown'}")
             click.echo(f"Telescope:   {session.telescope or 'Unknown'}")
             click.echo(f"Location:    {session.location or 'Unknown'}")
@@ -95,8 +95,8 @@ def register_commands(cli):
             db_service = get_db_service(config)
             db_session = db_service.db_manager.get_session()
 
-            session = db_session.query(Session).filter(
-                Session.session_id == session_id
+            session = db_session.query(ImagingSession).filter(
+                ImagingSession.id == session_id
             ).first()
 
             if not session:

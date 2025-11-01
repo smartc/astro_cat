@@ -21,7 +21,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from config import load_config
 # Import all models from main models.py
-from models import DatabaseManager, DatabaseService, Session as SessionModel, ProcessedFile
+from models import DatabaseManager, DatabaseService, ImagingSession as SessionModel, ProcessedFile
 from s3_backup.manager import S3BackupManager, S3BackupConfig
 from s3_backup.processing_file_backup import ProcessingSessionFileBackup
 from s3_backup.models import Base as BackupBase, S3BackupArchive, S3BackupSessionNote, S3BackupProcessingSession, S3BackupProcessedFileRecord, S3BackupProcessingSessionSummary
@@ -145,17 +145,17 @@ async def _get_storage_categories_internal(session_db):
         # Category 1: Imaging Sessions
         all_fits = session_db.query(FitsFile).all()
         backed_up_sessions = {a.session_id for a in session_db.query(S3BackupArchive).all()}
-        
+
         total_local_size = 0
         backed_up_size = 0
         local_not_backed_count = 0
-        
+
         for f in all_fits:
             file_path = Path(f.folder) / f.file
             if file_path.exists():
                 size = file_path.stat().st_size
                 total_local_size += size
-                if f.session_id in backed_up_sessions:
+                if f.imaging_session_id in backed_up_sessions:
                     backed_up_size += size
                 else:
                     local_not_backed_count += 1
@@ -659,27 +659,27 @@ async def get_sessions(
     
     try:
         query = session_db.query(SessionModel)
-        
+
         if year:
-            query = query.filter(SessionModel.session_date.like(f"{year}%"))
-        
-        query = query.order_by(SessionModel.session_date.desc()).limit(limit)
+            query = query.filter(SessionModel.date.like(f"{year}%"))
+
+        query = query.order_by(SessionModel.date.desc()).limit(limit)
         sessions = query.all()
-        
+
         result = []
         for session_model in sessions:
             archive = session_db.query(S3BackupArchive).filter(
-                S3BackupArchive.session_id == session_model.session_id
+                S3BackupArchive.session_id == session_model.id
             ).first()
-            
+
             backed_up = archive is not None
-            
+
             if not_backed_up and backed_up:
                 continue
-            
+
             result.append({
-                "session_id": session_model.session_id,
-                "session_date": session_model.session_date,
+                "session_id": session_model.id,
+                "session_date": session_model.date,
                 "camera": session_model.camera,
                 "telescope": session_model.telescope,
                 "backed_up": backed_up,
@@ -817,20 +817,20 @@ async def backup_raw_files(request: BackupRequest):
         # Get sessions that need backing up
         from models import ImagingSession as SessionModel
         from s3_backup.models import S3BackupArchive
-        
-        query = session_db.query(SessionModel).order_by(SessionModel.session_date)
+
+        query = session_db.query(SessionModel).order_by(SessionModel.date)
         sessions = query.all()
-        
+
         # Filter to not-backed-up sessions
         sessions_to_backup = []
         for session in sessions:
             archive = session_db.query(S3BackupArchive).filter(
-                S3BackupArchive.session_id == session.session_id
+                S3BackupArchive.session_id == session.id
             ).first()
-            
+
             if not archive or request.force:
                 sessions_to_backup.append(session)
-                
+
                 if request.limit and len(sessions_to_backup) >= request.limit:
                     break
         
@@ -850,10 +850,10 @@ async def backup_raw_files(request: BackupRequest):
             for session in sessions_to_backup:
                 try:
                     from datetime import datetime
-                    year = datetime.strptime(session.session_date, '%Y-%m-%d').year
+                    year = datetime.strptime(session.date, '%Y-%m-%d').year
 
                     result = backup_manager.backup_session(
-                        session.session_id,
+                        session.id,
                         year,
                         cleanup_archives=True
                     )
@@ -909,9 +909,9 @@ async def backup_single_imaging_session(session_id: str, force: bool = Query(Fal
         session_db = db_service.db_manager.get_session()
         try:
             imaging_session = session_db.query(SessionModel).filter(
-                SessionModel.session_id == session_id
+                SessionModel.id == session_id
             ).first()
-            
+
             if not imaging_session:
                 raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
             

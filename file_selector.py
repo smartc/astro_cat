@@ -96,7 +96,7 @@ def find(ctx, object, session_id, camera, telescope, filter, frame_type, date, l
                     query = query.filter(FitsFile.object == object)
             
             if session_id:
-                query = query.filter(FitsFile.session_id.ilike(f"%{session_id}%"))
+                query = query.filter(FitsFile.imaging_session_id.ilike(f"%{session_id}%"))
             
             if camera:
                 query = query.filter(FitsFile.camera.ilike(f"%{camera}%"))
@@ -184,7 +184,7 @@ def by_object(ctx, object_name, date, session_id, include_calibration):
                 query = query.filter(FitsFile.obs_date == date)
             
             if session_id:
-                query = query.filter(FitsFile.session_id.ilike(f"%{session_id}%"))
+                query = query.filter(FitsFile.imaging_session_id.ilike(f"%{session_id}%"))
             
             query = query.order_by(FitsFile.obs_date.desc(), FitsFile.frame_type, FitsFile.filter)
             files = query.all()
@@ -196,7 +196,7 @@ def by_object(ctx, object_name, date, session_id, include_calibration):
             # Group by session and frame type
             sessions = {}
             for file_obj in files:
-                session_key = file_obj.session_id or "Unknown"
+                session_key = file_obj.imaging_session_id or "Unknown"
                 if session_key not in sessions:
                     sessions[session_key] = {'LIGHT': [], 'DARK': [], 'FLAT': [], 'BIAS': []}
                 
@@ -266,16 +266,16 @@ def recent_sessions(ctx, limit):
         try:
             # Get session summaries
             sessions = session.query(
-                FitsFile.session_id,
+                FitsFile.imaging_session_id,
                 FitsFile.obs_date,
                 FitsFile.camera,
                 FitsFile.telescope,
                 func.count(FitsFile.id).label('file_count'),
                 func.group_concat(func.distinct(FitsFile.object)).label('objects')
             ).filter(
-                FitsFile.session_id.isnot(None)
+                FitsFile.imaging_session_id.isnot(None)
             ).group_by(
-                FitsFile.session_id
+                FitsFile.imaging_session_id
             ).order_by(
                 FitsFile.obs_date.desc()
             ).limit(limit).all()
@@ -299,7 +299,7 @@ def recent_sessions(ctx, limit):
                     objects_str += f" (+{len(objects)-2} more)"
                 
                 rows.append([
-                    sess.session_id[:20] + "..." if len(sess.session_id) > 20 else sess.session_id,
+                    sess.imaging_session_id[:20] + "..." if len(sess.imaging_session_id) > 20 else sess.imaging_session_id,
                     sess.obs_date or "N/A",
                     sess.camera or "N/A",
                     sess.telescope or "N/A",

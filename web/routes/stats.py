@@ -11,7 +11,7 @@ from typing import Optional
 import pygal
 from pygal.style import Style
 
-from models import FitsFile, Session as ImagingSession, ProcessingSession, ProcessingSessionFile
+from models import FitsFile, ImagingSession, ProcessingSession, ProcessingSessionFile
 from web.dependencies import get_db_service, get_config
 from web import dashboard_cache
 
@@ -374,9 +374,9 @@ def calculate_new_sessions_stats(session, config):
 
     def get_stats_for_period(start_date):
         """Get stats for a specific time period based on observation date."""
-        # Count imaging sessions by session_date (observation date)
+        # Count imaging sessions by date (observation date)
         session_count = session.query(ImagingSession).filter(
-            ImagingSession.session_date >= start_date.strftime('%Y-%m-%d')
+            ImagingSession.date >= start_date.strftime('%Y-%m-%d')
         ).count()
 
         # Count frames by type based on observation date

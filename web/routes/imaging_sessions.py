@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
-from models import Session as SessionModel, FitsFile
+from models import ImagingSession as SessionModel, FitsFile
 from web.dependencies import get_db_session, get_config
 from web.utils import generate_imaging_session_default_content
 
@@ -33,13 +33,13 @@ async def get_imaging_sessions(
 ):
     """Get imaging sessions with pagination and filtering."""
     try:
-        query = session.query(SessionModel).order_by(desc(SessionModel.session_date))
+        query = session.query(SessionModel).order_by(desc(SessionModel.date))
         
         # Apply filters
         if date_start:
-            query = query.filter(SessionModel.session_date >= date_start)
+            query = query.filter(SessionModel.date >= date_start)
         if date_end:
-            query = query.filter(SessionModel.session_date <= date_end)
+            query = query.filter(SessionModel.date <= date_end)
         if cameras:
             camera_list = [c.strip() for c in cameras.split(',') if c.strip()]
             if camera_list:
@@ -56,10 +56,10 @@ async def get_imaging_sessions(
         # Get file counts for each session
         session_data = []
         for s in sessions:
-            file_count = session.query(FitsFile).filter(FitsFile.session_id == s.session_id).count()
+            file_count = session.query(FitsFile).filter(FitsFile.imaging_session_id == s.id).count()
             session_data.append({
-                "session_id": s.session_id,
-                "session_date": s.session_date,
+                "session_id": s.id,
+                "session_date": s.date,
                 "telescope": s.telescope,
                 "camera": s.camera,
                 "site_name": s.site_name,
@@ -92,7 +92,7 @@ async def get_imaging_session_details(
         
         # Get session metadata
         imaging_session = session.query(SessionModel).filter(
-            SessionModel.session_id == session_id
+            SessionModel.id == session_id
         ).first()
         
         if not imaging_session:
@@ -100,7 +100,7 @@ async def get_imaging_session_details(
         
         # Get all files for this session
         files = session.query(FitsFile).filter(
-            FitsFile.session_id == session_id
+            FitsFile.imaging_session_id == session_id
         ).all()
         
         logger.info(f"Found {len(files)} files for session {session_id}")
@@ -108,8 +108,8 @@ async def get_imaging_session_details(
         if not files:
             return {
                 "session": {
-                    "session_id": imaging_session.session_id,
-                    "session_date": imaging_session.session_date,
+                    "session_id": imaging_session.id,
+                    "session_date": imaging_session.date,
                     "telescope": imaging_session.telescope,
                     "camera": imaging_session.camera,
                     "site_name": imaging_session.site_name,
@@ -216,8 +216,8 @@ async def get_imaging_session_details(
         
         result = {
             "session": {
-                "session_id": imaging_session.session_id,
-                "session_date": imaging_session.session_date,
+                "session_id": imaging_session.id,
+                "session_date": imaging_session.date,
                 "telescope": imaging_session.telescope,
                 "camera": imaging_session.camera,
                 "site_name": imaging_session.site_name,
@@ -256,14 +256,14 @@ async def get_imaging_session_info(
     try:
         # Verify session exists in database
         imaging_session = session.query(SessionModel).filter(
-            SessionModel.session_id == session_id
+            SessionModel.id == session_id
         ).first()
-        
+
         if not imaging_session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
         # Use centralized Session_Notes folder from config
-        session_date = datetime.strptime(imaging_session.session_date, '%Y-%m-%d')
+        session_date = datetime.strptime(imaging_session.date, '%Y-%m-%d')
         year = session_date.year
         session_notes_dir = Path(config.paths.notes_dir) / "Imaging_Sessions" / str(year)
         session_notes_dir.mkdir(parents=True, exist_ok=True)
@@ -295,14 +295,14 @@ async def save_imaging_session_info(
     try:
         # Verify session exists
         imaging_session = session.query(SessionModel).filter(
-            SessionModel.session_id == session_id
+            SessionModel.id == session_id
         ).first()
-        
+
         if not imaging_session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
         # Use centralized Session_Notes folder from config
-        session_date = datetime.strptime(imaging_session.session_date, '%Y-%m-%d')
+        session_date = datetime.strptime(imaging_session.date, '%Y-%m-%d')
         year = session_date.year
         session_notes_dir = Path(config.paths.notes_dir) / "Imaging_Sessions" / str(year)
         session_notes_dir.mkdir(parents=True, exist_ok=True)
@@ -335,13 +335,13 @@ async def get_imaging_session_ids(
     Returns sessions in descending date order.
     """
     try:
-        query = session.query(SessionModel.session_id).order_by(desc(SessionModel.session_date))
+        query = session.query(SessionModel.id).order_by(desc(SessionModel.date))
         
         # Apply same filters as main list endpoint
         if date_start:
-            query = query.filter(SessionModel.session_date >= date_start)
+            query = query.filter(SessionModel.date >= date_start)
         if date_end:
-            query = query.filter(SessionModel.session_date <= date_end)
+            query = query.filter(SessionModel.date <= date_end)
         if cameras:
             camera_list = [c.strip() for c in cameras.split(',') if c.strip()]
             if camera_list:
@@ -391,7 +391,7 @@ async def get_processing_sessions_for_imaging_session(
         ).join(
             FitsFile, ProcessingSessionFile.fits_file_id == FitsFile.id
         ).filter(
-            FitsFile.session_id == session_id
+            FitsFile.imaging_session_id == session_id
         ).distinct()
         
         processing_sessions = processing_sessions_query.all()
@@ -408,7 +408,7 @@ async def get_processing_sessions_for_imaging_session(
                 func.count(FitsFile.id)
             ).join(ProcessingSessionFile, ProcessingSessionFile.fits_file_id == FitsFile.id).filter(
                 ProcessingSessionFile.processing_session_id == ps.id,
-                FitsFile.session_id == session_id  # Only count files from this imaging session
+                FitsFile.imaging_session_id == session_id  # Only count files from this imaging session
             ).group_by(FitsFile.frame_type).all()
             
             frame_counts = {'LIGHT': 0, 'DARK': 0, 'FLAT': 0, 'BIAS': 0}

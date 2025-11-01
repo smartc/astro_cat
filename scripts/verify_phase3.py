@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Quick verification script for Phase 3 migration.
+Quick verification script for Phase 4 migration.
 
 Checks:
 - Table structure is correct
 - Primary keys exist
 - Foreign keys work
-- Synonyms work (backward compatibility)
+- Synonyms are removed (breaking changes)
 - Data integrity (no orphans)
 - Row counts match expectations
 """
@@ -173,42 +173,63 @@ def check_synonyms(db_service):
         file = session.query(FitsFile).first()
 
         if file:
-            print("\n✓ FitsFile synonyms:")
+            print("\n✓ FitsFile attributes (Phase 4 - synonyms removed):")
 
-            # Test imaging_session_id / session_id
-            assert file.session_id == file.imaging_session_id, \
-                "session_id synonym doesn't match imaging_session_id"
-            print(f"  ✓ session_id → imaging_session_id: {file.imaging_session_id}")
-
-            # Test width_pixels / x
+            # Verify new attribute names work
+            print(f"  ✓ imaging_session_id: {file.imaging_session_id}")
             if file.width_pixels:
-                assert file.x == file.width_pixels, \
-                    "x synonym doesn't match width_pixels"
-                print(f"  ✓ x → width_pixels: {file.width_pixels}")
-
-            # Test height_pixels / y
+                print(f"  ✓ width_pixels: {file.width_pixels}")
             if file.height_pixels:
-                assert file.y == file.height_pixels, \
-                    "y synonym doesn't match height_pixels"
-                print(f"  ✓ y → height_pixels: {file.height_pixels}")
+                print(f"  ✓ height_pixels: {file.height_pixels}")
 
-        # Test ImagingSession synonyms
+            # Verify old synonyms are REMOVED
+            try:
+                _ = file.session_id
+                print("  ✗ FAIL: session_id synonym should be removed")
+                return False
+            except AttributeError:
+                print("  ✓ session_id synonym correctly removed")
+
+            try:
+                _ = file.x
+                print("  ✗ FAIL: x synonym should be removed")
+                return False
+            except AttributeError:
+                print("  ✓ x synonym correctly removed")
+
+            try:
+                _ = file.y
+                print("  ✗ FAIL: y synonym should be removed")
+                return False
+            except AttributeError:
+                print("  ✓ y synonym correctly removed")
+
+        # Test ImagingSession attributes
         img_session = session.query(ImagingSession).first()
 
         if img_session:
-            print("\n✓ ImagingSession synonyms:")
+            print("\n✓ ImagingSession attributes (Phase 4 - synonyms removed):")
 
-            # Test id / session_id
-            assert img_session.session_id == img_session.id, \
-                "session_id synonym doesn't match id"
-            print(f"  ✓ session_id → id: {img_session.id}")
+            # Verify new attribute names work
+            print(f"  ✓ id: {img_session.id}")
+            print(f"  ✓ date: {img_session.date}")
 
-            # Test date / session_date
-            assert img_session.session_date == img_session.date, \
-                "session_date synonym doesn't match date"
-            print(f"  ✓ session_date → date: {img_session.date}")
+            # Verify old synonyms are REMOVED
+            try:
+                _ = img_session.session_id
+                print("  ✗ FAIL: session_id synonym should be removed")
+                return False
+            except AttributeError:
+                print("  ✓ session_id synonym correctly removed")
 
-        print("\n✓ All synonyms work correctly")
+            try:
+                _ = img_session.session_date
+                print("  ✗ FAIL: session_date synonym should be removed")
+                return False
+            except AttributeError:
+                print("  ✓ session_date synonym correctly removed")
+
+        print("\n✓ All synonyms correctly removed (Phase 4 complete)")
 
     finally:
         session.close()
