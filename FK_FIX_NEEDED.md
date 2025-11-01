@@ -21,76 +21,103 @@ When `fits_files` was recreated, its `id` column lost the `PRIMARY KEY` constrai
 
 ## The Fix
 
-Run this script to recreate `processing_session_files` with correct foreign key constraints:
+Run this comprehensive fix script:
 
 ```bash
-python scripts/fix_foreign_keys.py
+python scripts/fix_foreign_keys_comprehensive.py
 ```
 
 This script will:
-1. Check current foreign key definitions
+1. Check current table structure and identify the issue
 2. Create a backup of your database
-3. Recreate `processing_session_files` with proper foreign keys
-4. Verify the fix worked
-5. Show test results
+3. Recreate `fits_files` with proper PRIMARY KEY on id column
+4. Recreate `processing_session_files` with correct foreign keys
+5. Verify the fix worked with test queries
+6. Show detailed results
 
 ## Expected Output
 
 ```
 ============================================================
-FOREIGN KEY CONSTRAINT FIX
+COMPREHENSIVE FOREIGN KEY FIX
 ============================================================
 
 Database: /home/user/Astro/fits_catalog.db
 
-Creating backup: /home/user/Astro/fits_catalog_backup_fk_fix.db
+Creating backup: /home/user/Astro/fits_catalog_backup_fk_comprehensive.db
 ✓ Backup created
 
 ============================================================
-Checking Foreign Key Constraints
+Checking Current Database State
 ============================================================
 
-Current foreign keys on processing_session_files:
-  ID: 0, Seq: 0, Table: processing_sessions, From: processing_session_id, To: id
-  ID: 1, Seq: 0, Table: fits_files, From: fits_file_id, To: id
+fits_files columns:
+  id: Type=INTEGER, PK=0
+  ⚠ WARNING: 'id' is NOT a PRIMARY KEY!
 
-fits_files primary key:
-  Column: id, Type: INTEGER, PK: 0
-
-⚠ NOTE: fits_files.id is NOT marked as PRIMARY KEY (PK: 0)!
+fits_files rows: 25285
+processing_session_files rows: 1737
 
 ============================================================
-Recreating processing_session_files Table
+Step 1: Recreating fits_files with PRIMARY KEY
+============================================================
+
+Found 70+ columns in fits_files
+Creating fits_files_new with proper schema...
+Copying data...
+✓ Copied 25285 rows
+Getting indexes to recreate...
+Swapping tables...
+Recreating indexes...
+  ✓ idx_fits_imaging_session
+  ✓ idx_fits_frame_type
+  ✓ idx_fits_object
+  ✓ idx_fits_telescope_camera
+✓ fits_files recreated with proper PRIMARY KEY
+
+============================================================
+Step 2: Recreating processing_session_files
 ============================================================
 
 Current rows: 1737
 
 Creating processing_session_files_new...
 Copying data...
-Copied 1737 rows
-Replacing old table...
+✓ Copied 1737 rows
+Swapping tables...
 Creating indexes...
-✓ Table recreated successfully
+✓ processing_session_files recreated with proper foreign keys
 
 ============================================================
-Verifying Fix
+Step 3: Verifying Fix
 ============================================================
 
-New foreign keys on processing_session_files:
-  ID: 0, Seq: 0, Table: processing_sessions, From: processing_session_id, To: id
-  ID: 1, Seq: 0, Table: fits_files, From: fits_file_id, To: id
+fits_files.id:
+  ✓ Type=INTEGER, PRIMARY KEY
 
-Final row count: 1737
+processing_session_files foreign keys:
+  ✓ fits_file_id → fits_files.id
+  ✓ processing_session_id → processing_sessions.id
 
 Testing foreign key constraints...
-  Rows with valid fits_file_id: 1737
-  Rows with valid processing_session_id: 1737
+  ✓ Rows with valid fits_file_id: 1737
+  ✓ Rows with valid processing_session_id: 1737
 
-✓ Foreign keys verified
+Testing foreign key enforcement...
+  ✓ Foreign key constraints are enforced
+
+✓ All verifications passed
 
 ============================================================
-✓ FOREIGN KEY FIX COMPLETE
+✓ COMPREHENSIVE FIX COMPLETE
 ============================================================
+
+Summary:
+  - Recreated fits_files with PRIMARY KEY on id
+  - Recreated processing_session_files with proper foreign keys
+  - Preserved all 25285 FITS files
+  - Preserved all 1737 processing session files
+  - Foreign key constraints now enforced
 
 Next steps:
 1. Restart your web server
