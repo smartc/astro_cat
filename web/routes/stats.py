@@ -141,13 +141,17 @@ def generate_integration_time_chart(data_dict: dict, title: str, max_value: floa
     )
     chart.title = title
 
-    # Add data with custom tooltip format
+    # Prepare all data points for a single series
     chart.x_labels = [item[0] for item in sorted_items]
+    values = []
     for label, time_data in sorted_items:
         seconds = time_data['total_seconds']
         formatted = format_time_for_display(seconds)
-        # Use add with single value and custom formatter
-        chart.add(label, [{'value': seconds / 3600, 'label': formatted}])
+        # Add value with custom tooltip showing category and formatted time
+        values.append({'value': seconds / 3600, 'label': f"{label}: {formatted}"})
+
+    # Add all bars as a single series
+    chart.add('Integration Time', values)
 
     return chart.render(is_unicode=True)
 
@@ -179,11 +183,16 @@ def generate_object_count_chart(data_dict: dict, title: str, max_value: int = No
     )
     chart.title = title
 
-    # Add data with custom tooltip format
+    # Prepare all data points for a single series
     chart.x_labels = [item[0] for item in sorted_items]
+    values = []
     for label, count in sorted_items:
         plural = "objects" if count != 1 else "object"
-        chart.add(label, [{'value': count, 'label': f"{count} {plural}"}])
+        # Add value with custom tooltip showing category and count
+        values.append({'value': count, 'label': f"{label}: {count} {plural}"})
+
+    # Add all bars as a single series
+    chart.add('Object Count', values)
 
     return chart.render(is_unicode=True)
 
