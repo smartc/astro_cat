@@ -367,10 +367,10 @@ class ProcessingSessionManager:
             
             light_sessions = set()
             light_dates = set()
-            
+
             for f in light_files:
-                if f.session_id:
-                    light_sessions.add(f.session_id)
+                if f.imaging_session_id:
+                    light_sessions.add(f.imaging_session_id)
                 if f.obs_date:
                     light_dates.add(f.obs_date)
                     
@@ -497,7 +497,7 @@ class ProcessingSessionManager:
         by_session = defaultdict(list)
         for f in calibration_files:
             if f.obs_date:
-                sid = f.session_id or 'UNKNOWN'
+                sid = f.imaging_session_id or 'UNKNOWN'
                 by_session[sid].append(f)
         
         closest_match = None
@@ -573,7 +573,7 @@ class ProcessingSessionManager:
                 matched_files, days_diff = result
                 
                 # Get the session ID and date from the matched files
-                sid = matched_files[0].session_id or 'UNKNOWN'
+                sid = matched_files[0].imaging_session_id or 'UNKNOWN'
                 obs_date = matched_files[0].obs_date if matched_files[0].obs_date else 'Unknown'
                 
                 matches.append(CalibrationMatch(
@@ -660,7 +660,7 @@ class ProcessingSessionManager:
                 # If we found a match at any tier, add it
                 if matched_files:
                     # Get the session ID and date from the matched files
-                    sid = matched_files[0].session_id or 'UNKNOWN'
+                    sid = matched_files[0].imaging_session_id or 'UNKNOWN'
                     obs_date = matched_files[0].obs_date if matched_files[0].obs_date else 'Unknown'
                     
                     matches.append(CalibrationMatch(
@@ -716,7 +716,7 @@ class ProcessingSessionManager:
                 matched_files, days_diff = result
                 
                 # Get the session ID and date from the matched files
-                sid = matched_files[0].session_id or 'UNKNOWN'
+                sid = matched_files[0].imaging_session_id or 'UNKNOWN'
                 obs_date = matched_files[0].obs_date if matched_files[0].obs_date else 'Unknown'
                 
                 matches.append(CalibrationMatch(
@@ -773,7 +773,7 @@ class ProcessingSessionManager:
     def _generate_staged_filename(self, file_obj: FitsFile, original_filename: str) -> str:
         """Generate a prefixed filename using capture session ID."""
         # Use capture session ID as prefix instead of hash
-        session_prefix = file_obj.session_id or "UNKNOWN"
+        session_prefix = file_obj.imaging_session_id or "UNKNOWN"
         
         # Clean session ID for filesystem use
         session_prefix = "".join(c for c in session_prefix if c.isalnum() or c in ('_', '-'))
@@ -986,7 +986,7 @@ _No processing steps completed yet_
         calibration_data = defaultdict(int)
         
         for f in cal_files:
-            imaging_session = f.session_id if f.session_id else 'UNKNOWN'
+            imaging_session = f.imaging_session_id if f.imaging_session_id else 'UNKNOWN'
             date = f.obs_date if f.obs_date else 'Unknown'
             frame_type = f.frame_type
             filter_name = f.filter if f.filter and f.filter not in ['UNKNOWN', 'NONE'] else '-'
@@ -1050,7 +1050,7 @@ _No processing steps completed yet_
         acquisition_data = defaultdict(int)
         
         for f in light_files:
-            imaging_session = f.session_id if f.session_id else 'UNKNOWN'
+            imaging_session = f.imaging_session_id if f.imaging_session_id else 'UNKNOWN'
             date = f.obs_date if f.obs_date else 'Unknown'
             filter_name = f.filter if f.filter and f.filter not in ['UNKNOWN', 'NONE'] else 'No Filter'
             exposure = int(f.exposure) if f.exposure else 0
