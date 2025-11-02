@@ -12,7 +12,7 @@ from datetime import datetime
 import click
 from tqdm import tqdm
 
-from models import DatabaseService, FitsFile
+from models import DatabaseService, FitsFile, ImagingSession
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -179,6 +179,34 @@ class FileOrganizer:
             logger.error(f"Error calculating MD5 for {filepath}: {e}")
             return ""
     
+    def _cleanup_orphaned_sessions(self, db_session):
+        """Delete imaging sessions that have no associated files."""
+        try:
+            # Find all sessions with zero files
+            all_sessions = db_session.query(ImagingSession).all()
+            orphaned_sessions = []
+
+            for imaging_session in all_sessions:
+                file_count = db_session.query(FitsFile).filter(
+                    FitsFile.imaging_session_id == imaging_session.id
+                ).count()
+
+                if file_count == 0:
+                    orphaned_sessions.append(imaging_session)
+
+            # Delete orphaned sessions
+            for imaging_session in orphaned_sessions:
+                logger.info(f"Deleting orphaned imaging session: {imaging_session.id}")
+                db_session.delete(imaging_session)
+
+            if orphaned_sessions:
+                db_session.commit()
+                logger.info(f"Deleted {len(orphaned_sessions)} orphaned imaging sessions")
+
+        except Exception as e:
+            logger.error(f"Error cleaning up orphaned sessions: {e}")
+            db_session.rollback()
+
     def _delete_duplicates_folder(self):
         """Delete the duplicates folder and all its contents, and remove database records."""
         duplicates_folder = Path(self.config.paths.quarantine_dir) / "Duplicates"
@@ -201,6 +229,10 @@ class FileOrganizer:
                         logger.debug(f"Deleted database record for duplicate: {dup_file.name}")
 
                 session.commit()
+
+                # Clean up any imaging sessions that no longer have files
+                self._cleanup_orphaned_sessions(session)
+
             except Exception as e:
                 logger.error(f"Error deleting duplicate database records: {e}")
                 session.rollback()
@@ -233,6 +265,10 @@ class FileOrganizer:
                         logger.debug(f"Deleted database record for bad file: {bad_file.name}")
 
                 session.commit()
+
+                # Clean up any imaging sessions that no longer have files
+                self._cleanup_orphaned_sessions(session)
+
             except Exception as e:
                 logger.error(f"Error deleting bad file database records: {e}")
                 session.rollback()
