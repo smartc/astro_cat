@@ -1137,6 +1137,21 @@ _No processing steps completed yet_
             # Format objects list
             objects_str = ', '.join(objects) if objects else 'No objects specified'
 
+            # Default folder structure (to avoid backslash issues in f-strings)
+            default_folder_structure = f'''```
+{ps.id}/
+├── raw/
+│   ├── lights/           # Light frames (symbolic links)
+│   └── calibration/      # Calibration frames (symbolic links)
+│       ├── darks/
+│       ├── flats/
+│       └── bias/
+├── intermediate/         # Intermediate processing files
+└── final/               # Final processed images
+    ├── drafts/          # Draft versions
+    └── published/       # Published versions
+```'''
+
             # Reconstruct file with updated sections and preserved custom content
             content = f"""# Processing Session: {ps.name}
 
@@ -1172,19 +1187,7 @@ _No processing steps completed yet_
 {preserved_sections.get('External References', '- **AstroBin URL:** _TBD_\n- **Social Media:** _TBD_')}
 
 ## Folder Structure
-{preserved_sections.get('Folder Structure', f'''```
-{ps.id}/
-├── raw/
-│   ├── lights/           # Light frames (symbolic links)
-│   └── calibration/      # Calibration frames (symbolic links)
-│       ├── darks/
-│       ├── flats/
-│       └── bias/
-├── intermediate/         # Intermediate processing files
-└── final/               # Final processed images
-    ├── drafts/          # Draft versions
-    └── published/       # Published versions
-```''')}
+{preserved_sections.get('Folder Structure', default_folder_structure)}
 
 ## Processing History
 {preserved_sections.get('Processing History', '_No processing steps completed yet_')}
