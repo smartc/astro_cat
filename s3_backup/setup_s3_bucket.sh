@@ -735,7 +735,8 @@ validate_setup() {
 generate_s3_config() {
     print_header "Step 8: Generating Configuration File"
 
-    local config_file="${SCRIPT_DIR}/s3_config.json"
+    # Generate in parent directory (main project folder)
+    local config_file="${SCRIPT_DIR}/../s3_config.json"
 
     # Check if config already exists
     if [[ -f "$config_file" ]]; then
@@ -749,7 +750,7 @@ generate_s3_config() {
         fi
     fi
 
-    print_info "Creating s3_config.json with your bucket details..."
+    print_info "Creating s3_config.json in main project directory..."
 
     # Generate the config file
     cat > "$config_file" << EOF
@@ -877,6 +878,8 @@ EOF
 print_next_steps() {
     print_header "Setup Complete!"
 
+    local project_dir="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
     echo -e "${GREEN}Your S3 bucket is ready for use with the s3_backup module!${NC}"
     echo ""
     echo -e "${CYAN}What was configured:${NC}"
@@ -886,12 +889,12 @@ print_next_steps() {
     if [[ "$ENABLE_VERSIONING" == "true" ]]; then
         echo "  ✓ Versioning: Enabled"
     fi
-    echo "  ✓ Configuration file: s3_config.json created"
+    echo "  ✓ Configuration file: $project_dir/s3_config.json"
     echo ""
     echo -e "${CYAN}Next steps:${NC}"
     echo ""
     echo "1. (Optional) Customize s3_config.json:"
-    echo "   $ cd $SCRIPT_DIR"
+    echo "   $ cd $project_dir"
     echo "   $ nano s3_config.json"
     echo ""
     echo "   The file has been pre-configured with your bucket details."
