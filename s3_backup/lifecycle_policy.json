@@ -1,5 +1,4 @@
 {
-  "TransitionDefaultMinimumObjectSize": "all_storage_classes_128K",
   "Rules": [
     {
       "ID": "Archive - Fast/Deep",

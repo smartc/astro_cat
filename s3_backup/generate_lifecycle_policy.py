@@ -21,8 +21,7 @@ def generate_lifecycle_policy(
     processed_version_expire_days: int = 1,
     database_version_expire_days: int = 90,
     database_keep_versions: int = 5,
-    multipart_abort_days: int = 3,
-    min_object_size: str = "all_storage_classes_128K"
+    multipart_abort_days: int = 3
 ) -> dict:
     """
     Generate a lifecycle policy configuration.
@@ -37,14 +36,17 @@ def generate_lifecycle_policy(
         database_version_expire_days: Days to keep old versions of DATABASE files
         database_keep_versions: Number of newest DATABASE versions to always keep
         multipart_abort_days: Days before aborting incomplete multipart uploads
-        min_object_size: Minimum object size for transitions (e.g., "all_storage_classes_128K")
 
     Returns:
         Dictionary representing the lifecycle policy
+
+    Note:
+        The minimum object size for transitions (128KB default) should be configured
+        separately via AWS Console or the S3 API, as it's not part of the lifecycle
+        configuration JSON.
     """
 
     policy = {
-        "TransitionDefaultMinimumObjectSize": min_object_size,
         "Rules": []
     }
 
@@ -294,12 +296,6 @@ def main():
         help="Days before aborting incomplete multipart uploads"
     )
     parser.add_argument(
-        "--min-object-size",
-        type=str,
-        default="all_storage_classes_128K",
-        help="Minimum object size for transitions"
-    )
-    parser.add_argument(
         "-o", "--output",
         type=Path,
         default=Path(__file__).parent / "lifecycle_policy.json",
@@ -327,7 +323,8 @@ def main():
         print(f"  DATABASE files:          {args.database_version_expire_days} days (keep {args.database_keep_versions} newest)")
         print()
         print(f"Multipart upload cleanup:  {args.multipart_abort_days} days")
-        print(f"Minimum object size:       {args.min_object_size}")
+        print()
+        print("Note: Set minimum object size (128KB recommended) via AWS Console")
         print("=" * 60)
         return
 
@@ -341,8 +338,7 @@ def main():
         processed_version_expire_days=args.processed_version_expire_days,
         database_version_expire_days=args.database_version_expire_days,
         database_keep_versions=args.database_keep_versions,
-        multipart_abort_days=args.multipart_abort_days,
-        min_object_size=args.min_object_size
+        multipart_abort_days=args.multipart_abort_days
     )
 
     # Write to file

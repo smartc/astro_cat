@@ -93,9 +93,16 @@ If bucket versioning is enabled, the policy manages old file versions:
 - **Action**: Remove automatically
 - **Reason**: Clean up artifacts from deleted versioned objects
 
-### Minimum Object Size
-- **Setting**: 128KB minimum for transitions
+### Minimum Object Size (Optional)
+- **Setting**: 128KB minimum for transitions (recommended)
 - **Reason**: Tiny files cost more to manage than to store in STANDARD
+- **Configuration**: Set via AWS Console or S3 API (not part of lifecycle policy JSON)
+- **Note**: This is an optional bucket-level setting, separate from the lifecycle policy
+
+To set via AWS Console:
+1. Go to your S3 bucket → Management → Lifecycle
+2. Edit the lifecycle configuration
+3. Set "Transition minimum object size" to 128 KB
 
 ## Cost Comparison
 

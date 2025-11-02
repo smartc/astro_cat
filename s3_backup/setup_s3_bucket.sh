@@ -427,7 +427,6 @@ get_bucket_configuration() {
     echo -e "${CYAN}Other cleanup:${NC}"
     echo -e "  ${GREEN}•${NC} Abort incomplete multipart uploads after 3 days"
     echo -e "  ${GREEN}•${NC} Remove expired delete markers (cleanup deleted files)"
-    echo -e "  ${GREEN}•${NC} Minimum object size: 128KB (don't archive tiny files)"
     echo ""
     echo -e "${YELLOW}Cost savings:${NC} DEEP_ARCHIVE storage costs ~90% less than STANDARD"
     echo -e "                (~\$0.00099/GB/month vs ~\$0.023/GB/month)"
