@@ -77,30 +77,35 @@ def _run_scan_sync(task_id: str):
         df, sessions = processor.scan_quarantine()
         
         logger.info(f"Scan complete: found {len(df)} files, {len(sessions)} sessions")
-        
+
         if len(df) > 0:
-            # Save to database
+            # Add sessions to database FIRST (before files that reference them)
+            for session_data in sessions:
+                db_service.add_imaging_session(session_data)
+
+            logger.info(f"Saved {len(sessions)} sessions")
+
+            # Now add files to database (after sessions exist)
             new_files = 0
             duplicates = 0
-            
+
             for idx, row in enumerate(df.iter_rows(named=True)):
                 success, is_duplicate = db_service.add_fits_file(row)
                 if success and not is_duplicate:
                     new_files += 1
                 elif is_duplicate:
                     duplicates += 1
-                
+
                 # Update progress
                 progress = int((idx + 1) / len(df) * 100)
                 bg_tasks.set_task_status(task_id, "running", f"Processing files... ({idx + 1}/{len(df)})", progress)
-            
+
             logger.info(f"Saved to database: {new_files} new files, {duplicates} duplicates")
-            
-            # Save sessions
-            for session_data in sessions:
-                db_service.add_imaging_session(session_data)
-            
-            logger.info(f"Saved {len(sessions)} sessions")
+
+            # Clean up any orphaned imaging sessions (sessions with no files)
+            orphaned_count = db_service.cleanup_orphaned_imaging_sessions()
+            if orphaned_count > 0:
+                logger.info(f"Cleaned up {orphaned_count} orphaned imaging sessions")
 
             results = {
                 'added': new_files,
