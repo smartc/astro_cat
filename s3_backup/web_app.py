@@ -156,24 +156,26 @@ async def _get_storage_categories_internal(session_db):
 
         total_local_size = 0
         backed_up_size = 0
-        local_not_backed_count = 0
+        sessions_with_local_files = set()
 
         for f in all_fits:
             file_path = Path(f.folder) / f.file
             if file_path.exists():
                 size = file_path.stat().st_size
                 total_local_size += size
+                sessions_with_local_files.add(f.imaging_session_id)
                 if f.imaging_session_id in backed_up_sessions:
                     backed_up_size += size
-                else:
-                    local_not_backed_count += 1
-        
+
+        # Count sessions not backed up (not individual files)
+        local_not_backed_count = len(sessions_with_local_files - backed_up_sessions)
+
         raw_path = backup_manager.s3_config.config['s3_paths']['raw_archives']
         s3_files_raw, s3_size_raw = get_s3_stats(raw_path)
-        
+
         annual_cost, is_fallback = calculate_s3_cost(s3_size_raw, "DEEP_ARCHIVE")
         using_fallback_pricing = using_fallback_pricing or is_fallback
-        
+
         categories.append({
             "name": "Imaging Sessions",
             "local_files": len(all_fits),
@@ -879,7 +881,7 @@ backup_tasks = {}
 # Structure: {session_id: {"status": "running"|"complete"|"error", "started_at": datetime, ...}}
 backup_tasks_by_session = {}
 
-async def run_backup_task(task_id: str, session_id: str, backup_func, *args, **kwargs):
+async def run_backup_task(task_id: str, session_id: str, backup_func, *args, category: str = None, **kwargs):
     """Run a backup task in the background."""
     try:
         # Track by both task_id and session_id
@@ -888,7 +890,8 @@ async def run_backup_task(task_id: str, session_id: str, backup_func, *args, **k
             "progress": 0,
             "started_at": datetime.now(),
             "task_id": task_id,
-            "session_id": session_id
+            "session_id": session_id,
+            "category": category
         }
         backup_tasks[task_id] = task_info
         backup_tasks_by_session[session_id] = task_info
@@ -900,7 +903,8 @@ async def run_backup_task(task_id: str, session_id: str, backup_func, *args, **k
             "result": result,
             "completed_at": datetime.now(),
             "task_id": task_id,
-            "session_id": session_id
+            "session_id": session_id,
+            "category": category
         }
         backup_tasks[task_id] = task_info
         backup_tasks_by_session[session_id] = task_info
@@ -911,7 +915,8 @@ async def run_backup_task(task_id: str, session_id: str, backup_func, *args, **k
             "error": str(e),
             "completed_at": datetime.now(),
             "task_id": task_id,
-            "session_id": session_id
+            "session_id": session_id,
+            "category": category
         }
         backup_tasks[task_id] = task_info
         backup_tasks_by_session[session_id] = task_info
@@ -966,13 +971,10 @@ async def backup_raw_files(request: BackupRequest):
 
             for session in sessions_to_backup:
                 try:
-                    from datetime import datetime
-                    year = datetime.strptime(session.date, '%Y-%m-%d').year
-
                     result = backup_manager.backup_session(
                         session.id,
-                        year,
-                        cleanup_archives=True
+                        skip_existing=False,
+                        cleanup_archive=True
                     )
 
                     if result.success:
@@ -981,13 +983,13 @@ async def backup_raw_files(request: BackupRequest):
                         stats["failed"] += 1
 
                 except Exception as e:
-                    logger.error(f"Failed to backup session {session.session_id}: {e}")
+                    logger.error(f"Failed to backup session {session.id}: {e}")
                     stats["failed"] += 1
 
             return stats
 
-        asyncio.create_task(run_backup_task(task_id, task_id, do_backup))
-        
+        asyncio.create_task(run_backup_task(task_id, task_id, do_backup, category="Imaging Sessions"))
+
         return BackupResponse(
             success=True,
             message=f"Started backup of {len(sessions_to_backup)} sessions",
@@ -1192,7 +1194,7 @@ async def backup_session_notes(request: BackupRequest):
                 session_db.close()
 
         task_id = f"notes_backup_{asyncio.current_task().get_name()}"
-        asyncio.create_task(run_backup_task(task_id, task_id, do_backup))
+        asyncio.create_task(run_backup_task(task_id, task_id, do_backup, category="Imaging Session Notes"))
 
         return BackupResponse(
             success=True,
@@ -1301,7 +1303,7 @@ async def backup_processing_notes(request: BackupRequest):
                 session_db.close()
 
         task_id = f"proc_notes_backup_{asyncio.current_task().get_name()}"
-        asyncio.create_task(run_backup_task(task_id, task_id, do_backup))
+        asyncio.create_task(run_backup_task(task_id, task_id, do_backup, category="Processing Session Notes"))
 
         return BackupResponse(
             success=True,
@@ -1363,7 +1365,7 @@ async def backup_processed_intermediate(request: BackupRequest):
             return stats
 
         task_id = f"intermediate_backup_{asyncio.current_task().get_name()}"
-        asyncio.create_task(run_backup_task(task_id, task_id, do_backup))
+        asyncio.create_task(run_backup_task(task_id, task_id, do_backup, category="Processing Sessions - Intermediate"))
 
         return BackupResponse(
             success=True,
@@ -1422,7 +1424,7 @@ async def backup_processed_final(request: BackupRequest):
             return stats
 
         task_id = f"final_backup_{asyncio.current_task().get_name()}"
-        asyncio.create_task(run_backup_task(task_id, task_id, do_backup))
+        asyncio.create_task(run_backup_task(task_id, task_id, do_backup, category="Processing Sessions - Final"))
 
         return BackupResponse(
             success=True,
@@ -1506,8 +1508,19 @@ async def get_backup_task_status(task_id: str):
     """Get the status of a backup task."""
     if task_id not in backup_tasks:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     return backup_tasks[task_id]
+
+
+@app.get("/api/backup/tasks/active")
+async def get_active_backup_tasks():
+    """Get all active backup tasks."""
+    active_tasks = {
+        task_id: task_info
+        for task_id, task_info in backup_tasks.items()
+        if task_info.get('status') == 'running'
+    }
+    return {"active_tasks": active_tasks}
 
 
 def calculate_s3_cost(bytes_size, storage_class):
