@@ -154,26 +154,33 @@ async def _get_storage_categories_internal(session_db):
         all_fits = session_db.query(FitsFile).all()
         backed_up_sessions = {a.session_id for a in session_db.query(S3BackupArchive).all()}
 
+        logger.debug(f"Backed up sessions from S3BackupArchive: {backed_up_sessions}")
+
         total_local_size = 0
         backed_up_size = 0
-        local_not_backed_count = 0
+        sessions_with_local_files = set()
 
         for f in all_fits:
             file_path = Path(f.folder) / f.file
             if file_path.exists():
                 size = file_path.stat().st_size
                 total_local_size += size
+                sessions_with_local_files.add(f.imaging_session_id)
                 if f.imaging_session_id in backed_up_sessions:
                     backed_up_size += size
-                else:
-                    local_not_backed_count += 1
-        
+
+        logger.debug(f"Sessions with local files: {sessions_with_local_files}")
+        logger.debug(f"Total local size: {total_local_size}, Backed up size: {backed_up_size}")
+
+        # Count sessions not backed up (not individual files)
+        local_not_backed_count = len(sessions_with_local_files - backed_up_sessions)
+
         raw_path = backup_manager.s3_config.config['s3_paths']['raw_archives']
         s3_files_raw, s3_size_raw = get_s3_stats(raw_path)
-        
+
         annual_cost, is_fallback = calculate_s3_cost(s3_size_raw, "DEEP_ARCHIVE")
         using_fallback_pricing = using_fallback_pricing or is_fallback
-        
+
         categories.append({
             "name": "Imaging Sessions",
             "local_files": len(all_fits),
