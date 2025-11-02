@@ -66,7 +66,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             file_organizer = FileOrganizer(config, db_service)
 
             if dry_run:

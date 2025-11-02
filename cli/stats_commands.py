@@ -48,7 +48,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             stats = db_service.get_database_stats()
 
             click.echo()
@@ -119,7 +119,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             db_session = db_service.db_manager.get_session()
 
             # Get all processed files
@@ -199,7 +199,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             db_session = db_service.db_manager.get_session()
 
             # Raw files backup status
@@ -261,7 +261,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             db_session = db_service.db_manager.get_session()
 
             # Raw files by frame type

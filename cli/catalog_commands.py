@@ -85,7 +85,7 @@ def _catalog_raw_files(config, cameras, telescopes, filter_mappings, verbose):
     """
     click.echo("Cataloging raw FITS files from quarantine...")
 
-    db_service = get_db_service(config)
+    db_service = get_db_service(config, cameras, telescopes, filter_mappings)
 
     # Scan for files
     file_monitor = FileMonitor(config, lambda x: None)

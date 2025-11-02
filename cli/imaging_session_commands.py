@@ -41,7 +41,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             db_session = db_service.db_manager.get_session()
 
             session = db_session.query(ImagingSession).filter(
@@ -92,7 +92,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             db_session = db_service.db_manager.get_session()
 
             session = db_session.query(ImagingSession).filter(

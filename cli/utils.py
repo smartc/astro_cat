@@ -9,6 +9,7 @@ import click
 
 from config import load_config, Config
 from models import DatabaseService, DatabaseManager
+from equipment_manager import Camera as EquipCamera, Telescope as EquipTelescope
 
 
 def load_app_config(config_path: str) -> Tuple[Config, List, List, Dict[str, str]]:
@@ -26,17 +27,73 @@ def load_app_config(config_path: str) -> Tuple[Config, List, List, Dict[str, str
     return load_config(config_path)
 
 
-def get_db_service(config: Config) -> DatabaseService:
+def convert_equipment_for_db(cameras: List[EquipCamera], telescopes: List[EquipTelescope],
+                             filter_mappings: Dict[str, str]) -> Tuple[List[dict], List[dict], Dict[str, str]]:
+    """Convert equipment data from EquipmentManager format to database format.
+
+    Args:
+        cameras: List of Camera objects from EquipmentManager
+        telescopes: List of Telescope objects from EquipmentManager
+        filter_mappings: Dict of raw_name -> proper_name
+
+    Returns:
+        Tuple of (cameras_dict, telescopes_dict, filter_mappings) ready for database
+    """
+    # Convert cameras
+    cameras_dict = []
+    for cam in cameras:
+        cam_dict = {
+            'name': cam.camera,
+            'x_pixels': cam.x,
+            'y_pixels': cam.y,
+            'pixel_size': cam.pixel,
+            'notes': cam.comments
+        }
+        cameras_dict.append(cam_dict)
+
+    # Convert telescopes
+    telescopes_dict = []
+    for tel in telescopes:
+        tel_dict = {
+            'name': tel.scope,
+            'focal_length': float(tel.focal),
+            'aperture': tel.aperture,
+            'telescope_type': tel.type,
+            'notes': tel.comments
+        }
+        telescopes_dict.append(tel_dict)
+
+    # Filter mappings just need proper_name -> standard_name (same thing)
+    filter_mappings_dict = {raw: proper for raw, proper in filter_mappings.items()}
+
+    return cameras_dict, telescopes_dict, filter_mappings_dict
+
+
+def get_db_service(config: Config, cameras: List = None, telescopes: List = None,
+                   filter_mappings: Dict[str, str] = None) -> DatabaseService:
     """Get database service instance.
 
     Args:
         config: Application configuration
+        cameras: Optional list of cameras to initialize
+        telescopes: Optional list of telescopes to initialize
+        filter_mappings: Optional filter mappings to initialize
 
     Returns:
         DatabaseService instance
     """
     db_manager = DatabaseManager(config.database.connection_string)
-    return DatabaseService(db_manager)
+    db_manager.create_tables()  # Ensure tables exist (no-op if already created)
+    db_service = DatabaseService(db_manager)
+
+    # Initialize equipment if provided
+    if cameras is not None and telescopes is not None and filter_mappings is not None:
+        cameras_dict, telescopes_dict, filter_mappings_dict = convert_equipment_for_db(
+            cameras, telescopes, filter_mappings
+        )
+        db_service.initialize_equipment(cameras_dict, telescopes_dict, filter_mappings_dict)
+
+    return db_service
 
 
 def setup_logging_from_context(ctx: click.Context):

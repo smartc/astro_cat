@@ -62,7 +62,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             db_session = db_service.db_manager.get_session()
 
             # Build query
@@ -145,7 +145,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             db_session = db_service.db_manager.get_session()
 
             # Build query
@@ -223,7 +223,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             sessions = db_service.get_imaging_sessions()
 
             if camera:
@@ -282,7 +282,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             db_session = db_service.db_manager.get_session()
 
             # Build query

@@ -67,7 +67,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
             if dry_run:
@@ -120,7 +120,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
             if dry_run:
@@ -154,7 +154,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
             session_info = processing_manager.get_processing_session_info(session_id)
@@ -216,7 +216,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
             processing_manager.update_session_status(session_id, status, notes)
@@ -245,7 +245,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
             processing_manager.update_session_notes(session_id, notes)
@@ -271,7 +271,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
             session_info = processing_manager.get_processing_session_info(session_id)
@@ -331,7 +331,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
             if not force:
@@ -368,7 +368,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
             processing_manager.update_session_status(session_id, 'complete', 'Archived')
