@@ -157,9 +157,9 @@ class OptimizedFitsProcessor:
                         if metadata:
                             # Extract session data
                             session_data = metadata.pop('_session_data', None)
-                            if session_data and session_data['session_id'] != 'UNKNOWN':
-                                sessions[session_data['session_id']] = session_data
-                            
+                            if session_data and session_data['id'] != 'UNKNOWN':
+                                sessions[session_data['id']] = session_data
+
                             results.append(metadata)
                         else:
                             failed_files.append(filepath)
@@ -239,9 +239,9 @@ class OptimizedFitsProcessor:
                         if metadata:
                             # Extract session data
                             session_data = metadata.pop('_session_data', None)
-                            if session_data and session_data['session_id'] != 'UNKNOWN':
-                                sessions[session_data['session_id']] = session_data
-                            
+                            if session_data and session_data['id'] != 'UNKNOWN':
+                                sessions[session_data['id']] = session_data
+
                             results.append(metadata)
                         else:
                             failed_files.append(filepath)

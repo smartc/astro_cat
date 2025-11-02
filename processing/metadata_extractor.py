@@ -354,8 +354,8 @@ def extract_fits_metadata_simple(filepath: str, header,
 
     # Store session data
     metadata['_session_data'] = {
-        'session_id': session_id,
-        'session_date': obs_date,
+        'id': session_id,
+        'date': obs_date,
         'telescope': telescope_name,
         'camera': camera_name,
         'site_name': site_name,

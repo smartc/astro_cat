@@ -120,11 +120,11 @@ def _catalog_raw_files(config, cameras, telescopes, filter_mappings, verbose):
         click.echo(f"Processing {len(session_data)} imaging sessions...")
         for session in session_data:
             try:
-                db_service.add_session(session)
+                db_service.add_imaging_session(session)
                 session_added_count += 1
             except Exception as e:
                 if verbose:
-                    click.echo(f"Error adding session {session['session_id']}: {e}")
+                    click.echo(f"Error adding session {session['id']}: {e}")
 
     # Add files to database (after sessions exist)
     added_count = 0

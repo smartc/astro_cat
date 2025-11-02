@@ -98,7 +98,7 @@ def _run_scan_sync(task_id: str):
             
             # Save sessions
             for session_data in sessions:
-                db_service.add_session(session_data)
+                db_service.add_imaging_session(session_data)
             
             logger.info(f"Saved {len(sessions)} sessions")
 
