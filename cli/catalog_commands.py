@@ -118,6 +118,7 @@ def _catalog_raw_files(config, cameras, telescopes, filter_mappings, verbose):
     added_count = 0
     duplicate_count = 0
     error_count = 0
+    errors = []  # Collect error details
 
     with tqdm(total=len(df), desc="Adding to database", disable=False) as pbar:
         for row in df.iter_rows(named=True):
@@ -130,12 +131,16 @@ def _catalog_raw_files(config, cameras, telescopes, filter_mappings, verbose):
                         added_count += 1
                 else:
                     error_count += 1
+                    filename = row.get('filename', 'unknown')
+                    errors.append((filename, "Failed to add to database"))
                 pbar.update(1)
 
             except Exception as e:
+                error_count += 1
+                filename = row.get('filename', 'unknown')
+                errors.append((filename, str(e)))
                 if verbose:
                     click.echo(f"\nError adding file: {e}")
-                error_count += 1
                 pbar.update(1)
 
     # Add sessions to database
@@ -157,6 +162,13 @@ def _catalog_raw_files(config, cameras, telescopes, filter_mappings, verbose):
     click.echo(f"  Errors:            {error_count:>6}")
     if session_added_count > 0:
         click.echo(f"  Imaging sessions:  {session_added_count:>6}")
+
+    # Display error details if any occurred
+    if errors:
+        click.echo("\nErrors encountered:")
+        for filename, error_msg in errors:
+            click.echo(f"  • {filename}")
+            click.echo(f"    {error_msg}")
 
     click.echo("\nNext steps:")
     click.echo("  1. Validate files:  python main_v2.py validate raw")
