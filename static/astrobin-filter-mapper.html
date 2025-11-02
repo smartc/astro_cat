@@ -67,7 +67,7 @@
                 <textarea
                     v-model="csvData"
                     class="form-input font-mono text-sm"
-                    rows="10"
+                    rows="20"
                     placeholder="Paste your AstroBin CSV data here..."></textarea>
                 <div class="mt-4 flex space-x-4">
                     <button @click="parseCSV" class="btn btn-blue" :disabled="!csvData">
@@ -87,52 +87,61 @@
                 <h2 class="text-xl font-bold mb-4">Step 2: Map Filter IDs ({{ filterIds.length }} found)</h2>
 
                 <div class="space-y-4">
-                    <div v-for="filterId in filterIds" :key="filterId" class="border rounded-lg p-4">
-                        <h3 class="font-bold text-lg mb-3">AstroBin ID: {{ filterId }}</h3>
+                    <div v-for="filterId in filterIds" :key="filterId" class="border rounded-lg p-4" :class="filterMappings[filterId].isExisting ? 'bg-yellow-50 border-yellow-300' : ''">
+                        <h3 class="font-bold text-lg mb-3">
+                            AstroBin ID: {{ filterId }}
+                            <span v-if="filterMappings[filterId].isExisting" class="ml-2 text-sm text-yellow-700 font-normal">
+                                (Existing - Editing)
+                            </span>
+                        </h3>
 
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="space-y-4">
                             <div>
                                 <label class="block text-sm font-medium mb-1">Filter Name *</label>
-                                <input
+                                <textarea
                                     v-model="filterMappings[filterId].name"
-                                    type="text"
-                                    class="form-input"
+                                    class="form-input text-base"
+                                    rows="2"
                                     placeholder="e.g., Antlia 3nm Narrowband H-alpha 1.25&quot;"
-                                    required>
+                                    required></textarea>
                                 <p class="text-xs text-gray-500 mt-1">Full descriptive name of the filter</p>
                             </div>
 
-                            <div>
-                                <label class="block text-sm font-medium mb-1">Standard Name *</label>
-                                <input
-                                    v-model="filterMappings[filterId].standard_name"
-                                    type="text"
-                                    class="form-input"
-                                    placeholder="e.g., Ha-3nm"
-                                    required>
-                                <p class="text-xs text-gray-500 mt-1">Standardized short name</p>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Standard Name *</label>
+                                    <input
+                                        v-model="filterMappings[filterId].standard_name"
+                                        type="text"
+                                        class="form-input text-base"
+                                        placeholder="e.g., Ha-3nm"
+                                        required>
+                                    <p class="text-xs text-gray-500 mt-1">Standardized short name</p>
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Bandpass</label>
+                                    <input
+                                        v-model="filterMappings[filterId].bandpass"
+                                        type="text"
+                                        class="form-input text-base"
+                                        placeholder="e.g., 3nm, 7nm">
+                                    <p class="text-xs text-gray-500 mt-1">Optional: bandwidth specification</p>
+                                </div>
                             </div>
 
                             <div>
                                 <label class="block text-sm font-medium mb-1">Filter Type</label>
-                                <select v-model="filterMappings[filterId].filter_type" class="form-input">
+                                <select v-model="filterMappings[filterId].filter_type" class="form-input text-base">
                                     <option value="narrowband">Narrowband</option>
                                     <option value="broadband">Broadband</option>
                                     <option value="rgb">RGB</option>
                                     <option value="luminance">Luminance</option>
+                                    <option value="light_pollution_suppression">Light Pollution Suppression</option>
                                     <option value="other">Other</option>
                                 </select>
                             </div>
 
-                            <div>
-                                <label class="block text-sm font-medium mb-1">Bandpass</label>
-                                <input
-                                    v-model="filterMappings[filterId].bandpass"
-                                    type="text"
-                                    class="form-input"
-                                    placeholder="e.g., 3nm, 7nm">
-                                <p class="text-xs text-gray-500 mt-1">Optional: bandwidth specification</p>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -164,6 +173,7 @@
                                 <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Standard Name</th>
                                 <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Type</th>
                                 <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Bandpass</th>
+                                <th class="px-4 py-2 text-center text-sm font-semibold text-gray-700">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -173,6 +183,11 @@
                                 <td class="px-4 py-2 text-left font-semibold">{{ mapping.standard_name }}</td>
                                 <td class="px-4 py-2 text-left">{{ mapping.filter_type }}</td>
                                 <td class="px-4 py-2 text-left">{{ mapping.bandpass || '-' }}</td>
+                                <td class="px-4 py-2 text-center">
+                                    <button @click="editExistingFilter(mapping)" class="text-blue-600 hover:text-blue-800">
+                                        Edit
+                                    </button>
+                                </td>
                             </tr>
                         </tbody>
                     </table>
@@ -224,15 +239,34 @@
 
                         this.filterIds = response.data.filter_ids;
 
-                        // Initialize filter mappings
+                        // Get existing mappings data as a lookup
+                        const existingLookup = {};
+                        for (const mapping of this.existingMappings) {
+                            existingLookup[mapping.id] = mapping;
+                        }
+
+                        // Initialize filter mappings - check if they already exist
                         this.filterMappings = {};
                         for (const id of this.filterIds) {
-                            this.filterMappings[id] = {
-                                name: '',
-                                standard_name: '',
-                                filter_type: 'narrowband',
-                                bandpass: ''
-                            };
+                            if (existingLookup[id]) {
+                                // Pre-populate with existing data
+                                this.filterMappings[id] = {
+                                    name: existingLookup[id].name,
+                                    standard_name: existingLookup[id].standard_name,
+                                    filter_type: existingLookup[id].filter_type || 'narrowband',
+                                    bandpass: existingLookup[id].bandpass || '',
+                                    isExisting: true
+                                };
+                            } else {
+                                // New filter - initialize with empty values
+                                this.filterMappings[id] = {
+                                    name: '',
+                                    standard_name: '',
+                                    filter_type: 'narrowband',
+                                    bandpass: '',
+                                    isExisting: false
+                                };
+                            }
                         }
 
                         if (this.filterIds.length === 0) {
@@ -241,6 +275,30 @@
                     } catch (error) {
                         this.parseError = error.response?.data?.detail || error.message;
                     }
+                },
+
+                editExistingFilter(mapping) {
+                    // Add this filter to the edit list
+                    if (!this.filterIds.includes(mapping.id)) {
+                        this.filterIds.push(mapping.id);
+                    }
+
+                    // Pre-populate the form
+                    this.filterMappings[mapping.id] = {
+                        name: mapping.name,
+                        standard_name: mapping.standard_name,
+                        filter_type: mapping.filter_type || 'narrowband',
+                        bandpass: mapping.bandpass || '',
+                        isExisting: true
+                    };
+
+                    // Scroll to the mapping section
+                    setTimeout(() => {
+                        const mappingSection = document.querySelector('.space-y-4');
+                        if (mappingSection) {
+                            mappingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    }, 100);
                 },
 
                 clearCSV() {
