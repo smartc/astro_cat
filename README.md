@@ -161,30 +161,29 @@ Edit the equipment definition files to match your gear:
 
 **filters.json:**
 ```json
-{
-  "filter_mappings": [
-    {
-      "name": "Luminance",
-      "variants": ["Lum", "L", "Luminance"],
-      "color": "#FFFFFF"
-    }
-  ]
-}
+[
+  {
+    "raw_name": "Lum",
+    "proper_name": "L"
+  },
+  {
+    "raw_name": "Red",
+    "proper_name": "R"
+  },
+  {
+    "raw_name": "Green",
+    "proper_name": "G"
+  },
+  {
+    "raw_name": "Blue",
+    "proper_name": "B"
+  }
+]
 ```
 
-### 3. Create Directory Structure
+### 3. Initialize Database
 
-```bash
-# Create directories if they don't exist
-mkdir -p /path/to/quarantine
-mkdir -p /path/to/images
-mkdir -p /path/to/processing
-mkdir -p /path/to/session_notes
-```
-
-### 4. Initialize Database
-
-The database will be created automatically on first run. To verify:
+The database and required directories will be created automatically on first run. To verify:
 
 ```bash
 python main.py list imaging-sessions

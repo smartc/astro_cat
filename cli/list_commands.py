@@ -224,7 +224,7 @@ def register_commands(cli):
             setup_logging(config, verbose)
 
             db_service = get_db_service(config)
-            sessions = db_service.get_sessions()
+            sessions = db_service.get_imaging_sessions()
 
             if camera:
                 sessions = [s for s in sessions if s.camera and camera.lower() in s.camera.lower()]

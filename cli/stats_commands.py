@@ -80,7 +80,7 @@ def register_commands(cli):
 
             # Session stats
             click.echo("\nImaging Sessions:")
-            sessions = db_service.get_sessions()
+            sessions = db_service.get_imaging_sessions()
             click.echo(f"  Total sessions: {len(sessions)}")
 
             # Count sessions by camera
