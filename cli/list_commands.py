@@ -12,7 +12,7 @@ from cli.utils import (
     format_table_row
 )
 # Import all models from main models.py
-from models import FitsFile, ImagingSession, ProcessingSession, Camera, Telescope, FilterMapping, ProcessedFile
+from models import FitsFile, ImagingSession, ProcessingSession, ProcessingSessionFile, Camera, Telescope, FilterMapping, ProcessedFile
 
 
 def register_commands(cli):
@@ -316,11 +316,11 @@ def register_commands(cli):
             click.echo("-" * 110)
 
             for s in sessions:
-                # Count files
+                # Count files in this processing session
                 db_session = db_service.db_manager.get_session()
-                file_count = db_session.query(FitsFile).join(
-                    FitsFile.processing_sessions
-                ).filter(ProcessingSession.id == s.id).count()
+                file_count = db_session.query(ProcessingSessionFile).filter(
+                    ProcessingSessionFile.processing_session_id == s.id
+                ).count()
                 db_session.close()
 
                 click.echo(format_table_row(
