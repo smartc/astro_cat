@@ -246,13 +246,20 @@ def register_commands(cli):
             click.echo("-" * 100)
 
             for s in sessions:
+                # Count files for this imaging session
+                db_session = db_service.db_manager.get_session()
+                file_count = db_session.query(FitsFile).filter(
+                    FitsFile.imaging_session_id == s.id
+                ).count()
+                db_session.close()
+
                 click.echo(format_table_row(
                     [
                         (s.id or 'N/A')[:25],
                         (str(s.date) if s.date else 'N/A')[:12],
                         (s.camera or 'Unknown')[:20],
                         (s.telescope or 'Unknown')[:20],
-                        str(s.file_count or 0)
+                        str(file_count)
                     ],
                     [25, 12, 20, 20, 8]
                 ))
