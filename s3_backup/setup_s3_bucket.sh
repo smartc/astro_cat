@@ -302,11 +302,32 @@ check_aws_configuration() {
 
         if prompt_yes_no "Would you like to configure AWS credentials now?" "y"; then
             echo ""
-            echo -e "${CYAN}Recommended values:${NC}"
-            echo -e "  Default region name: ${GREEN}us-west-2${NC}"
-            echo -e "  Default output format: ${GREEN}json${NC}"
+            print_info "Please enter your AWS credentials:"
             echo ""
-            aws configure
+
+            # Prompt for access key
+            read -r -p "AWS Access Key ID: " aws_access_key
+            if [[ -z "$aws_access_key" ]]; then
+                print_error "Access Key ID is required"
+                exit 1
+            fi
+
+            # Prompt for secret key (hidden input)
+            read -r -s -p "AWS Secret Access Key: " aws_secret_key
+            echo ""
+            if [[ -z "$aws_secret_key" ]]; then
+                print_error "Secret Access Key is required"
+                exit 1
+            fi
+
+            # Configure credentials and defaults
+            aws configure set aws_access_key_id "$aws_access_key"
+            aws configure set aws_secret_access_key "$aws_secret_key"
+            aws configure set region us-west-2
+            aws configure set output json
+
+            print_success "Set default region to us-west-2"
+            print_success "Set default output format to json"
 
             # Verify after configuration
             if aws sts get-caller-identity &>/dev/null; then
@@ -512,15 +533,50 @@ configure_lifecycle_policy() {
     print_info "Applying lifecycle policy from: $LIFECYCLE_POLICY_FILE"
     print_info ""
 
+    # Show what we're about to apply
+    if command_exists jq; then
+        print_info "Policy contents:"
+        jq -C '.' "$LIFECYCLE_POLICY_FILE" 2>/dev/null | sed 's/^/  /' || cat "$LIFECYCLE_POLICY_FILE" | sed 's/^/  /'
+        echo ""
+    fi
+
     # Try to apply the lifecycle configuration and capture error output
     local error_output
     error_output=$(aws s3api put-bucket-lifecycle-configuration \
         --bucket "$BUCKET_NAME" \
-        --lifecycle-configuration "file://$LIFECYCLE_POLICY_FILE" 2>&1)
+        --lifecycle-configuration "file://$LIFECYCLE_POLICY_FILE" \
+        --region "$AWS_REGION" 2>&1)
     local exit_code=$?
 
     if [[ $exit_code -eq 0 ]]; then
-        print_success "Lifecycle policy applied successfully"
+        print_success "Lifecycle policy command completed"
+
+        # Verify the policy was actually applied
+        print_info "Verifying lifecycle policy was applied..."
+        sleep 2  # Give AWS a moment to propagate
+
+        local verify_output
+        verify_output=$(aws s3api get-bucket-lifecycle-configuration \
+            --bucket "$BUCKET_NAME" \
+            --region "$AWS_REGION" 2>&1)
+        local verify_code=$?
+
+        if [[ $verify_code -eq 0 ]]; then
+            local rule_count
+            rule_count=$(echo "$verify_output" | jq -r '.Rules | length' 2>/dev/null || echo "unknown")
+            print_success "Lifecycle policy verified! ($rule_count rules active)"
+
+            if command_exists jq && [[ "$rule_count" != "unknown" ]]; then
+                echo ""
+                print_info "Active rules:"
+                echo "$verify_output" | jq -r '.Rules[] | "  • \(.Id): \(.Status)"' 2>/dev/null
+                echo ""
+            fi
+        else
+            print_warning "Could not verify lifecycle policy"
+            echo -e "${YELLOW}Verification output:${NC}"
+            echo "$verify_output" | sed 's/^/  /'
+        fi
     else
         print_error "Failed to apply lifecycle policy"
         echo -e "${RED}Error details:${NC}"
@@ -532,6 +588,7 @@ configure_lifecycle_policy() {
         print_info "  cd $SCRIPT_DIR"
         print_info "  aws s3api put-bucket-lifecycle-configuration \\"
         print_info "    --bucket $BUCKET_NAME \\"
+        print_info "    --region $AWS_REGION \\"
         print_info "    --lifecycle-configuration file://lifecycle_policy.json"
         print_info ""
         print_info "Or using the s3_backup CLI:"
