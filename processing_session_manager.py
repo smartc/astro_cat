@@ -1151,7 +1151,12 @@ _No processing steps completed yet_
     ├── drafts/          # Draft versions
     └── published/       # Published versions
 ```'''
-            default_timeline = '- **Started:** _TBD_\n- **Completed:** _TBD_'
+
+            # Build timeline with actual dates if available
+            started_text = ps.processing_started.strftime('%Y-%m-%d %H:%M:%S') if ps.processing_started else '_TBD_'
+            completed_text = ps.processing_completed.strftime('%Y-%m-%d %H:%M:%S') if ps.processing_completed else '_TBD_'
+            default_timeline = f'- **Started:** {started_text}\n- **Completed:** {completed_text}'
+
             default_references = '- **AstroBin URL:** _TBD_\n- **Social Media:** _TBD_'
 
             # Reconstruct file with updated sections and preserved custom content
@@ -1299,8 +1304,13 @@ _No processing steps completed yet_
                 ps.processing_started = datetime.now()
             elif status == 'complete' and old_status != 'complete':
                 ps.processing_completed = datetime.now()
-            
+
             session.commit()
+
+            # Update markdown file to reflect new status
+            session_folder = Path(ps.folder_path)
+            self._update_session_info_file(session_folder, ps)
+
             logger.info(f"Updated processing session {session_id} status: {old_status} -> {status}")
             return True
             
