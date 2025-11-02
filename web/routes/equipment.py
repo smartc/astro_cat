@@ -2,8 +2,12 @@
 Equipment management API routes - Using Database.
 """
 
+import csv
+import json
 import logging
-from typing import List
+from io import StringIO
+from pathlib import Path
+from typing import Dict, List
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
@@ -43,6 +47,21 @@ class TelescopeModel(BaseModel):
 class FilterMappingModel(BaseModel):
     raw_name: str
     proper_name: str
+
+
+class AstroBinFilterCSVRequest(BaseModel):
+    csv_data: str
+
+
+class AstroBinFilterData(BaseModel):
+    name: str
+    standard_name: str
+    filter_type: str = "narrowband"
+    bandpass: str = ""
+
+
+class AstroBinFilterMappingRequest(BaseModel):
+    filters: Dict[str, AstroBinFilterData]
 
 
 # ============================================================================
@@ -318,8 +337,91 @@ async def delete_filter(raw_name: str, db: Session = Depends(get_db_session)):
     filter_mapping = db.query(FilterMapping).filter_by(raw_name=raw_name).first()
     if not filter_mapping:
         raise HTTPException(status_code=404, detail=f"Filter mapping '{raw_name}' not found")
-    
+
     db.delete(filter_mapping)
     db.commit()
-    
+
     return {"message": f"Filter mapping '{raw_name}' deleted successfully"}
+
+
+# ============================================================================
+# ASTROBIN FILTER MAPPING ROUTES
+# ============================================================================
+
+@router.post("/astrobin/parse-csv")
+async def parse_astrobin_csv(request: AstroBinFilterCSVRequest):
+    """Parse AstroBin CSV data and extract unique filter IDs."""
+    try:
+        csv_reader = csv.DictReader(StringIO(request.csv_data))
+        filter_ids = set()
+
+        for row in csv_reader:
+            if 'filter' in row and row['filter']:
+                # Check if filter value is numeric (AstroBin ID)
+                try:
+                    filter_id = int(row['filter'])
+                    filter_ids.add(str(filter_id))
+                except ValueError:
+                    # Not a numeric ID, skip it
+                    pass
+
+        return {
+            "filter_ids": sorted(filter_ids),
+            "count": len(filter_ids)
+        }
+    except Exception as e:
+        logger.error(f"Error parsing CSV: {e}")
+        raise HTTPException(status_code=400, detail=f"Error parsing CSV: {str(e)}")
+
+
+@router.get("/astrobin/filters")
+async def get_astrobin_filters():
+    """Get current AstroBin filter mappings from astrobin_filters.json."""
+    astrobin_file = Path("astrobin_filters.json")
+
+    if not astrobin_file.exists():
+        return {"filters": {}}
+
+    try:
+        with open(astrobin_file, 'r') as f:
+            data = json.load(f)
+
+        # Filter out comment keys
+        filters = {k: v for k, v in data.items() if not k.startswith('_')}
+        return {"filters": filters}
+    except Exception as e:
+        logger.error(f"Error reading AstroBin filters: {e}")
+        raise HTTPException(status_code=500, detail=f"Error reading AstroBin filters: {str(e)}")
+
+
+@router.post("/astrobin/filters")
+async def save_astrobin_filters(request: AstroBinFilterMappingRequest):
+    """Save AstroBin filter mappings to astrobin_filters.json."""
+    astrobin_file = Path("astrobin_filters.json")
+
+    try:
+        # Load existing data if file exists
+        existing_data = {}
+        if astrobin_file.exists():
+            with open(astrobin_file, 'r') as f:
+                existing_data = json.load(f)
+
+        # Update with new mappings
+        for filter_id, filter_data in request.filters.items():
+            existing_data[filter_id] = filter_data.dict()
+
+        # Add comment if it doesn't exist
+        if "_comment" not in existing_data:
+            existing_data["_comment"] = "AstroBin filter ID mappings. Each key is an AstroBin equipment ID, and the value contains the filter details."
+
+        # Write back to file
+        with open(astrobin_file, 'w') as f:
+            json.dump(existing_data, f, indent=2)
+
+        return {
+            "message": "AstroBin filter mappings saved successfully",
+            "filter_count": len(request.filters)
+        }
+    except Exception as e:
+        logger.error(f"Error saving AstroBin filters: {e}")
+        raise HTTPException(status_code=500, detail=f"Error saving AstroBin filters: {str(e)}")
