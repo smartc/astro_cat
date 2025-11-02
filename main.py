@@ -8,23 +8,23 @@ The old main.py is preserved for backward compatibility.
 
 Examples:
     # Get help
-    python main_v2.py --help
-    python main_v2.py scan --help
+    python -m main --help
+    python -m main scan --help
 
     # Basic workflow
-    python main_v2.py scan raw              # Find new FITS files
-    python main_v2.py catalog raw           # Extract metadata
-    python main_v2.py validate raw          # Score files
-    python main_v2.py migrate raw --dry-run # Preview migration
-    python main_v2.py migrate raw           # Move to library
+    python -m main scan raw              # Find new FITS files
+    python -m main catalog raw           # Extract metadata
+    python -m main validate raw          # Score files
+    python -m main migrate raw --dry-run # Preview migration
+    python -m main migrate raw           # Move to library
 
     # Processing sessions
-    python main_v2.py processing-session create "M31 LRGB" --file-ids "1,2,3"
-    python main_v2.py list processing-sessions
+    python -m main processing-session create "M31 LRGB" --file-ids "1,2,3"
+    python -m main list processing-sessions
 
     # Statistics and queries
-    python main_v2.py stats raw
-    python main_v2.py list raw --object "M31"
+    python -m main stats raw
+    python -m main list raw --object "M31"
 """
 
 from cli.main import cli

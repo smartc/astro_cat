@@ -42,13 +42,13 @@ def register_commands(cli):
 
         Examples:
             # Create session with files
-            python main_v2.py processing-session create "NGC7000 LRGB" --file-ids "123,124,125,126"
+            python -m main processing-session create "NGC7000 LRGB" --file-ids "123,124,125,126"
 
             # Create with notes
-            python main_v2.py processing-session create "M31 LRGB" --file-ids "123,124" --notes "First attempt"
+            python -m main processing-session create "M31 LRGB" --file-ids "123,124" --notes "First attempt"
 
             # Create empty session (for manually adding files later)
-            python main_v2.py processing-session create "M31 Archive Session" --notes "For importing old data"
+            python -m main processing-session create "M31 Archive Session" --notes "For importing old data"
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -67,7 +67,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
             if dry_run:
@@ -90,7 +90,7 @@ def register_commands(cli):
 
             if session_info.total_files == 0:
                 click.echo(f"\n  Note: Empty session created. Add files using:")
-                click.echo(f"    python main_v2.py processing-session add-files {session_info.id} --file-ids '<ids>'")
+                click.echo(f"    python -m main processing-session add-files {session_info.id} --file-ids '<ids>'")
 
         except Exception as e:
             handle_error(e, verbose)
@@ -104,7 +104,7 @@ def register_commands(cli):
         """Add additional files to an existing processing session.
 
         Examples:
-            python main_v2.py processing-session add-files 20241201_120000_NGC7000 --file-ids "127,128,129"
+            python -m main processing-session add-files 20241201_120000_NGC7000 --file-ids "127,128,129"
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -120,7 +120,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
             if dry_run:
@@ -144,8 +144,8 @@ def register_commands(cli):
         """Show detailed information about a processing session.
 
         Examples:
-            python main_v2.py processing-session info 20241201_120000_NGC7000
-            python main_v2.py processing-session info 20241201_120000_NGC7000 --detailed
+            python -m main processing-session info 20241201_120000_NGC7000
+            python -m main processing-session info 20241201_120000_NGC7000 --detailed
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -154,10 +154,10 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
-            session_info = processing_manager.get_processing_session_info(session_id)
+            session_info = processing_manager.get_processing_session(session_id)
 
             if not session_info:
                 click.echo(f"✗ Processing session '{session_id}' not found")
@@ -206,8 +206,8 @@ def register_commands(cli):
         """Update the status of a processing session.
 
         Examples:
-            python main_v2.py processing-session update-status 20241201_120000_NGC7000 in_progress
-            python main_v2.py processing-session update-status 20241201_120000_NGC7000 complete --notes "Final stack complete"
+            python -m main processing-session update-status 20241201_120000_NGC7000 in_progress
+            python -m main processing-session update-status 20241201_120000_NGC7000 complete --notes "Final stack complete"
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -216,7 +216,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
             processing_manager.update_session_status(session_id, status, notes)
@@ -236,7 +236,7 @@ def register_commands(cli):
         """Update notes for a processing session.
 
         Examples:
-            python main_v2.py processing-session notes 20241201_120000_NGC7000 "Updated processing notes"
+            python -m main processing-session notes 20241201_120000_NGC7000 "Updated processing notes"
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -245,7 +245,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
             processing_manager.update_session_notes(session_id, notes)
@@ -262,7 +262,7 @@ def register_commands(cli):
         """Open the processing session folder in file manager.
 
         Examples:
-            python main_v2.py processing-session open 20241201_120000_NGC7000
+            python -m main processing-session open 20241201_120000_NGC7000
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -271,10 +271,10 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
-            session_info = processing_manager.get_processing_session_info(session_id)
+            session_info = processing_manager.get_processing_session(session_id)
 
             if not session_info:
                 click.echo(f"✗ Processing session '{session_id}' not found")
@@ -316,13 +316,13 @@ def register_commands(cli):
 
         Examples:
             # Delete session and all files
-            python main_v2.py processing-session delete 20241201_120000_NGC7000
+            python -m main processing-session delete 20241201_120000_NGC7000
 
             # Delete only database records
-            python main_v2.py processing-session delete 20241201_120000_NGC7000 --keep-files
+            python -m main processing-session delete 20241201_120000_NGC7000 --keep-files
 
             # Skip confirmation
-            python main_v2.py processing-session delete 20241201_120000_NGC7000 --force
+            python -m main processing-session delete 20241201_120000_NGC7000 --force
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -331,7 +331,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
             if not force:
@@ -358,7 +358,7 @@ def register_commands(cli):
         """Archive a processing session (mark as complete and read-only).
 
         Examples:
-            python main_v2.py processing-session archive 20241201_120000_NGC7000
+            python -m main processing-session archive 20241201_120000_NGC7000
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -368,7 +368,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
             processing_manager.update_session_status(session_id, 'complete', 'Archived')

@@ -12,7 +12,7 @@ from datetime import datetime
 import click
 from tqdm import tqdm
 
-from models import DatabaseService, FitsFile
+from models import DatabaseService, FitsFile, ImagingSession
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -179,17 +179,103 @@ class FileOrganizer:
             logger.error(f"Error calculating MD5 for {filepath}: {e}")
             return ""
     
+    def _cleanup_orphaned_sessions(self, db_session):
+        """Delete imaging sessions that have no associated files."""
+        try:
+            # Find all sessions with zero files
+            all_sessions = db_session.query(ImagingSession).all()
+            orphaned_sessions = []
+
+            for imaging_session in all_sessions:
+                file_count = db_session.query(FitsFile).filter(
+                    FitsFile.imaging_session_id == imaging_session.id
+                ).count()
+
+                if file_count == 0:
+                    orphaned_sessions.append(imaging_session)
+
+            # Delete orphaned sessions
+            for imaging_session in orphaned_sessions:
+                logger.info(f"Deleting orphaned imaging session: {imaging_session.id}")
+                db_session.delete(imaging_session)
+
+            if orphaned_sessions:
+                db_session.commit()
+                logger.info(f"Deleted {len(orphaned_sessions)} orphaned imaging sessions")
+
+        except Exception as e:
+            logger.error(f"Error cleaning up orphaned sessions: {e}")
+            db_session.rollback()
+
     def _delete_duplicates_folder(self):
-        """Delete the duplicates folder and all its contents."""
+        """Delete the duplicates folder and all its contents, and remove database records."""
         duplicates_folder = Path(self.config.paths.quarantine_dir) / "Duplicates"
         if duplicates_folder.exists():
+            # Get all files in duplicates folder before deleting
+            duplicate_files = list(duplicates_folder.glob("*.fit*"))
+
+            # Remove database records for these files
+            session = self.db_service.db_manager.get_session()
+            try:
+                for dup_file in duplicate_files:
+                    # Find database record by folder and filename
+                    db_record = session.query(FitsFile).filter(
+                        FitsFile.folder == str(duplicates_folder),
+                        FitsFile.file == dup_file.name
+                    ).first()
+
+                    if db_record:
+                        session.delete(db_record)
+                        logger.debug(f"Deleted database record for duplicate: {dup_file.name}")
+
+                session.commit()
+
+                # Clean up any imaging sessions that no longer have files
+                self._cleanup_orphaned_sessions(session)
+
+            except Exception as e:
+                logger.error(f"Error deleting duplicate database records: {e}")
+                session.rollback()
+            finally:
+                session.close()
+
+            # Delete the physical files and folder
             shutil.rmtree(duplicates_folder)
             logger.debug(f"Deleted duplicates folder: {duplicates_folder}")
 
     def _delete_bad_files_folder(self):
-        """Delete the bad files folder and all its contents."""
+        """Delete the bad files folder and all its contents, and remove database records."""
         bad_files_folder = Path(self.config.paths.quarantine_dir) / "Bad"
         if bad_files_folder.exists():
+            # Get all files in bad files folder before deleting
+            bad_files = list(bad_files_folder.glob("*.fit*"))
+
+            # Remove database records for these files
+            session = self.db_service.db_manager.get_session()
+            try:
+                for bad_file in bad_files:
+                    # Find database record by folder and filename
+                    db_record = session.query(FitsFile).filter(
+                        FitsFile.folder == str(bad_files_folder),
+                        FitsFile.file == bad_file.name
+                    ).first()
+
+                    if db_record:
+                        session.delete(db_record)
+                        logger.debug(f"Deleted database record for bad file: {bad_file.name}")
+
+                session.commit()
+
+                # Clean up any imaging sessions that no longer have files
+                self._cleanup_orphaned_sessions(session)
+
+            except Exception as e:
+                logger.error(f"Error deleting bad file database records: {e}")
+                session.rollback()
+            finally:
+                session.close()
+
+            # Delete the physical files and folder
             shutil.rmtree(bad_files_folder)
             logger.debug(f"Deleted bad files folder: {bad_files_folder}")
     
@@ -388,27 +474,46 @@ class FileOrganizer:
                     
                     with tqdm(total=total_remaining, desc="Categorizing files") as pbar:
                         for idx, physical_file in enumerate(remaining_files):
-                            
-                            if "BAD_" in physical_file.name:
+
+                            # Check for bad files (case-insensitive check for BAD_ prefix)
+                            if physical_file.name.upper().startswith("BAD_"):
                                 bad_files_to_move.append(physical_file)
                                 pbar.update(1)
                                 continue
-                            
+
+                            # Check for duplicates
+                            # A file is a duplicate only if ANOTHER file (not itself) has the same MD5
                             md5_hash = self._get_file_md5(str(physical_file))
                             if md5_hash:
-                                existing_record = session.query(FitsFile).filter_by(md5sum=md5_hash).first()
-                                if existing_record:
-                                    original_path = Path(existing_record.folder) / existing_record.file
-                                    if original_path.exists():
-                                        duplicates_to_move.append(physical_file)
-                                    else:
-                                        logger.warning(f"Found file with database record but missing original: {physical_file}")
-                            
+                                # Get all records with this MD5
+                                all_records = session.query(FitsFile).filter_by(md5sum=md5_hash).all()
+
+                                # Check if any OTHER file (different path) exists with this MD5
+                                is_duplicate = False
+                                physical_file_str = str(physical_file)
+
+                                for record in all_records:
+                                    record_path = Path(record.folder) / record.file
+                                    record_path_str = str(record_path)
+
+                                    # Is this a different file than the one we're checking?
+                                    if record_path_str != physical_file_str:
+                                        # Does that different file exist?
+                                        if record_path.exists():
+                                            is_duplicate = True
+                                            logger.info(f"Found duplicate: {physical_file.name} matches {record_path}")
+                                            break
+
+                                if is_duplicate:
+                                    duplicates_to_move.append(physical_file)
+
+                            # If not duplicate or bad, leave in quarantine for manual review
+
                             # Update progress every 10 files
                             if (idx + 1) % 10 == 0 or (idx + 1) == total_remaining:
                                 cat_progress = ((idx + 1) / total_remaining) * 100
                                 update_progress(cat_progress, stage_weight)
-                            
+
                             pbar.update(1)
                     
                     # Move bad files
@@ -418,7 +523,25 @@ class FileOrganizer:
                             for bad_file in bad_files_to_move:
                                 try:
                                     bad_dest = bad_files_folder / bad_file.name
+                                    old_folder = str(bad_file.parent)
+
+                                    # Move physical file
                                     shutil.move(str(bad_file), str(bad_dest))
+
+                                    # Update database record folder path
+                                    db_session = self.db_service.db_manager.get_session()
+                                    try:
+                                        db_record = db_session.query(FitsFile).filter(
+                                            FitsFile.folder == old_folder,
+                                            FitsFile.file == bad_file.name
+                                        ).first()
+
+                                        if db_record:
+                                            db_record.folder = str(bad_files_folder)
+                                            db_session.commit()
+                                    finally:
+                                        db_session.close()
+
                                     stats['bad_files_moved'] += 1
                                 except Exception as e:
                                     logger.error(f"Error moving bad file {bad_file}: {e}")
@@ -432,7 +555,25 @@ class FileOrganizer:
                             for duplicate_file in duplicates_to_move:
                                 try:
                                     duplicate_dest = duplicates_folder / duplicate_file.name
+                                    old_folder = str(duplicate_file.parent)
+
+                                    # Move physical file
                                     shutil.move(str(duplicate_file), str(duplicate_dest))
+
+                                    # Update database record folder path
+                                    db_session = self.db_service.db_manager.get_session()
+                                    try:
+                                        db_record = db_session.query(FitsFile).filter(
+                                            FitsFile.folder == old_folder,
+                                            FitsFile.file == duplicate_file.name
+                                        ).first()
+
+                                        if db_record:
+                                            db_record.folder = str(duplicates_folder)
+                                            db_session.commit()
+                                    finally:
+                                        db_session.close()
+
                                     stats['duplicates_moved'] += 1
                                 except Exception as e:
                                     logger.error(f"Error moving duplicate {duplicate_file}: {e}")
@@ -514,59 +655,51 @@ class FileOrganizer:
         """Preview the folder structure that would be created without moving files."""
         session = self.db_service.db_manager.get_session()
         try:
-            # Get physical files instead of database records to avoid path issues
-            quarantine_path = Path(self.config.paths.quarantine_dir)
-            physical_files = []
-            for ext in ['.fits', '.fit', '.fts']:
-                files = list(quarantine_path.rglob(f"*{ext}"))
-                # Filter out duplicates and bad files folders for preview
-                files = [f for f in files if not any(folder in str(f) for folder in ["Duplicates", "Bad"])]
-                physical_files.extend(files)
-            
-            if not physical_files:
+            # Get database records for files ready to migrate (validation score > 95)
+            db_files = session.query(FitsFile).filter(
+                FitsFile.folder.like(f"%{self.config.paths.quarantine_dir}%"),
+                FitsFile.validation_score > 95.0
+            ).limit(limit).all()
+
+            if not db_files:
                 return []
-            
-            # Limit files for preview
-            preview_files = physical_files[:limit]
-            
-            # Extract basic metadata for preview
+
+            # Convert to migration format and generate paths
             preview_paths = []
-            for file_path in preview_files:
+            for db_file in db_files:
                 try:
-                    # Simple preview - use filename patterns to estimate structure
-                    filename = file_path.name
-                    folder_parts = file_path.parent.parts
-                    
-                    # Try to extract basic info from path/filename
-                    if "Light" in str(file_path) or "_LIGHT_" in filename:
-                        frame_type = "LIGHT"
-                    elif "Flat" in str(file_path) or "_FLAT_" in filename:
-                        frame_type = "FLAT"
-                    elif "Dark" in str(file_path) or "_DARK_" in filename:
-                        frame_type = "DARK"
-                    elif "Bias" in str(file_path) or "_BIAS_" in filename:
-                        frame_type = "BIAS"
-                    else:
-                        frame_type = "UNKNOWN"
-                    
-                    # Create sample destination path
-                    base_path = Path(self.config.paths.image_dir)
-                    if frame_type == "LIGHT":
-                        dest = base_path / "TARGET" / "CAMERA" / "TELESCOPE" / "FILTER" / "DATE"
-                    else:
-                        dest = base_path / "CALIBRATION" / "CAMERA" / frame_type / "DATE"
-                    
-                    sample_filename = f"standardized_{frame_type.lower()}_0001.fits"
-                    full_path = str(dest / sample_filename)
+                    # Convert database record to dictionary format
+                    record = {
+                        'id': db_file.id,
+                        'file': db_file.file,
+                        'folder': db_file.folder,
+                        'object': db_file.object,
+                        'frame_type': db_file.frame_type,
+                        'camera': db_file.camera,
+                        'telescope': db_file.telescope,
+                        'filter': db_file.filter,
+                        'exposure': db_file.exposure,
+                        'obs_date': db_file.obs_date,
+                        'obs_timestamp': db_file.obs_timestamp,
+                        'mosaic': getattr(db_file, 'mosaic', None)
+                    }
+
+                    # Generate the actual destination path using real metadata
+                    dest_path = self.determine_destination_path(record)
+
+                    # Generate the actual standardized filename
+                    filename = self.generate_standardized_filename(record, 1)
+
+                    # Combine into full path
+                    full_path = str(Path(dest_path) / filename)
                     preview_paths.append(full_path)
-                    
-                except Exception:
-                    # Fallback for problematic files
-                    dest = Path(self.config.paths.image_dir) / "UNKNOWN" / "preview_file.fits"
-                    preview_paths.append(str(dest))
-            
+
+                except Exception as e:
+                    logger.warning(f"Error generating preview for {db_file.file}: {e}")
+                    continue
+
             return preview_paths
-            
+
         finally:
             session.close()
     

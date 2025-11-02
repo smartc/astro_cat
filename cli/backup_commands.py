@@ -53,28 +53,28 @@ def register_commands(cli):
 
         Examples:
             # Backup all non-backed-up raw files
-            python main_v2.py backup raw --not-backed-up
+            python -m main backup raw --not-backed-up
 
             # Backup raw files from 2024
-            python main_v2.py backup raw --year 2024
+            python -m main backup raw --year 2024
 
             # Backup specific imaging session
-            python main_v2.py backup raw --imaging-session 20240815_001
+            python -m main backup raw --imaging-session 20240815_001
 
             # Backup specific processing session
-            python main_v2.py backup processed --processing-session 20250115_ABC123
+            python -m main backup processed --processing-session 20250115_ABC123
 
             # Backup all processing sessions
-            python main_v2.py backup processed --all-sessions
+            python -m main backup processed --all-sessions
 
             # Backup only final outputs
-            python main_v2.py backup processed --processing-session ID --subfolder final
+            python -m main backup processed --processing-session ID --subfolder final
 
             # Backup specific file types
-            python main_v2.py backup processed --processing-session ID --file-type xisf --file-type jpg
+            python -m main backup processed --processing-session ID --file-type xisf --file-type jpg
 
             # Backup database
-            python main_v2.py backup database
+            python -m main backup database
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -136,8 +136,8 @@ def _backup_processed_files(config_path, session_id, all_sessions, incomplete,
     if not session_id and not all_sessions:
         click.echo("Error: Specify --processing-session or --all-sessions")
         click.echo("\nExamples:")
-        click.echo("  python main_v2.py backup processed --processing-session 20250115_ABC123")
-        click.echo("  python main_v2.py backup processed --all-sessions")
+        click.echo("  python -m main backup processed --processing-session 20250115_ABC123")
+        click.echo("  python -m main backup processed --all-sessions")
         sys.exit(1)
 
     try:

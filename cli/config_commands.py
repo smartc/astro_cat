@@ -40,10 +40,10 @@ def register_commands(cli):
 
         Examples:
             # Create default config.json
-            python main_v2.py config init
+            python -m main config init
 
             # Create config at custom location
-            python main_v2.py --config my_config.json config init
+            python -m main --config my_config.json config init
         """
         config_path = ctx.obj['config_path']
 
@@ -58,7 +58,7 @@ def register_commands(cli):
         click.echo("  1. Edit the configuration file with your specific paths")
         click.echo("  2. Configure database connection string")
         click.echo("  3. Set up equipment files (cameras.json, telescopes.json, filters.json)")
-        click.echo("  4. Test the configuration with: python main_v2.py config test-db")
+        click.echo("  4. Test the configuration with: python -m main config test-db")
 
     @config_group.command('test-db')
     @click.pass_context
@@ -71,7 +71,7 @@ def register_commands(cli):
         - Database is ready for operations
 
         Examples:
-            python main_v2.py config test-db
+            python -m main config test-db
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -118,7 +118,7 @@ def register_commands(cli):
         - S3 backup configuration
 
         Examples:
-            python main_v2.py config show
+            python -m main config show
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']

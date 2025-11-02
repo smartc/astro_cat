@@ -39,7 +39,7 @@ def register_commands(cli):
         - Session statistics
 
         Examples:
-            python main_v2.py stats raw
+            python -m main stats raw
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -48,7 +48,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             stats = db_service.get_database_stats()
 
             click.echo()
@@ -64,8 +64,11 @@ def register_commands(cli):
 
             # By Telescope
             click.echo("\nBy Telescope:")
-            for telescope, count in sorted(stats.get('by_telescope', {}).items()):
-                click.echo(f"  {telescope:.<40} {count:>6}")
+            # Sort with None values treated as empty string for sorting
+            for telescope, count in sorted(stats.get('by_telescope', {}).items(),
+                                          key=lambda x: (x[0] or '')):
+                telescope_display = telescope if telescope else '(None - BIAS/DARK)'
+                click.echo(f"  {telescope_display:.<40} {count:>6}")
 
             # By Frame Type
             click.echo("\nBy Frame Type:")
@@ -80,7 +83,7 @@ def register_commands(cli):
 
             # Session stats
             click.echo("\nImaging Sessions:")
-            sessions = db_service.get_sessions()
+            sessions = db_service.get_imaging_sessions()
             click.echo(f"  Total sessions: {len(sessions)}")
 
             # Count sessions by camera
@@ -110,7 +113,7 @@ def register_commands(cli):
         - Breakdown by processing session
 
         Examples:
-            python main_v2.py stats processed
+            python -m main stats processed
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -119,7 +122,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             db_session = db_service.db_manager.get_session()
 
             # Get all processed files
@@ -190,7 +193,7 @@ def register_commands(cli):
         - Backup status by session
 
         Examples:
-            python main_v2.py stats backups
+            python -m main stats backups
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -199,7 +202,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             db_session = db_service.db_manager.get_session()
 
             # Raw files backup status
@@ -252,7 +255,7 @@ def register_commands(cli):
         - Disk space usage estimates
 
         Examples:
-            python main_v2.py stats storage
+            python -m main stats storage
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -261,7 +264,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             db_session = db_service.db_manager.get_session()
 
             # Raw files by frame type

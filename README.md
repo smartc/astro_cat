@@ -161,30 +161,29 @@ Edit the equipment definition files to match your gear:
 
 **filters.json:**
 ```json
-{
-  "filter_mappings": [
-    {
-      "name": "Luminance",
-      "variants": ["Lum", "L", "Luminance"],
-      "color": "#FFFFFF"
-    }
-  ]
-}
+[
+  {
+    "raw_name": "Lum",
+    "proper_name": "L"
+  },
+  {
+    "raw_name": "Red",
+    "proper_name": "R"
+  },
+  {
+    "raw_name": "Green",
+    "proper_name": "G"
+  },
+  {
+    "raw_name": "Blue",
+    "proper_name": "B"
+  }
+]
 ```
 
-### 3. Create Directory Structure
+### 3. Initialize Database
 
-```bash
-# Create directories if they don't exist
-mkdir -p /path/to/quarantine
-mkdir -p /path/to/images
-mkdir -p /path/to/processing
-mkdir -p /path/to/session_notes
-```
-
-### 4. Initialize Database
-
-The database will be created automatically on first run. To verify:
+The database and required directories will be created automatically on first run. To verify:
 
 ```bash
 python main.py list imaging-sessions
@@ -420,23 +419,22 @@ export AWS_SECRET_ACCESS_KEY=your_secret_key
 pip install boto3
 ```
 
-#### 3. Create S3 Configuration
+#### 3. Configure S3 Settings
 
-Copy and edit the configuration template:
+On first startup, `s3_config.json` is created automatically with S3 disabled. Edit this file to enable S3 backups:
 
 ```bash
-cp s3_backup/s3_config.json.template s3_config.json
 nano s3_config.json  # Edit with your bucket name and region
 ```
 
-Minimum required settings in `s3_config.json`:
+**Required changes** in `s3_config.json`:
 
 ```json
 {
-  "enabled": true,
-  "aws_region": "us-east-1",
+  "enabled": true,              # Change from false to true
+  "aws_region": "us-east-1",    # Your AWS region
   "buckets": {
-    "primary": "your-bucket-name"
+    "primary": "your-bucket-name"  # Your S3 bucket name
   }
 }
 ```

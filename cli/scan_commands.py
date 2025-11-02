@@ -37,16 +37,16 @@ def register_commands(cli):
 
         Examples:
             # Scan for new raw FITS files in quarantine
-            python main_v2.py scan raw
+            python -m main scan raw
 
             # Scan specific processing session for outputs
-            python main_v2.py scan processed --processing-session 20251010_022B0AE9
+            python -m main scan processed --processing-session 20251010_022B0AE9
 
             # Scan all processing sessions
-            python main_v2.py scan processed --all-sessions
+            python -m main scan processed --all-sessions
 
             # Scan both raw and processed files
-            python main_v2.py scan all
+            python -m main scan all
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -62,8 +62,8 @@ def register_commands(cli):
                 if not processing_session and not all_sessions:
                     click.echo("Error: For processed files, specify --processing-session or --all-sessions")
                     click.echo("\nExamples:")
-                    click.echo("  python main_v2.py scan processed --processing-session 20251010_022B0AE9")
-                    click.echo("  python main_v2.py scan processed --all-sessions")
+                    click.echo("  python -m main scan processed --processing-session 20251010_022B0AE9")
+                    click.echo("  python -m main scan processed --all-sessions")
                     sys.exit(1)
 
                 _scan_processed_files(config, processing_session, all_sessions, verbose)
@@ -90,7 +90,7 @@ def _scan_raw_files(config, verbose):
 
     click.echo(f"✓ Found {len(fits_files)} FITS files in quarantine")
     click.echo("\nNext step: Run 'catalog raw' to extract metadata and add to database")
-    click.echo("  python main_v2.py catalog raw")
+    click.echo("  python -m main catalog raw")
 
 
 def _scan_processed_files(config, session_id, scan_all, verbose):

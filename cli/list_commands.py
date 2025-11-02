@@ -12,7 +12,7 @@ from cli.utils import (
     format_table_row
 )
 # Import all models from main models.py
-from models import FitsFile, ImagingSession, ProcessingSession, Camera, Telescope, FilterMapping, ProcessedFile
+from models import FitsFile, ImagingSession, ProcessingSession, ProcessingSessionFile, Camera, Telescope, FilterMapping, ProcessedFile
 
 
 def register_commands(cli):
@@ -41,19 +41,19 @@ def register_commands(cli):
 
         Examples:
             # List recent files
-            python main_v2.py list raw
+            python -m main list raw
 
             # Find files for specific object
-            python main_v2.py list raw --object "M31"
+            python -m main list raw --object "M31"
 
             # Filter by equipment
-            python main_v2.py list raw --camera "ASI2600MM" --telescope "EF200"
+            python -m main list raw --camera "ASI2600MM" --telescope "EF200"
 
             # Find light frames with specific filter
-            python main_v2.py list raw --frame-type Light --filter Ha
+            python -m main list raw --frame-type Light --filter Ha
 
             # Show more results
-            python main_v2.py list raw --limit 100
+            python -m main list raw --limit 100
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -62,7 +62,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             db_session = db_service.db_manager.get_session()
 
             # Build query
@@ -130,13 +130,13 @@ def register_commands(cli):
 
         Examples:
             # List all processed files
-            python main_v2.py list processed
+            python -m main list processed
 
             # List files for specific session
-            python main_v2.py list processed --processing-session 20250115_ABC123
+            python -m main list processed --processing-session 20250115_ABC123
 
             # List only final JPG files
-            python main_v2.py list processed --file-type jpg --subfolder final
+            python -m main list processed --file-type jpg --subfolder final
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -145,7 +145,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             db_session = db_service.db_manager.get_session()
 
             # Build query
@@ -164,7 +164,7 @@ def register_commands(cli):
                 query = query.filter(ProcessedFile.subfolder == subfolder)
 
             # Order by created date
-            query = query.order_by(ProcessedFile.created_at.desc())
+            query = query.order_by(ProcessedFile.created_date.desc())
 
             # Apply limit
             files = query.limit(limit).all()
@@ -208,13 +208,13 @@ def register_commands(cli):
 
         Examples:
             # List 20 most recent sessions
-            python main_v2.py list imaging-sessions
+            python -m main list imaging-sessions
 
             # List 50 recent sessions
-            python main_v2.py list imaging-sessions --recent 50
+            python -m main list imaging-sessions --recent 50
 
             # Filter by equipment
-            python main_v2.py list imaging-sessions --camera ASI2600MM
+            python -m main list imaging-sessions --camera ASI2600MM
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -223,8 +223,8 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
-            sessions = db_service.get_sessions()
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
+            sessions = db_service.get_imaging_sessions()
 
             if camera:
                 sessions = [s for s in sessions if s.camera and camera.lower() in s.camera.lower()]
@@ -246,13 +246,20 @@ def register_commands(cli):
             click.echo("-" * 100)
 
             for s in sessions:
+                # Count files for this imaging session
+                db_session = db_service.db_manager.get_session()
+                file_count = db_session.query(FitsFile).filter(
+                    FitsFile.imaging_session_id == s.id
+                ).count()
+                db_session.close()
+
                 click.echo(format_table_row(
                     [
-                        (s.id or 'N/A')[:25],
-                        (str(s.date) if s.date else 'N/A')[:12],
-                        (s.camera or 'Unknown')[:20],
-                        (s.telescope or 'Unknown')[:20],
-                        str(s.file_count or 0)
+                        (s.id or '-')[:25],
+                        (str(s.date) if s.date else '-')[:12],
+                        (s.camera or '-')[:20],
+                        (s.telescope or '-')[:20],
+                        str(file_count)
                     ],
                     [25, 12, 20, 20, 8]
                 ))
@@ -270,10 +277,10 @@ def register_commands(cli):
 
         Examples:
             # List all processing sessions
-            python main_v2.py list processing-sessions
+            python -m main list processing-sessions
 
             # Filter by status
-            python main_v2.py list processing-sessions --status in_progress
+            python -m main list processing-sessions --status in_progress
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -282,7 +289,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             db_session = db_service.db_manager.get_session()
 
             # Build query
@@ -309,11 +316,11 @@ def register_commands(cli):
             click.echo("-" * 110)
 
             for s in sessions:
-                # Count files
+                # Count files in this processing session
                 db_session = db_service.db_manager.get_session()
-                file_count = db_session.query(FitsFile).join(
-                    FitsFile.processing_sessions
-                ).filter(ProcessingSession.id == s.id).count()
+                file_count = db_session.query(ProcessingSessionFile).filter(
+                    ProcessingSessionFile.processing_session_id == s.id
+                ).count()
                 db_session.close()
 
                 click.echo(format_table_row(

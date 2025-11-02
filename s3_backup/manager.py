@@ -97,23 +97,128 @@ class S3BackupConfig:
         self.base_dir = None  # Will be set by manager
     
     def _load_config(self) -> dict:
-        """Load S3 configuration from file."""
+        """Load S3 configuration from file or create default disabled config."""
         if not self.config_path.exists():
-            raise FileNotFoundError(
-                f"S3 config not found: {self.config_path}\n"
-                "Copy s3_config.json.template to s3_config.json and customize."
-            )
-        
+            logger.info(f"S3 config not found at {self.config_path}, creating default disabled configuration")
+            default_config = self._create_default_config()
+            self._write_config(default_config)
+            return default_config
+
         with open(self.config_path, 'r') as f:
             config = json.load(f)
-        
+
         # Remove comments
         config = {k: v for k, v in config.items() if not k.startswith('_')}
         for section in config.values():
             if isinstance(section, dict):
                 section = {k: v for k, v in section.items() if not k.startswith('_')}
-        
+
         return config
+
+    def _create_default_config(self) -> dict:
+        """Create a default disabled S3 configuration."""
+        return {
+            "enabled": False,
+            "aws_region": "us-east-1",
+            "buckets": {
+                "primary": "your-bucket-name",
+                "backup": None
+            },
+            "s3_paths": {
+                "raw_archives": "backups/raw",
+                "session_notes": "backups/sessions",
+                "processing_notes": "backups/processing",
+                "final_outputs": "backups/final",
+                "database_backups": "backups/database"
+            },
+            "backup_rules": {
+                "raw_lights": {
+                    "archive_policy": "fast",
+                    "backup_policy": "deep",
+                    "archive_days": 7,
+                    "storage_class": "STANDARD"
+                },
+                "raw_calibration": {
+                    "archive_policy": "fast",
+                    "backup_policy": "deep",
+                    "archive_days": 7,
+                    "storage_class": "STANDARD"
+                },
+                "imaging_sessions": {
+                    "archive_policy": "standard",
+                    "backup_policy": "deep",
+                    "archive_days": 30,
+                    "storage_class": "STANDARD"
+                },
+                "processing_sessions": {
+                    "archive_policy": "delayed",
+                    "backup_policy": "flexible",
+                    "archive_days": 90,
+                    "storage_class": "STANDARD"
+                }
+            },
+            "upload_settings": {
+                "multipart_threshold_mb": 100,
+                "multipart_chunksize_mb": 25,
+                "max_concurrency": 4,
+                "use_threads": True,
+                "max_bandwidth_mbps": None
+            },
+            "restore_settings": {
+                "default_tier": "Standard",
+                "default_days": 7,
+                "restore_path": "/path/to/restore"
+            },
+            "archive_settings": {
+                "compression_level": 0,
+                "use_pigz": False,
+                "verify_after_upload": True,
+                "keep_archive_index": True,
+                "max_archive_size_gb": 50,
+                "temp_dir": ".tmp/backup_archives"
+            },
+            "retry_settings": {
+                "max_retries": 3,
+                "initial_backoff_seconds": 2,
+                "max_backoff_seconds": 60,
+                "backoff_multiplier": 2
+            },
+            "logging": {
+                "log_uploads": True,
+                "log_verifications": True,
+                "log_restores": True,
+                "verbose": False
+            },
+            "cost_tracking": {
+                "track_costs": True,
+                "storage_cost_per_gb_per_month": {
+                    "STANDARD": 0.025,
+                    "STANDARD_IA": 0.0138,
+                    "GLACIER_IR": 0.005,
+                    "GLACIER_FLEXIBLE": 0.00405,
+                    "DEEP_ARCHIVE": 0.0018
+                },
+                "data_transfer_cost_per_gb": {
+                    "upload": 0.0,
+                    "download": 0.09
+                }
+            },
+            "notifications": {
+                "email_on_complete": False,
+                "email_address": None,
+                "email_on_error": True
+            }
+        }
+
+    def _write_config(self, config: dict):
+        """Write configuration to disk."""
+        try:
+            with open(self.config_path, 'w') as f:
+                json.dump(config, f, indent=2)
+            logger.info(f"Created default S3 configuration at {self.config_path}")
+            logger.info("Edit this file and set 'enabled' to true when ready to use S3 backups")
+        except Exception as e:
+            logger.error(f"Failed to write default S3 config: {e}")
     
     def set_base_dir(self, base_dir: Path):
         """Set base directory for resolving relative paths."""
@@ -187,15 +292,21 @@ class S3BackupManager:
         self.db_service = db_service
         self.s3_config = s3_config
         self.dry_run = dry_run
+        self.s3_client = None  # Will be None if S3 is disabled
 
         # Set base directory for resolving relative paths
         if base_dir:
             self.s3_config.set_base_dir(base_dir)
 
         if not s3_config.enabled:
-            raise RuntimeError("S3 backup is not enabled in s3_config.json")
+            logger.warning("S3 backup is disabled in s3_config.json")
+            logger.info("S3 Backup Manager initialized in DISABLED mode")
+            logger.info("Set 'enabled' to true in s3_config.json and restart to enable S3 backups")
+            # Still setup temp dir even when disabled for potential future use
+            self._setup_temp_dir()
+            return
 
-        # Initialize S3 client
+        # Initialize S3 client only if enabled
         boto_config = BotoConfig(
             region_name=s3_config.region,
             retries={'max_attempts': 3, 'mode': 'adaptive'}

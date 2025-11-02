@@ -18,8 +18,8 @@ from processing_session_manager import ProcessingSessionManager
 from webdav_server import start_webdav_server, stop_webdav_server
 from web.routes import processed_files
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
+# Setup logging (will be reconfigured after loading config)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Global configuration and services (initialized on startup)
@@ -129,6 +129,11 @@ async def startup_event():
         # Load configuration
         logger.info("Loading configuration...")
         config, cameras, telescopes, filter_mappings = load_config()
+
+        # Reconfigure logging based on config
+        log_level = getattr(logging, config.logging.level.upper(), logging.INFO)
+        logging.getLogger().setLevel(log_level)
+
         logger.info(f"✓ Configuration loaded")
         logger.info(f"  - Cameras: {len(cameras)}")
         logger.info(f"  - Telescopes: {len(telescopes)}")
@@ -143,6 +148,14 @@ async def startup_event():
         # Create database service
         db_service = DatabaseService(db_manager)
         logger.info("✓ Database service initialized")
+
+        # Initialize equipment tables in database
+        from cli.utils import convert_equipment_for_db
+        cameras_dict, telescopes_dict, filter_mappings_dict = convert_equipment_for_db(
+            cameras, telescopes, filter_mappings
+        )
+        db_service.initialize_equipment(cameras_dict, telescopes_dict, filter_mappings_dict)
+        logger.info("✓ Equipment tables initialized")
         
         # Initialize processing session manager (needs config AND db_service)
         logger.info("Initializing processing session manager...")

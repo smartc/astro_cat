@@ -8,7 +8,7 @@ from cli.utils import (
     handle_error,
     get_db_service
 )
-from models import ImagingSession
+from models import ImagingSession, FitsFile
 
 
 def register_commands(cli):
@@ -32,7 +32,7 @@ def register_commands(cli):
         """Show detailed information about an imaging session.
 
         Examples:
-            python main_v2.py imaging-session info 20240815_001
+            python -m main imaging-session info 20240815_001
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -41,7 +41,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             db_session = db_service.db_manager.get_session()
 
             session = db_session.query(ImagingSession).filter(
@@ -61,9 +61,33 @@ def register_commands(cli):
             click.echo(f"\nSession ID:  {session.id}")
             click.echo(f"Date:        {session.date or 'Unknown'}")
             click.echo(f"Camera:      {session.camera or 'Unknown'}")
-            click.echo(f"Telescope:   {session.telescope or 'Unknown'}")
-            click.echo(f"Location:    {session.location or 'Unknown'}")
-            click.echo(f"File Count:  {session.file_count or 0}")
+            click.echo(f"Telescope:   {session.telescope or '-'}")
+            click.echo(f"Site:        {session.site_name or '-'}")
+            click.echo(f"Observer:    {session.observer or '-'}")
+
+            # Get files in this session
+            files = db_session.query(FitsFile).filter(
+                FitsFile.imaging_session_id == session_id
+            ).all()
+
+            click.echo(f"File Count:  {len(files)}")
+
+            # Show file breakdown by frame type
+            if files:
+                frame_types = {}
+                for f in files:
+                    ft = f.frame_type or 'UNKNOWN'
+                    frame_types[ft] = frame_types.get(ft, 0) + 1
+
+                click.echo("\nFrame Types:")
+                for ft, count in sorted(frame_types.items()):
+                    click.echo(f"  {ft}: {count}")
+
+                # Show file list
+                click.echo("\nFiles:")
+                for f in files:
+                    telescope_display = f.telescope or '-'
+                    click.echo(f"  {f.file:40s}  {f.frame_type:10s}  Telescope: {telescope_display:15s}  Score: {f.validation_score or 0}")
 
             if session.notes:
                 click.echo(f"\nNotes:\n{session.notes}")
@@ -83,7 +107,7 @@ def register_commands(cli):
         """Add or update notes for an imaging session.
 
         Examples:
-            python main_v2.py imaging-session notes 20240815_001 "Clear skies, excellent seeing"
+            python -m main imaging-session notes 20240815_001 "Clear skies, excellent seeing"
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -92,7 +116,7 @@ def register_commands(cli):
             config, cameras, telescopes, filter_mappings = load_app_config(config_path)
             setup_logging(config, verbose)
 
-            db_service = get_db_service(config)
+            db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             db_session = db_service.db_manager.get_session()
 
             session = db_session.query(ImagingSession).filter(
