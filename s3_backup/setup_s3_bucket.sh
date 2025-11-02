@@ -516,6 +516,7 @@ configure_versioning() {
 
     if aws s3api put-bucket-versioning \
         --bucket "$BUCKET_NAME" \
+        --region "$AWS_REGION" \
         --versioning-configuration Status=Enabled 2>/dev/null; then
         print_success "Bucket versioning enabled"
     else
@@ -529,8 +530,12 @@ configure_versioning() {
 ################################################################################
 
 configure_lifecycle_policy() {
+    # Temporarily disable exit on error for this function to handle errors gracefully
+    set +e
+
     if [[ "$APPLY_LIFECYCLE" != "true" ]]; then
         print_info "Skipping lifecycle policy configuration"
+        set -e
         return 0
     fi
 
@@ -541,20 +546,28 @@ configure_lifecycle_policy() {
         print_error "Lifecycle policy file not found: $LIFECYCLE_POLICY_FILE"
         print_warning "Skipping lifecycle policy configuration"
         print_info "Expected location: $LIFECYCLE_POLICY_FILE"
+        set -e
         return 1
     fi
 
     print_info "Applying lifecycle policy from: $LIFECYCLE_POLICY_FILE"
+    print_info "Bucket: $BUCKET_NAME"
+    print_info "Region: $AWS_REGION"
     print_info ""
 
-    # Show what we're about to apply
+    # Show what we're about to apply (with better error handling)
     if command_exists jq; then
         print_info "Policy contents:"
-        jq -C '.' "$LIFECYCLE_POLICY_FILE" 2>/dev/null | sed 's/^/  /' || cat "$LIFECYCLE_POLICY_FILE" | sed 's/^/  /'
+        if jq -C '.' "$LIFECYCLE_POLICY_FILE" 2>/dev/null; then
+            : # jq succeeded, output already shown
+        else
+            cat "$LIFECYCLE_POLICY_FILE"
+        fi | sed 's/^/  /' || true
         echo ""
     fi
 
     # Try to apply the lifecycle configuration and capture error output
+    print_info "Executing: aws s3api put-bucket-lifecycle-configuration..."
     local error_output
     error_output=$(aws s3api put-bucket-lifecycle-configuration \
         --bucket "$BUCKET_NAME" \
@@ -562,8 +575,10 @@ configure_lifecycle_policy() {
         --region "$AWS_REGION" 2>&1)
     local exit_code=$?
 
+    print_info "Command exit code: $exit_code"
+
     if [[ $exit_code -eq 0 ]]; then
-        print_success "Lifecycle policy command completed"
+        print_success "Lifecycle policy command completed successfully"
 
         # Verify the policy was actually applied
         print_info "Verifying lifecycle policy was applied..."
@@ -577,22 +592,31 @@ configure_lifecycle_policy() {
 
         if [[ $verify_code -eq 0 ]]; then
             local rule_count
-            rule_count=$(echo "$verify_output" | jq -r '.Rules | length' 2>/dev/null || echo "unknown")
+            if command_exists jq; then
+                rule_count=$(echo "$verify_output" | jq -r '.Rules | length' 2>/dev/null)
+                if [[ -z "$rule_count" ]]; then
+                    rule_count="unknown"
+                fi
+            else
+                rule_count="unknown"
+            fi
+
             print_success "Lifecycle policy verified! ($rule_count rules active)"
 
             if command_exists jq && [[ "$rule_count" != "unknown" ]]; then
                 echo ""
                 print_info "Active rules:"
-                echo "$verify_output" | jq -r '.Rules[] | "  • \(.Id): \(.Status)"' 2>/dev/null
+                echo "$verify_output" | jq -r '.Rules[] | "  • \(.Id): \(.Status)"' 2>/dev/null || echo "  (Could not parse rules)"
                 echo ""
             fi
         else
             print_warning "Could not verify lifecycle policy"
-            echo -e "${YELLOW}Verification output:${NC}"
+            echo -e "${YELLOW}Verification error:${NC}"
             echo "$verify_output" | sed 's/^/  /'
+            echo ""
         fi
     else
-        print_error "Failed to apply lifecycle policy"
+        print_error "Failed to apply lifecycle policy (exit code: $exit_code)"
         echo -e "${RED}Error details:${NC}"
         echo "$error_output" | sed 's/^/  /'
         echo ""
@@ -607,8 +631,12 @@ configure_lifecycle_policy() {
         print_info ""
         print_info "Or using the s3_backup CLI:"
         print_info "  python -m s3_backup.cli configure-lifecycle --bucket $BUCKET_NAME"
+        set -e
         return 1
     fi
+
+    # Re-enable exit on error
+    set -e
 }
 
 ################################################################################
@@ -633,7 +661,7 @@ validate_setup() {
     if [[ "$ENABLE_VERSIONING" == "true" ]]; then
         print_info "Checking versioning status..."
         local version_status
-        version_status=$(aws s3api get-bucket-versioning --bucket "$BUCKET_NAME" --query Status --output text 2>/dev/null)
+        version_status=$(aws s3api get-bucket-versioning --bucket "$BUCKET_NAME" --region "$AWS_REGION" --query Status --output text 2>/dev/null)
 
         if [[ "$version_status" == "Enabled" ]]; then
             print_success "Versioning is enabled"
@@ -645,9 +673,9 @@ validate_setup() {
     # Check lifecycle policy
     if [[ "$APPLY_LIFECYCLE" == "true" ]]; then
         print_info "Checking lifecycle policy..."
-        if aws s3api get-bucket-lifecycle-configuration --bucket "$BUCKET_NAME" &>/dev/null; then
+        if aws s3api get-bucket-lifecycle-configuration --bucket "$BUCKET_NAME" --region "$AWS_REGION" &>/dev/null; then
             local rule_count
-            rule_count=$(aws s3api get-bucket-lifecycle-configuration --bucket "$BUCKET_NAME" --query 'length(Rules)' --output text 2>/dev/null)
+            rule_count=$(aws s3api get-bucket-lifecycle-configuration --bucket "$BUCKET_NAME" --region "$AWS_REGION" --query 'length(Rules)' --output text 2>/dev/null)
             print_success "Lifecycle policy is active ($rule_count rules)"
         else
             print_warning "No lifecycle policy configured"
@@ -710,9 +738,9 @@ print_next_steps() {
     echo "   $ python -m s3_backup.cli backup --session-id <session_id>"
     echo ""
     echo -e "${CYAN}Useful commands:${NC}"
-    echo "  • List bucket contents: aws s3 ls s3://$BUCKET_NAME"
-    echo "  • View bucket info: aws s3api head-bucket --bucket $BUCKET_NAME"
-    echo "  • Check lifecycle: aws s3api get-bucket-lifecycle-configuration --bucket $BUCKET_NAME"
+    echo "  • List bucket contents: aws s3 ls s3://$BUCKET_NAME --region $AWS_REGION"
+    echo "  • View bucket info: aws s3api head-bucket --bucket $BUCKET_NAME --region $AWS_REGION"
+    echo "  • Check lifecycle: aws s3api get-bucket-lifecycle-configuration --bucket $BUCKET_NAME --region $AWS_REGION"
     echo ""
     echo -e "${YELLOW}Documentation:${NC}"
     echo "  • s3_backup README: $SCRIPT_DIR/README.md"
