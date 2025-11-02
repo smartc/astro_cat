@@ -514,59 +514,51 @@ class FileOrganizer:
         """Preview the folder structure that would be created without moving files."""
         session = self.db_service.db_manager.get_session()
         try:
-            # Get physical files instead of database records to avoid path issues
-            quarantine_path = Path(self.config.paths.quarantine_dir)
-            physical_files = []
-            for ext in ['.fits', '.fit', '.fts']:
-                files = list(quarantine_path.rglob(f"*{ext}"))
-                # Filter out duplicates and bad files folders for preview
-                files = [f for f in files if not any(folder in str(f) for folder in ["Duplicates", "Bad"])]
-                physical_files.extend(files)
-            
-            if not physical_files:
+            # Get database records for files ready to migrate (validation score > 95)
+            db_files = session.query(FitsFile).filter(
+                FitsFile.folder.like(f"%{self.config.paths.quarantine_dir}%"),
+                FitsFile.validation_score > 95.0
+            ).limit(limit).all()
+
+            if not db_files:
                 return []
-            
-            # Limit files for preview
-            preview_files = physical_files[:limit]
-            
-            # Extract basic metadata for preview
+
+            # Convert to migration format and generate paths
             preview_paths = []
-            for file_path in preview_files:
+            for db_file in db_files:
                 try:
-                    # Simple preview - use filename patterns to estimate structure
-                    filename = file_path.name
-                    folder_parts = file_path.parent.parts
-                    
-                    # Try to extract basic info from path/filename
-                    if "Light" in str(file_path) or "_LIGHT_" in filename:
-                        frame_type = "LIGHT"
-                    elif "Flat" in str(file_path) or "_FLAT_" in filename:
-                        frame_type = "FLAT"
-                    elif "Dark" in str(file_path) or "_DARK_" in filename:
-                        frame_type = "DARK"
-                    elif "Bias" in str(file_path) or "_BIAS_" in filename:
-                        frame_type = "BIAS"
-                    else:
-                        frame_type = "UNKNOWN"
-                    
-                    # Create sample destination path
-                    base_path = Path(self.config.paths.image_dir)
-                    if frame_type == "LIGHT":
-                        dest = base_path / "TARGET" / "CAMERA" / "TELESCOPE" / "FILTER" / "DATE"
-                    else:
-                        dest = base_path / "CALIBRATION" / "CAMERA" / frame_type / "DATE"
-                    
-                    sample_filename = f"standardized_{frame_type.lower()}_0001.fits"
-                    full_path = str(dest / sample_filename)
+                    # Convert database record to dictionary format
+                    record = {
+                        'id': db_file.id,
+                        'file': db_file.file,
+                        'folder': db_file.folder,
+                        'object': db_file.object,
+                        'frame_type': db_file.frame_type,
+                        'camera': db_file.camera,
+                        'telescope': db_file.telescope,
+                        'filter': db_file.filter,
+                        'exposure': db_file.exposure,
+                        'obs_date': db_file.obs_date,
+                        'obs_timestamp': db_file.obs_timestamp,
+                        'mosaic': getattr(db_file, 'mosaic', None)
+                    }
+
+                    # Generate the actual destination path using real metadata
+                    dest_path = self.determine_destination_path(record)
+
+                    # Generate the actual standardized filename
+                    filename = self.generate_standardized_filename(record, 1)
+
+                    # Combine into full path
+                    full_path = str(Path(dest_path) / filename)
                     preview_paths.append(full_path)
-                    
-                except Exception:
-                    # Fallback for problematic files
-                    dest = Path(self.config.paths.image_dir) / "UNKNOWN" / "preview_file.fits"
-                    preview_paths.append(str(dest))
-            
+
+                except Exception as e:
+                    logger.warning(f"Error generating preview for {db_file.file}: {e}")
+                    continue
+
             return preview_paths
-            
+
         finally:
             session.close()
     
