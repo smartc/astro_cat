@@ -283,8 +283,8 @@ def extract_fits_metadata_simple(filepath: str, header,
     binning = get_header_value(header, ['XBINNING', 'BINNING'], int, 1)
     
     # Image dimensions
-    x = get_header_value(header, ['NAXIS1'], int)
-    y = get_header_value(header, ['NAXIS2'], int)
+    width_pixels = get_header_value(header, ['NAXIS1'], int)
+    height_pixels = get_header_value(header, ['NAXIS2'], int)
     
     # Normalize frame type (profile may have already mapped it)
     frame_type = normalize_frame_type(frame_type_raw)
@@ -298,27 +298,27 @@ def extract_fits_metadata_simple(filepath: str, header,
     
     # Identify equipment using current function signatures
     camera_name = identify_camera_simple(
-        x, y, instrument, binning, cameras_dict
+        width_pixels, height_pixels, instrument, binning, cameras_dict
     )
-    
+
     telescope_name = identify_telescope_simple(
         focal_len_raw, telescopes_dict
     )
-    
+
     filter_name = normalize_filter(filter_raw, filter_mappings)
-    
+
     # Coordinates
     ra = parse_coordinate(header, ['OBJCTRA', 'RA'])
     dec = parse_coordinate(header, ['OBJCTDEC', 'DEC'])
-    
+
     # Location
     latitude = get_header_value(header, ['SITELAT'], float)
     longitude = get_header_value(header, ['SITELONG'], float)
     elevation = get_header_value(header, ['SITEELEV'], float)
-    
+
     # Calculate field of view
     fov_data = calculate_field_of_view_simple(
-        camera_name, telescope_name, x, y, binning, 
+        camera_name, telescope_name, width_pixels, height_pixels, binning,
         cameras_dict, telescopes_dict
     )
     
@@ -329,8 +329,8 @@ def extract_fits_metadata_simple(filepath: str, header,
         'obs_timestamp': obs_timestamp_truncated,
         'ra': str(ra) if ra is not None else None,
         'dec': str(dec) if dec is not None else None,
-        'x': x,
-        'y': y,
+        'width_pixels': width_pixels,
+        'height_pixels': height_pixels,
         'frame_type': frame_type,
         'filter': filter_name,
         'focal_length': focal_len_raw,
@@ -346,14 +346,15 @@ def extract_fits_metadata_simple(filepath: str, header,
     metadata.update(fov_data)
     
     # Generate session ID
-    metadata['session_id'] = generate_session_id_with_hash(
-        obs_date, instrument, focal_len_raw, x, y, 
+    session_id = generate_session_id_with_hash(
+        obs_date, instrument, focal_len_raw, width_pixels, height_pixels,
         filter_wheel, observer, site_name
     )
-    
+    metadata['imaging_session_id'] = session_id
+
     # Store session data
     metadata['_session_data'] = {
-        'session_id': metadata['session_id'],
+        'session_id': session_id,
         'session_date': obs_date,
         'telescope': telescope_name,
         'camera': camera_name,

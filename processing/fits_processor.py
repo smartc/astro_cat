@@ -312,7 +312,7 @@ class OptimizedFitsProcessor:
         
         stats = {
             'total_files': len(df),
-            'unique_sessions': df['session_id'].n_unique(),
+            'unique_sessions': df['imaging_session_id'].n_unique(),
             'unique_cameras': df['camera'].n_unique(),
             'unique_telescopes': df['telescope'].n_unique(),
             'unique_filters': df['filter'].n_unique(),
