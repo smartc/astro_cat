@@ -312,22 +312,36 @@ check_aws_configuration() {
                 exit 1
             fi
 
-            # Prompt for secret key (hidden input)
+            # Prompt for secret key (hidden input with visual feedback)
             read -r -s -p "AWS Secret Access Key: " aws_secret_key
-            echo ""
+            # Show asterisks as feedback
+            if [[ -n "$aws_secret_key" ]]; then
+                echo " $(printf '*%.0s' {1..40})"
+            else
+                echo ""
+            fi
             if [[ -z "$aws_secret_key" ]]; then
                 print_error "Secret Access Key is required"
                 exit 1
             fi
 
-            # Configure credentials and defaults
+            # Prompt for region with default
+            echo ""
+            read -r -p "Default region name [us-west-2]: " aws_region
+            aws_region=${aws_region:-us-west-2}
+
+            # Prompt for output format with default
+            read -r -p "Default output format [json]: " aws_output
+            aws_output=${aws_output:-json}
+
+            # Configure credentials and settings
             aws configure set aws_access_key_id "$aws_access_key"
             aws configure set aws_secret_access_key "$aws_secret_key"
-            aws configure set region us-west-2
-            aws configure set output json
+            aws configure set region "$aws_region"
+            aws configure set output "$aws_output"
 
-            print_success "Set default region to us-west-2"
-            print_success "Set default output format to json"
+            print_success "Set default region to $aws_region"
+            print_success "Set default output format to $aws_output"
 
             # Verify after configuration
             if aws sts get-caller-identity &>/dev/null; then
