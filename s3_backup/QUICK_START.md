@@ -118,7 +118,7 @@ Creating archive: /tmp/astrocat_archives/20170811_4B772986.tar
 
 Uploading archive to S3...
   Source: /tmp/astrocat_archives/20170811_4B772986.tar
-  Destination: s3://fits-cataloger-backup-cs-7a3f/backups/raw/2017/20170811_4B772986.tar
+  Destination: s3://your-bucket-name/backups/raw/2017/20170811_4B772986.tar
 ✓ Upload complete
   ETag: abc123...
   Time: 45.3s
@@ -184,7 +184,7 @@ python -m s3_backup.cli status
 S3 BACKUP STATUS
 ================================================================================
 
-Bucket: s3://fits-cataloger-backup-cs-7a3f
+Bucket: s3://your-bucket-name
 Region: ca-west-1
 
 Sessions:
@@ -284,7 +284,7 @@ After initial backup, weekly check for new sessions:
 python -m s3_backup.cli upload
 
 # Or add to crontab for automatic weekly backup
-0 2 * * 0 cd /home/corey/projects/astro_cat && source venv/bin/activate && python -m s3_backup.cli upload >> /var/log/astrocat_backup.log 2>&1
+0 2 * * 0 cd /path/to/astro_cat && source venv/bin/activate && python -m s3_backup.cli upload >> /var/log/astrocat_backup.log 2>&1
 ```
 
 ## Troubleshooting
@@ -292,10 +292,10 @@ python -m s3_backup.cli upload
 ### "Bucket not found"
 ```bash
 # Verify bucket exists
-aws s3 ls s3://fits-cataloger-backup-cs-7a3f/
+aws s3 ls s3://your-bucket-name/
 
 # Check region
-aws s3api get-bucket-location --bucket fits-cataloger-backup-cs-7a3f
+aws s3api get-bucket-location --bucket your-bucket-name
 ```
 
 ### "No space left on device"

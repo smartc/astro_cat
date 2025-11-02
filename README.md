@@ -103,7 +103,13 @@ You should see the CLI help menu with available commands.
 
 ### 1. Configure Paths
 
-Edit `config.json` to set your file locations:
+First, copy the template configuration file:
+
+```bash
+cp config.json.template config.json
+```
+
+Then edit `config.json` to set your file locations:
 
 ```json
 {

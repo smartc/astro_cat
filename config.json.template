@@ -1,0 +1,39 @@
+{
+  "_comment": "Copy this file to config.json and customize the paths for your system",
+  "_comment_paths": "Update all paths below to match your local filesystem structure",
+
+  "paths": {
+    "quarantine_dir": "/path/to/your/astro/Quarantine",
+    "image_dir": "/path/to/your/astro/Images",
+    "processing_dir": "/path/to/your/astro/Processing",
+    "database_path": "/path/to/your/astro/fits_catalog.db",
+    "restore_folder": "/path/to/your/astro/.tmp/restore",
+    "notes_dir": "/path/to/your/astro/Session_Notes"
+  },
+  "database": {
+    "type": "sqlite",
+    "connection_string": "sqlite:///{{database_path}}",
+    "tables": {
+      "fits_files": "fits_files",
+      "process_log": "process_log",
+      "cameras": "cameras",
+      "telescopes": "telescopes"
+    }
+  },
+   "file_monitoring": {
+       "scan_interval_minutes": 30,
+       "ignore_newer_than_minutes": 30
+   },
+  "equipment": {
+    "cameras_file": "cameras.json",
+    "telescopes_file": "telescopes.json",
+    "filters_file": "filters.json"
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "fits_cataloger.log",
+    "max_bytes": 10485760,
+    "backup_count": 5
+  },
+  "timezone_offset": 0
+}

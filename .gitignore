@@ -217,6 +217,9 @@ dashboard_stats_cache.json
 *.tar.gz
 _archive_temp/
 
+# Main config file (use config.json.template)
+config.json
+
 
 # Corey's Stuff
 _debug_code_/
