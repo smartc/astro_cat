@@ -176,21 +176,21 @@ class ProcessedFileCataloger:
         
         return None
     
-    def catalog_file(self, filepath: Path, file_type: str, 
+    def catalog_file(self, filepath: Path, file_type: str,
                     session_id: str, subfolder: str,
                     session_objects: List[str]) -> bool:
         """
         Catalog a single file.
-        
+
         Args:
             filepath: Path to file
             file_type: Type of file
             session_id: Processing session ID
             subfolder: Subfolder (final/intermediate)
             session_objects: Objects in the session
-            
+
         Returns:
-            True if cataloged, False if skipped
+            True if cataloged/updated, False if skipped
         """
         session = self.Session()
         try:
@@ -198,21 +198,21 @@ class ProcessedFileCataloger:
             existing = session.query(ProcessedFile).filter(
                 ProcessedFile.file_path == str(filepath)
             ).first()
-            
+
             if existing:
                 # Check if modified since last catalog
                 current_mtime = datetime.fromtimestamp(filepath.stat().st_mtime)
                 if existing.modified_date and current_mtime <= existing.modified_date:
-                    self.stats['files_skipped'] += 1
+                    # File unchanged - skip it (shouldn't happen often due to pre-filtering)
                     return False
-                
+
                 # File modified, update it
                 logger.info(f"Updating modified file: {filepath.name}")
-                self._update_file_record(session, existing, filepath, file_type, 
+                self._update_file_record(session, existing, filepath, file_type,
                                        subfolder, session_objects)
                 self.stats['files_updated'] += 1
                 return True
-            
+
             # New file, catalog it
             logger.info(f"Cataloging: {filepath.name}")
             
@@ -262,12 +262,12 @@ class ProcessedFileCataloger:
         finally:
             session.close()
     
-    def _update_file_record(self, session, existing: ProcessedFile, 
+    def _update_file_record(self, session, existing: ProcessedFile,
                           filepath: Path, file_type: str,
                           subfolder: str, session_objects: List[str]):
         """Update an existing file record."""
         metadata = extract_processed_file_metadata(filepath, file_type)
-        
+
         # Update fields
         existing.file_size = metadata['file_size']
         existing.modified_date = metadata['modified_date']
@@ -281,50 +281,116 @@ class ProcessedFileCataloger:
         existing.color_space = metadata['color_space']
         existing.metadata_json = metadata['metadata_json']
         existing.updated_at = datetime.utcnow()
-        
+
         # Re-detect associated object in case it changed
         associated_object = self.detect_associated_object(
             filepath.name, session_objects
         )
         if associated_object:
             existing.associated_object = associated_object
-        
+
         session.commit()
-    
+
+    def _filter_files_needing_processing(self, discovered_files: List[Tuple[Path, str, str]],
+                                        session_id: str) -> List[Tuple[Path, str, str]]:
+        """
+        Filter discovered files to only those that need processing.
+
+        Args:
+            discovered_files: List of (filepath, file_type, subfolder) tuples
+            session_id: Processing session ID
+
+        Returns:
+            Filtered list of files that need cataloging (new or modified)
+        """
+        if not discovered_files:
+            return []
+
+        session = self.Session()
+        try:
+            # Get all existing files for this session from database
+            existing_files = session.query(ProcessedFile).filter(
+                ProcessedFile.processing_session_id == session_id
+            ).all()
+
+            # Create a map of file_path -> ProcessedFile for quick lookup
+            existing_map = {pf.file_path: pf for pf in existing_files}
+
+            # Filter to only files that need processing
+            files_to_process = []
+            for filepath, file_type, subfolder in discovered_files:
+                filepath_str = str(filepath)
+
+                # Check if file exists in database
+                existing = existing_map.get(filepath_str)
+
+                if not existing:
+                    # New file - needs processing
+                    files_to_process.append((filepath, file_type, subfolder))
+                else:
+                    # File exists - check if modified
+                    current_mtime = datetime.fromtimestamp(filepath.stat().st_mtime)
+                    if not existing.modified_date or current_mtime > existing.modified_date:
+                        # Modified file - needs processing
+                        files_to_process.append((filepath, file_type, subfolder))
+                    # else: unchanged file - skip it
+
+            return files_to_process
+
+        finally:
+            session.close()
+
     def catalog_session(self, session_info: Dict) -> int:
         """
         Catalog all files in a processing session.
-        
+
         Args:
             session_info: Session information dictionary
-            
+
         Returns:
             Number of files cataloged
         """
         logger.info(f"Scanning session: {session_info['name']} ({session_info['id']})")
-        
+
         folder_path = session_info['folder_path']
         session_objects = session_info['objects']
-        
+
         # Discover files
         discovered_files = self.discover_files(folder_path)
-        
+
         if not discovered_files:
             logger.info(f"  No processable files found")
             return 0
-        
+
         logger.info(f"  Found {len(discovered_files)} file(s)")
         self.stats['files_found'] += len(discovered_files)
-        
-        # Catalog each file with progress bar
+
+        # Filter to only files that need processing (new or modified)
+        files_to_process = self._filter_files_needing_processing(
+            discovered_files, session_info['id']
+        )
+
+        if not files_to_process:
+            logger.info(f"  All files already cataloged (no changes)")
+            # All files were skipped
+            self.stats['files_skipped'] += len(discovered_files)
+            return 0
+
+        logger.info(f"  Processing {len(files_to_process)} new/modified file(s)")
+        if len(files_to_process) < len(discovered_files):
+            skipped_count = len(discovered_files) - len(files_to_process)
+            logger.info(f"  Skipping {skipped_count} unchanged file(s)")
+            self.stats['files_skipped'] += skipped_count
+
+        # Catalog each file with progress bar (only for files that need processing)
         cataloged = 0
-        with tqdm(total=len(discovered_files), desc="Cataloging files", unit="file") as pbar:
-            for filepath, file_type, subfolder in discovered_files:
-                if self.catalog_file(filepath, file_type, session_info['id'], 
+        with tqdm(total=len(files_to_process), desc="Cataloging files", unit="file") as pbar:
+            for filepath, file_type, subfolder in files_to_process:
+                if self.catalog_file(filepath, file_type, session_info['id'],
                                    subfolder, session_objects):
                     cataloged += 1
                 pbar.update(1)
-        
+
         return cataloged
     
     def run(self, processing_dir: Path, session_id: Optional[str] = None):
