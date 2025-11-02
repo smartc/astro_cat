@@ -1137,7 +1137,7 @@ _No processing steps completed yet_
             # Format objects list
             objects_str = ', '.join(objects) if objects else 'No objects specified'
 
-            # Default folder structure (to avoid backslash issues in f-strings)
+            # Default values for sections (to avoid backslash issues in f-strings)
             default_folder_structure = f'''```
 {ps.id}/
 ├── raw/
@@ -1151,6 +1151,8 @@ _No processing steps completed yet_
     ├── drafts/          # Draft versions
     └── published/       # Published versions
 ```'''
+            default_timeline = '- **Started:** _TBD_\n- **Completed:** _TBD_'
+            default_references = '- **AstroBin URL:** _TBD_\n- **Social Media:** _TBD_'
 
             # Reconstruct file with updated sections and preserved custom content
             content = f"""# Processing Session: {ps.name}
@@ -1181,10 +1183,10 @@ _No processing steps completed yet_
 {preserved_sections.get('Processing Notes', ps.notes or '_No notes provided_')}
 
 ## Processing Timeline
-{preserved_sections.get('Processing Timeline', '- **Started:** _TBD_\n- **Completed:** _TBD_')}
+{preserved_sections.get('Processing Timeline', default_timeline)}
 
 ## External References
-{preserved_sections.get('External References', '- **AstroBin URL:** _TBD_\n- **Social Media:** _TBD_')}
+{preserved_sections.get('External References', default_references)}
 
 ## Folder Structure
 {preserved_sections.get('Folder Structure', default_folder_structure)}
