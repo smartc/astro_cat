@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from validation import FitsValidator
 from file_organizer import FileOrganizer
 from fits_processor import OptimizedFitsProcessor
+from processed_catalog.cataloger import ProcessedFileCataloger
 from web.dependencies import get_config, get_db_service
 import web.background_tasks as bg_tasks
 from web import dashboard_cache
@@ -107,22 +108,79 @@ def _run_scan_sync(task_id: str):
             if orphaned_count > 0:
                 logger.info(f"Cleaned up {orphaned_count} orphaned imaging sessions")
 
+            # Catalog processed files (final and intermediate outputs)
+            bg_tasks.set_task_status(task_id, "running", "Cataloging processed files...", 90)
+            logger.info("Cataloging processed files...")
+
+            from pathlib import Path
+            processed_cataloger = ProcessedFileCataloger(config.paths.database_path)
+            processing_dir = Path(config.paths.processing_dir)
+
+            # Get sessions and catalog files
+            sessions_to_catalog = processed_cataloger.get_processing_sessions(processing_dir)
+            logger.info(f"Found {len(sessions_to_catalog)} processing session(s) to catalog")
+
+            for session_info in sessions_to_catalog:
+                processed_cataloger.catalog_session(session_info)
+
+            processed_stats = processed_cataloger.stats
+            logger.info(f"Processed file cataloging: {processed_stats['files_cataloged']} cataloged, "
+                       f"{processed_stats['files_updated']} updated, "
+                       f"{processed_stats['files_skipped']} skipped")
+
             results = {
                 'added': new_files,
                 'duplicates': duplicates,
-                'sessions': len(sessions)
+                'sessions': len(sessions),
+                'processed_cataloged': processed_stats['files_cataloged'],
+                'processed_updated': processed_stats['files_updated'],
+                'processed_skipped': processed_stats['files_skipped']
             }
 
             # Refresh dashboard cache with new file counts
             refresh_dashboard_cache()
 
             bg_tasks.set_task_status(task_id, "completed",
-                f"Scan completed: {new_files} new files, {duplicates} duplicates", 100,
+                f"Scan completed: {new_files} new files, {duplicates} duplicates, "
+                f"{processed_stats['files_cataloged']} processed cataloged", 100,
                 new_files=new_files, duplicates=duplicates, results=results)
         else:
-            logger.info("No new files found")
-            results = {'added': 0, 'duplicates': 0, 'sessions': 0}
-            bg_tasks.set_task_status(task_id, "completed", "No new files found", 100,
+            logger.info("No new raw files found")
+
+            # Still catalog processed files even if no raw files found
+            bg_tasks.set_task_status(task_id, "running", "Cataloging processed files...", 50)
+            logger.info("Cataloging processed files...")
+
+            from pathlib import Path
+            processed_cataloger = ProcessedFileCataloger(config.paths.database_path)
+            processing_dir = Path(config.paths.processing_dir)
+
+            # Get sessions and catalog files
+            sessions_to_catalog = processed_cataloger.get_processing_sessions(processing_dir)
+            logger.info(f"Found {len(sessions_to_catalog)} processing session(s) to catalog")
+
+            for session_info in sessions_to_catalog:
+                processed_cataloger.catalog_session(session_info)
+
+            processed_stats = processed_cataloger.stats
+            logger.info(f"Processed file cataloging: {processed_stats['files_cataloged']} cataloged, "
+                       f"{processed_stats['files_updated']} updated, "
+                       f"{processed_stats['files_skipped']} skipped")
+
+            results = {
+                'added': 0,
+                'duplicates': 0,
+                'sessions': 0,
+                'processed_cataloged': processed_stats['files_cataloged'],
+                'processed_updated': processed_stats['files_updated'],
+                'processed_skipped': processed_stats['files_skipped']
+            }
+
+            message = "Scan completed: No new raw files"
+            if processed_stats['files_cataloged'] > 0:
+                message += f", {processed_stats['files_cataloged']} processed cataloged"
+
+            bg_tasks.set_task_status(task_id, "completed", message, 100,
                 results=results)
 
     except Exception as e:
