@@ -55,6 +55,108 @@ SESSION_ID.tar
 - **s3_backup_log**: Operation audit log
 - **s3_backup_stats**: Historical statistics
 
+## Prerequisites
+
+### AWS Account Setup (First-Time Users)
+
+If you don't have an AWS account or IAM user yet, follow these steps:
+
+#### 1. Create an AWS Account
+
+If you don't have an AWS account:
+1. Go to https://aws.amazon.com/
+2. Click "Create an AWS Account"
+3. Follow the registration process
+4. You'll need a credit card, but S3 has a generous free tier
+
+**AWS Free Tier**: 5 GB of S3 storage, 20,000 GET requests, and 2,000 PUT requests per month for 12 months.
+
+For detailed instructions: https://docs.aws.amazon.com/accounts/latest/reference/manage-acct-creating.html
+
+#### 2. Create an IAM User (Recommended)
+
+**Important**: Don't use your root AWS account credentials for this application. Create a dedicated IAM user.
+
+1. **Sign in to AWS Console**: https://console.aws.amazon.com/
+2. **Go to IAM**: Search for "IAM" in the AWS Console
+3. **Create User**:
+   - Click "Users" → "Create user"
+   - Username: `fits-backup-user` (or your preferred name)
+   - Select "Provide user access to the AWS Management Console" - **OPTIONAL**
+   - Click "Next"
+
+4. **Set Permissions**:
+   - Choose "Attach policies directly"
+   - Search for and select: **`AmazonS3FullAccess`**
+   - Click "Next" → "Create user"
+
+   **Note**: For tighter security, you can use a custom policy (see below) instead of `AmazonS3FullAccess`.
+
+5. **Create Access Keys**:
+   - Click on your newly created user
+   - Go to "Security credentials" tab
+   - Click "Create access key"
+   - Choose "Command Line Interface (CLI)"
+   - Check the confirmation box
+   - Click "Create access key"
+   - **IMPORTANT**: Download the CSV or copy the Access Key ID and Secret Access Key
+   - You won't be able to see the Secret Access Key again!
+
+For detailed instructions:
+- Creating IAM users: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users_create.html
+- Creating access keys: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html
+
+#### 3. Minimum Required Permissions
+
+For better security, you can create a custom IAM policy with only the required permissions:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:ListBucket",
+        "s3:GetBucketLocation",
+        "s3:GetBucketVersioning",
+        "s3:PutBucketVersioning",
+        "s3:GetBucketLifecycleConfiguration",
+        "s3:PutBucketLifecycleConfiguration",
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject",
+        "s3:PutObjectTagging",
+        "s3:GetObjectTagging"
+      ],
+      "Resource": [
+        "arn:aws:s3:::fits-cataloger-backup-*",
+        "arn:aws:s3:::fits-cataloger-backup-*/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListAllMyBuckets"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+This policy:
+- Only allows access to buckets matching `fits-cataloger-backup-*`
+- Includes permissions for bucket creation, lifecycle management, and object operations
+- Restricts access to specific bucket patterns for security
+
+To use this custom policy:
+1. In IAM, go to "Policies" → "Create policy"
+2. Choose "JSON" tab and paste the policy above
+3. Name it `FITSBackupPolicy`
+4. Attach this policy to your IAM user instead of `AmazonS3FullAccess`
+
 ## Setup
 
 ### Quick Start (Recommended)
@@ -62,9 +164,15 @@ SESSION_ID.tar
 Use the automated setup script to create and configure your S3 bucket:
 
 ```bash
+# From the main project directory:
+./s3_backup/setup_s3_bucket.sh
+
+# Or from the s3_backup directory:
 cd s3_backup/
 ./setup_s3_bucket.sh
 ```
+
+**Note**: You can run the script from any directory - it will find its files correctly.
 
 The script will:
 - Check/install AWS CLI v2 if needed
@@ -464,28 +572,26 @@ python main.py s3 upload --year 2024
 
 ### Error: "Access denied"
 
-Check IAM permissions:
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "s3:PutObject",
-        "s3:GetObject",
-        "s3:HeadObject",
-        "s3:DeleteObject",
-        "s3:ListBucket"
-      ],
-      "Resource": [
-        "arn:aws:s3:::your-bucket-name",
-        "arn:aws:s3:::your-bucket-name/*"
-      ]
-    }
-  ]
-}
+Your IAM user needs proper S3 permissions. Common causes:
+
+1. **Missing IAM permissions**: Your IAM user needs S3 access
+   - See [Minimum Required Permissions](#3-minimum-required-permissions) in the Prerequisites section
+   - Quick fix: Attach `AmazonS3FullAccess` policy to your IAM user
+
+2. **Wrong bucket name**: Verify the bucket name in `s3_config.json` matches your actual bucket
+
+3. **Bucket in different region**: Ensure the region in `s3_config.json` matches where your bucket was created
+
+To test your credentials:
+```bash
+# List all your buckets
+aws s3 ls
+
+# Try accessing your specific bucket
+aws s3 ls s3://your-bucket-name
 ```
+
+If you see "Access Denied" even for `aws s3 ls`, your IAM user lacks S3 permissions. See the [AWS Account Setup](#aws-account-setup-first-time-users) section.
 
 ### Slow uploads
 
