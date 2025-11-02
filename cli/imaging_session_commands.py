@@ -62,7 +62,8 @@ def register_commands(cli):
             click.echo(f"Date:        {session.date or 'Unknown'}")
             click.echo(f"Camera:      {session.camera or 'Unknown'}")
             click.echo(f"Telescope:   {session.telescope or '-'}")
-            click.echo(f"Location:    {session.location or 'Unknown'}")
+            click.echo(f"Site:        {session.site_name or '-'}")
+            click.echo(f"Observer:    {session.observer or '-'}")
 
             # Get files in this session
             files = db_session.query(FitsFile).filter(
