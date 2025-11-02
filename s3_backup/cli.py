@@ -1,6 +1,7 @@
 """CLI interface for S3 backup operations."""
 
 import sys
+import json
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -9,6 +10,7 @@ from typing import List, Optional
 import click
 from tqdm import tqdm
 from tabulate import tabulate
+from sqlalchemy import func
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
@@ -1629,6 +1631,207 @@ def restore_database(ctx, version_id, output):
     finally:
         db_manager.close()
         
+
+@cli.command('configure-lifecycle')
+@click.option('--policy-file', type=click.Path(exists=True), help='Path to custom lifecycle policy JSON file')
+@click.option('--raw-days', type=int, default=1, help='Days before raw backups move to Deep Archive (default: 1)')
+@click.option('--processed-days', type=int, default=30, help='Days before processed files move to Glacier (default: 30)')
+@click.option('--database-days', type=int, default=7, help='Days before database backups move to Deep Archive (default: 7)')
+@click.option('--dry-run', is_flag=True, help='Show what would be configured without applying')
+@click.pass_context
+def configure_lifecycle(ctx, policy_file, raw_days, processed_days, database_days, dry_run):
+    """
+    Configure S3 bucket lifecycle rules for automatic storage class transitions.
+
+    This command sets up lifecycle rules to automatically transition backup files
+    to lower-cost storage classes (Glacier, Deep Archive) after specified periods.
+
+    By default, uses the included lifecycle_policy.json template. You can customize
+    transition periods with --raw-days, --processed-days, etc., or provide a
+    completely custom policy file with --policy-file.
+
+    Example cost savings:
+    - 827 GB in STANDARD: ~$19/month
+    - 827 GB in DEEP_ARCHIVE: ~$0.82/month (saves $18/month!)
+    """
+    from s3_backup.lifecycle_manager import LifecycleManager
+
+    backup_manager, db_manager, db_service = get_backup_manager(
+        ctx.obj['config'], ctx.obj['s3_config']
+    )
+
+    try:
+        bucket_name = backup_manager.s3_config.primary_bucket
+        region = backup_manager.s3_config.aws_region
+
+        lifecycle_mgr = LifecycleManager(bucket_name, region)
+
+        click.echo("\n" + "="*80)
+        click.echo("S3 LIFECYCLE CONFIGURATION")
+        click.echo("="*80)
+        click.echo(f"Bucket: {bucket_name}")
+        click.echo(f"Region: {region}")
+        click.echo()
+
+        if policy_file:
+            click.echo(f"Using custom policy file: {policy_file}")
+            policy_path = Path(policy_file)
+        else:
+            click.echo("Using default lifecycle policy with settings:")
+            click.echo(f"  - Raw backups → Deep Archive after {raw_days} day(s)")
+            click.echo(f"  - Processed files → Glacier after {processed_days} day(s)")
+            click.echo(f"  - Database backups → Deep Archive after {database_days} day(s)")
+            click.echo(f"  - Notes → Standard-IA after 30 days, Glacier after 90 days")
+
+            # Create custom policy if non-default values
+            if raw_days != 1 or processed_days != 30 or database_days != 7:
+                policy = lifecycle_mgr.create_custom_policy(
+                    raw_days=raw_days,
+                    processed_days=processed_days,
+                    database_days=database_days
+                )
+                # Save to temporary file
+                import tempfile
+                temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+                json.dump(policy, temp_file, indent=2)
+                temp_file.close()
+                policy_path = Path(temp_file.name)
+            else:
+                policy_path = None
+
+        click.echo()
+
+        if dry_run:
+            click.echo("🔍 DRY RUN MODE - No changes will be made")
+            click.echo()
+
+            # Show what would be configured
+            if policy_path:
+                with open(policy_path, 'r') as f:
+                    policy = json.load(f)
+            else:
+                # Use default
+                default_policy_path = Path(__file__).parent / 'lifecycle_policy.json'
+                with open(default_policy_path, 'r') as f:
+                    policy = json.load(f)
+
+            click.echo("Rules that would be applied:")
+            for rule in policy.get('Rules', []):
+                click.echo(f"  ✓ {rule.get('Id')}")
+        else:
+            if not click.confirm("Apply this lifecycle configuration?"):
+                click.echo("Cancelled.")
+                return
+
+            click.echo("\nApplying lifecycle policy...")
+            success = lifecycle_mgr.apply_lifecycle_policy(policy_path)
+
+            if success:
+                click.echo("\n✅ Lifecycle policy configured successfully!")
+                click.echo("\n💡 Cost Savings:")
+                click.echo("   Files will automatically transition to lower-cost storage")
+                click.echo("   Example: 827 GB saves ~$18/month after transition to Deep Archive")
+            else:
+                click.echo("\n❌ Failed to configure lifecycle policy")
+                click.echo("   Check AWS credentials and bucket permissions")
+
+        click.echo("\n" + "="*80)
+        click.echo()
+
+    finally:
+        db_manager.close()
+
+
+@cli.command('show-lifecycle')
+@click.pass_context
+def show_lifecycle(ctx):
+    """
+    Display current S3 bucket lifecycle configuration.
+
+    Shows all lifecycle rules currently configured on the S3 bucket,
+    including storage class transitions and expiration policies.
+    """
+    from s3_backup.lifecycle_manager import LifecycleManager
+
+    backup_manager, db_manager, db_service = get_backup_manager(
+        ctx.obj['config'], ctx.obj['s3_config']
+    )
+
+    try:
+        bucket_name = backup_manager.s3_config.primary_bucket
+        region = backup_manager.s3_config.aws_region
+
+        lifecycle_mgr = LifecycleManager(bucket_name, region)
+        lifecycle_mgr.show_current_policy()
+
+    finally:
+        db_manager.close()
+
+
+@cli.command('estimate-costs')
+@click.option('--storage-gb', type=float, help='Total storage in GB (default: from backup stats)')
+@click.option('--storage-class',
+              type=click.Choice(['STANDARD', 'STANDARD_IA', 'GLACIER_FLEXIBLE_RETRIEVAL', 'DEEP_ARCHIVE']),
+              default='DEEP_ARCHIVE',
+              help='Storage class for cost estimation')
+@click.pass_context
+def estimate_costs(ctx, storage_gb, storage_class):
+    """
+    Estimate monthly and annual storage costs.
+
+    Calculates storage costs based on current backup size or specified amount.
+    Useful for planning and budgeting cloud storage expenses.
+    """
+    from s3_backup.lifecycle_manager import estimate_costs as calc_costs
+
+    backup_manager, db_manager, db_service = get_backup_manager(
+        ctx.obj['config'], ctx.obj['s3_config']
+    )
+
+    try:
+        # Get storage size from backups if not specified
+        if storage_gb is None:
+            session = db_manager.get_session()
+            try:
+                from s3_backup.models import S3BackupArchive
+                total_bytes = session.query(
+                    func.sum(S3BackupArchive.original_size)
+                ).scalar() or 0
+                storage_gb = total_bytes / (1024**3)
+            finally:
+                session.close()
+
+        if storage_gb == 0:
+            click.echo("\n⚠️  No backup data found. Use --storage-gb to specify amount.")
+            return
+
+        costs = calc_costs(storage_gb, storage_class)
+
+        click.echo("\n" + "="*80)
+        click.echo("STORAGE COST ESTIMATION")
+        click.echo("="*80)
+        click.echo(f"Storage Amount:    {costs['storage_gb']:.2f} GB")
+        click.echo(f"Storage Class:     {costs['storage_class']}")
+        click.echo(f"Cost per GB/month: ${costs['cost_per_gb_month']:.5f}")
+        click.echo()
+        click.echo(f"Monthly Cost:      ${costs['monthly_cost']:.2f}")
+        click.echo(f"Annual Cost:       ${costs['annual_cost']:.2f}")
+        click.echo("="*80)
+
+        # Show comparison
+        click.echo("\n💡 Cost Comparison (for {:.2f} GB):".format(storage_gb))
+        for sc in ['STANDARD', 'STANDARD_IA', 'GLACIER_FLEXIBLE_RETRIEVAL', 'DEEP_ARCHIVE']:
+            comp_costs = calc_costs(storage_gb, sc)
+            monthly = comp_costs['monthly_cost']
+            annual = comp_costs['annual_cost']
+            marker = "←" if sc == storage_class else ""
+            click.echo(f"   {sc:30s} ${monthly:8.2f}/mo  ${annual:9.2f}/year  {marker}")
+
+        click.echo()
+
+    finally:
+        db_manager.close()
+
 
 if __name__ == '__main__':
     cli()

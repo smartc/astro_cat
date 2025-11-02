@@ -196,86 +196,94 @@ python -m s3_backup.cli list-sessions --not-backed-up
 
 ## Lifecycle Management
 
-### S3 Lifecycle Policy Example
+Lifecycle rules automatically transition objects to lower-cost storage classes over time. This is essential for cost-effective long-term storage of FITS data.
 
-Save as `lifecycle_policy.json`:
+### Automated Lifecycle Configuration (Recommended)
+
+The easiest way to configure lifecycle rules is using the built-in CLI command:
+
+```bash
+# Apply default lifecycle policy (recommended settings)
+python -m s3_backup.cli configure-lifecycle
+
+# View current lifecycle configuration
+python -m s3_backup.cli show-lifecycle
+
+# Customize transition periods
+python -m s3_backup.cli configure-lifecycle \
+  --raw-days 7 \
+  --processed-days 60 \
+  --database-days 14
+
+# Dry run to preview changes
+python -m s3_backup.cli configure-lifecycle --dry-run
+```
+
+**Default transition schedule:**
+- Raw backups → Deep Archive after 1 day
+- Processed files → Glacier after 30 days
+- Database backups → Deep Archive after 7 days
+- Session notes → Standard-IA after 30 days, Glacier after 90 days
+
+### Manual Lifecycle Configuration
+
+If you prefer to configure lifecycle rules manually, a template policy is provided in `lifecycle_policy.json`:
+
+```bash
+# Apply the included lifecycle policy template
+aws s3api put-bucket-lifecycle-configuration \
+  --bucket your-bucket-name \
+  --lifecycle-configuration file://s3_backup/lifecycle_policy.json
+
+# Or customize the JSON file first, then apply
+nano s3_backup/lifecycle_policy.json
+aws s3api put-bucket-lifecycle-configuration \
+  --bucket your-bucket-name \
+  --lifecycle-configuration file://s3_backup/lifecycle_policy.json
+```
+
+### Lifecycle Policy Template
+
+The included `lifecycle_policy.json` contains rules optimized for FITS backup:
 
 ```json
 {
   "Rules": [
     {
-      "Id": "ArchiveFastToDeepArchive",
+      "Id": "TransitionRawBackupsToDeepArchive",
       "Status": "Enabled",
-      "Filter": {
-        "Tag": {
-          "Key": "archive",
-          "Value": "fast"
-        }
-      },
+      "Filter": {"Prefix": "backups/raw/"},
       "Transitions": [
-        {
-          "Days": 7,
-          "StorageClass": "DEEP_ARCHIVE"
-        }
+        {"Days": 1, "StorageClass": "DEEP_ARCHIVE"}
       ]
     },
     {
-      "Id": "ArchiveNormalToDeepArchive",
+      "Id": "TransitionProcessedToGlacier",
       "Status": "Enabled",
-      "Filter": {
-        "Tag": {
-          "Key": "archive",
-          "Value": "normal"
-        }
-      },
+      "Filter": {"Prefix": "backups/processed/"},
       "Transitions": [
-        {
-          "Days": 30,
-          "StorageClass": "DEEP_ARCHIVE"
-        }
+        {"Days": 30, "StorageClass": "GLACIER_FLEXIBLE_RETRIEVAL"}
       ]
     },
     {
-      "Id": "ArchiveDelayedToGlacier",
+      "Id": "TransitionDatabaseBackupsToDeepArchive",
       "Status": "Enabled",
-      "Filter": {
-        "Tag": {
-          "Key": "archive",
-          "Value": "delayed"
-        }
-      },
+      "Filter": {"Prefix": "backups/database/"},
       "Transitions": [
-        {
-          "Days": 90,
-          "StorageClass": "GLACIER_FLEXIBLE_RETRIEVAL"
-        }
+        {"Days": 7, "StorageClass": "DEEP_ARCHIVE"}
       ]
     },
     {
-      "Id": "BackupToDeepArchiveImmediate",
+      "Id": "TransitionNotesToStandardIA",
       "Status": "Enabled",
-      "Filter": {
-        "Tag": {
-          "Key": "backup",
-          "Value": "deep-archive"
-        }
-      },
+      "Filter": {"Prefix": "backups/notes/"},
       "Transitions": [
-        {
-          "Days": 0,
-          "StorageClass": "DEEP_ARCHIVE"
-        }
+        {"Days": 30, "StorageClass": "STANDARD_IA"},
+        {"Days": 90, "StorageClass": "GLACIER_FLEXIBLE_RETRIEVAL"}
       ]
     }
   ]
 }
-```
-
-Apply:
-```bash
-aws s3api put-bucket-lifecycle-configuration \
-  --bucket your-bucket-name \
-  --lifecycle-configuration file://lifecycle_policy.json
 ```
 
 ### Storage Classes & Costs (ca-west-1)

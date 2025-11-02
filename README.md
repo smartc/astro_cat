@@ -388,67 +388,114 @@ python main.py processing-session --help # Processing session commands
 
 ## ☁️ S3 Backup Configuration (Optional)
 
-### 1. Create S3 Configuration
+The S3 backup system provides automated, cost-effective cloud storage for your entire FITS library. With lifecycle management, you can store hundreds of gigabytes for as little as $10/year using AWS Glacier Deep Archive.
 
-Create `s3_config.json`:
+### Quick Start
 
-```json
-{
-  "enabled": true,
-  "bucket": "your-bucket-name",
-  "region": "us-east-1",
-  "s3_paths": {
-    "raw_archives": "backups/raw/",
-    "session_notes": "backups/notes/imaging/",
-    "processing_notes": "backups/notes/processing/",
-    "processed_files": "backups/processed/",
-    "database_backups": "backups/database/"
-  },
-  "backup_rules": {
-    "raw_lights": {
-      "archive_policy": "fast",
-      "backup_policy": "deep"
-    }
-  }
-}
-```
+**For detailed setup instructions**, see:
+- **[S3 Quick Start Guide](s3_backup/QUICK_START.md)** - Step-by-step setup in 5 steps
+- **[S3 Backup README](s3_backup/README.md)** - Comprehensive documentation
 
-### 2. Configure AWS Credentials
+### Basic Setup
 
-Set up AWS credentials in `~/.aws/credentials`:
+#### 1. AWS Prerequisites
 
-```ini
-[default]
-aws_access_key_id = YOUR_ACCESS_KEY
-aws_secret_access_key = YOUR_SECRET_KEY
-```
-
-Or use environment variables:
+Create an S3 bucket and configure AWS credentials:
 
 ```bash
+# Create S3 bucket
+aws s3 mb s3://your-bucket-name --region us-east-1
+
+# Configure credentials (choose one method)
+aws configure  # Interactive setup
+
+# OR set environment variables
 export AWS_ACCESS_KEY_ID=your_access_key
 export AWS_SECRET_ACCESS_KEY=your_secret_key
 ```
 
-### 3. Backup Commands
+#### 2. Install Dependencies
 
 ```bash
-# Backup a single imaging session
-python -m s3_backup.cli upload --session-id 20241101_M31
-
-# Backup all sessions from 2024
-python -m s3_backup.cli upload --year 2024
-
-# List backed up sessions
-python -m s3_backup.cli list
-
-# Check backup status
-python -m s3_backup.cli status
+pip install boto3
 ```
 
-### 4. Backup Web Interface
+#### 3. Create S3 Configuration
 
-Start the S3 backup web interface:
+Copy and edit the configuration template:
+
+```bash
+cp s3_backup/s3_config.json.template s3_config.json
+nano s3_config.json  # Edit with your bucket name and region
+```
+
+Minimum required settings in `s3_config.json`:
+
+```json
+{
+  "enabled": true,
+  "aws_region": "us-east-1",
+  "buckets": {
+    "primary": "your-bucket-name"
+  }
+}
+```
+
+#### 4. Test Backup
+
+```bash
+# Upload a test session
+python -m s3_backup.cli upload --session-id YOUR_SESSION_ID
+
+# Check status
+python -m s3_backup.cli status
+
+# Verify upload
+python -m s3_backup.cli verify --all
+```
+
+### Lifecycle Management (Cost Optimization)
+
+Automatically transition backups to low-cost storage with one command:
+
+```bash
+# Configure lifecycle rules (moves files to Deep Archive after 1 day)
+python -m s3_backup.cli configure-lifecycle
+
+# View current lifecycle rules
+python -m s3_backup.cli show-lifecycle
+
+# Estimate storage costs
+python -m s3_backup.cli estimate-costs
+```
+
+**Cost Savings Example:**
+- 827 GB in STANDARD storage: ~$19/month
+- 827 GB in DEEP_ARCHIVE: ~$0.82/month
+- **Annual savings: ~$218/year**
+
+### Common Backup Commands
+
+```bash
+# Upload all sessions from a specific year
+python -m s3_backup.cli upload --year 2024
+
+# Upload all un-backed-up sessions
+python -m s3_backup.cli upload
+
+# List backed-up sessions
+python -m s3_backup.cli list-sessions
+
+# Verify backup integrity
+python -m s3_backup.cli verify --all
+
+# Backup database
+python -m s3_backup.cli backup-database
+```
+
+### S3 Backup Web Interface
+
+Launch a dedicated web interface for backup management:
 
 ```bash
 python -m s3_backup.web_app
@@ -458,7 +505,19 @@ Access at `http://localhost:8083` for:
 - Backup dashboard and statistics
 - One-click session backups
 - Storage cost tracking
-- Restore operations
+- Upload progress monitoring
+- Verification and restore operations
+
+### Full Documentation
+
+For complete details on:
+- Lifecycle policy customization
+- Restore procedures
+- Cost estimation
+- Troubleshooting
+- Advanced configuration
+
+See the comprehensive guides in the `s3_backup/` directory.
 
 ---
 

@@ -1,0 +1,60 @@
+{
+  "Rules": [
+    {
+      "Id": "TransitionRawBackupsToDeepArchive",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "backups/raw/"
+      },
+      "Transitions": [
+        {
+          "Days": 1,
+          "StorageClass": "DEEP_ARCHIVE"
+        }
+      ]
+    },
+    {
+      "Id": "TransitionProcessedToGlacier",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "backups/processed/"
+      },
+      "Transitions": [
+        {
+          "Days": 30,
+          "StorageClass": "GLACIER_FLEXIBLE_RETRIEVAL"
+        }
+      ]
+    },
+    {
+      "Id": "TransitionDatabaseBackupsToDeepArchive",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "backups/database/"
+      },
+      "Transitions": [
+        {
+          "Days": 7,
+          "StorageClass": "DEEP_ARCHIVE"
+        }
+      ]
+    },
+    {
+      "Id": "TransitionNotesToStandardIA",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "backups/notes/"
+      },
+      "Transitions": [
+        {
+          "Days": 30,
+          "StorageClass": "STANDARD_IA"
+        },
+        {
+          "Days": 90,
+          "StorageClass": "GLACIER_FLEXIBLE_RETRIEVAL"
+        }
+      ]
+    }
+  ]
+}
