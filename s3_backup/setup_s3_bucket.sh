@@ -397,17 +397,44 @@ get_bucket_configuration() {
 
     # Show default lifecycle policy details
     echo ""
-    echo -e "${CYAN}Default Lifecycle Policy:${NC}"
-    echo -e "  ${GREEN}•${NC} Raw backups (backups/raw/) → DEEP_ARCHIVE after 1 day"
-    echo -e "  ${GREEN}•${NC} Processed files (backups/processed/) → GLACIER after 30 days"
-    echo -e "  ${GREEN}•${NC} Database backups (backups/database/) → DEEP_ARCHIVE after 7 days"
-    echo -e "  ${GREEN}•${NC} Notes (backups/notes/) → STANDARD_IA after 30 days → GLACIER after 90 days"
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}Default Lifecycle Policy (Tag-Based)${NC}"
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "${YELLOW}Cost savings:${NC} Moving to DEEP_ARCHIVE can save ~90% on storage costs"
+    echo -e "${YELLOW}How it works:${NC}"
+    echo -e "  The s3_backup module tags files with ${GREEN}archive_policy${NC} and ${GREEN}backup_policy${NC}."
+    echo -e "  S3 lifecycle rules automatically transition files based on these tags."
+    echo ""
+    echo -e "${CYAN}Archive Policies (when to archive):${NC}"
+    echo -e "  ${GREEN}fast${NC}:     7 days  - For raw data you won't need again"
+    echo -e "  ${GREEN}standard${NC}: 30 days  - For processed files you might reference"
+    echo -e "  ${GREEN}delayed${NC}:  90 days  - For processing notes and logs"
+    echo ""
+    echo -e "${CYAN}Backup Policies (how to archive):${NC}"
+    echo -e "  ${GREEN}deep${NC}:     Direct to DEEP_ARCHIVE (cheapest, slower retrieval)"
+    echo -e "  ${GREEN}flexible${NC}: GLACIER first, then DEEP_ARCHIVE (easier medium-term access)"
+    echo ""
+    echo -e "${CYAN}Example combinations:${NC}"
+    echo -e "  ${GREEN}fast/deep${NC}:       7 days  → DEEP_ARCHIVE (raw FITS files)"
+    echo -e "  ${GREEN}standard/deep${NC}:   30 days  → DEEP_ARCHIVE (final processed images)"
+    echo -e "  ${GREEN}delayed/flexible${NC}: 90 days  → GLACIER → 180 days → DEEP_ARCHIVE (notes)"
+    echo ""
+    echo -e "${CYAN}Versioning cleanup (if enabled):${NC}"
+    echo -e "  ${GREEN}•${NC} Old RAW file versions:       Deleted after 1 day"
+    echo -e "  ${GREEN}•${NC} Old PROCESSED file versions: Deleted after 1 day"
+    echo -e "  ${GREEN}•${NC} Old DATABASE versions:       Keep 5 newest, delete rest after 90 days"
+    echo ""
+    echo -e "${CYAN}Other cleanup:${NC}"
+    echo -e "  ${GREEN}•${NC} Abort incomplete multipart uploads after 3 days"
+    echo -e "  ${GREEN}•${NC} Remove expired delete markers (cleanup deleted files)"
+    echo -e "  ${GREEN}•${NC} Minimum object size: 128KB (don't archive tiny files)"
+    echo ""
+    echo -e "${YELLOW}Cost savings:${NC} DEEP_ARCHIVE storage costs ~90% less than STANDARD"
+    echo -e "                (~\$0.00099/GB/month vs ~\$0.023/GB/month)"
     echo ""
 
     # Apply lifecycle policy
-    if prompt_yes_no "Apply this lifecycle policy? (Recommended for cost optimization)" "y"; then
+    if prompt_yes_no "Apply this lifecycle policy? (Recommended)" "y"; then
         APPLY_LIFECYCLE=true
     else
         APPLY_LIFECYCLE=false

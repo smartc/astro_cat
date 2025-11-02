@@ -1,60 +1,251 @@
 {
+  "TransitionDefaultMinimumObjectSize": "all_storage_classes_128K",
   "Rules": [
     {
-      "Id": "TransitionRawBackupsToDeepArchive",
-      "Status": "Enabled",
+      "ID": "Archive - Fast/Deep",
       "Filter": {
-        "Prefix": "backups/raw/"
-      },
-      "Transitions": [
-        {
-          "Days": 1,
-          "StorageClass": "DEEP_ARCHIVE"
+        "And": {
+          "Tags": [
+            {
+              "Key": "archive_policy",
+              "Value": "fast"
+            },
+            {
+              "Key": "backup_policy",
+              "Value": "deep"
+            }
+          ]
         }
-      ]
-    },
-    {
-      "Id": "TransitionProcessedToGlacier",
-      "Status": "Enabled",
-      "Filter": {
-        "Prefix": "backups/processed/"
       },
-      "Transitions": [
-        {
-          "Days": 30,
-          "StorageClass": "GLACIER_FLEXIBLE_RETRIEVAL"
-        }
-      ]
-    },
-    {
-      "Id": "TransitionDatabaseBackupsToDeepArchive",
       "Status": "Enabled",
-      "Filter": {
-        "Prefix": "backups/database/"
-      },
       "Transitions": [
         {
           "Days": 7,
           "StorageClass": "DEEP_ARCHIVE"
         }
+      ],
+      "NoncurrentVersionTransitions": [
+        {
+          "NoncurrentDays": 7,
+          "StorageClass": "DEEP_ARCHIVE"
+        }
       ]
     },
     {
-      "Id": "TransitionNotesToStandardIA",
-      "Status": "Enabled",
+      "ID": "Archive - Standard/Deep",
       "Filter": {
-        "Prefix": "backups/notes/"
+        "And": {
+          "Tags": [
+            {
+              "Key": "archive_policy",
+              "Value": "standard"
+            },
+            {
+              "Key": "backup_policy",
+              "Value": "deep"
+            }
+          ]
+        }
       },
+      "Status": "Enabled",
       "Transitions": [
         {
           "Days": 30,
-          "StorageClass": "STANDARD_IA"
-        },
+          "StorageClass": "DEEP_ARCHIVE"
+        }
+      ],
+      "NoncurrentVersionTransitions": [
         {
-          "Days": 90,
-          "StorageClass": "GLACIER_FLEXIBLE_RETRIEVAL"
+          "NoncurrentDays": 30,
+          "StorageClass": "DEEP_ARCHIVE"
         }
       ]
+    },
+    {
+      "ID": "Archive - Delayed/Deep",
+      "Filter": {
+        "And": {
+          "Tags": [
+            {
+              "Key": "archive_policy",
+              "Value": "delayed"
+            },
+            {
+              "Key": "backup_policy",
+              "Value": "deep"
+            }
+          ]
+        }
+      },
+      "Status": "Enabled",
+      "Transitions": [
+        {
+          "Days": 90,
+          "StorageClass": "DEEP_ARCHIVE"
+        }
+      ],
+      "NoncurrentVersionTransitions": [
+        {
+          "NoncurrentDays": 90,
+          "StorageClass": "DEEP_ARCHIVE"
+        }
+      ]
+    },
+    {
+      "ID": "Archive - Fast/Flexible",
+      "Filter": {
+        "And": {
+          "Tags": [
+            {
+              "Key": "archive_policy",
+              "Value": "fast"
+            },
+            {
+              "Key": "backup_policy",
+              "Value": "flexible"
+            }
+          ]
+        }
+      },
+      "Status": "Enabled",
+      "Transitions": [
+        {
+          "Days": 7,
+          "StorageClass": "GLACIER"
+        },
+        {
+          "Days": 97,
+          "StorageClass": "DEEP_ARCHIVE"
+        }
+      ],
+      "NoncurrentVersionTransitions": [
+        {
+          "NoncurrentDays": 7,
+          "StorageClass": "GLACIER"
+        },
+        {
+          "NoncurrentDays": 97,
+          "StorageClass": "DEEP_ARCHIVE"
+        }
+      ]
+    },
+    {
+      "ID": "Archive - Standard/Flexible",
+      "Filter": {
+        "And": {
+          "Tags": [
+            {
+              "Key": "archive_policy",
+              "Value": "standard"
+            },
+            {
+              "Key": "backup_policy",
+              "Value": "flexible"
+            }
+          ]
+        }
+      },
+      "Status": "Enabled",
+      "Transitions": [
+        {
+          "Days": 30,
+          "StorageClass": "GLACIER"
+        },
+        {
+          "Days": 120,
+          "StorageClass": "DEEP_ARCHIVE"
+        }
+      ],
+      "NoncurrentVersionTransitions": [
+        {
+          "NoncurrentDays": 30,
+          "StorageClass": "GLACIER"
+        },
+        {
+          "NoncurrentDays": 120,
+          "StorageClass": "DEEP_ARCHIVE"
+        }
+      ]
+    },
+    {
+      "ID": "Archive - Delayed/Flexible",
+      "Filter": {
+        "And": {
+          "Tags": [
+            {
+              "Key": "archive_policy",
+              "Value": "delayed"
+            },
+            {
+              "Key": "backup_policy",
+              "Value": "flexible"
+            }
+          ]
+        }
+      },
+      "Status": "Enabled",
+      "Transitions": [
+        {
+          "Days": 90,
+          "StorageClass": "GLACIER"
+        },
+        {
+          "Days": 180,
+          "StorageClass": "DEEP_ARCHIVE"
+        }
+      ],
+      "NoncurrentVersionTransitions": [
+        {
+          "NoncurrentDays": 90,
+          "StorageClass": "GLACIER"
+        },
+        {
+          "NoncurrentDays": 180,
+          "StorageClass": "DEEP_ARCHIVE"
+        }
+      ]
+    },
+    {
+      "ID": "Expire non-current versions for RAW",
+      "Filter": {
+        "Prefix": "backups/raw/"
+      },
+      "Status": "Enabled",
+      "NoncurrentVersionExpiration": {
+        "NoncurrentDays": 1
+      }
+    },
+    {
+      "ID": "Expire noncurrent versions for PROCESSED",
+      "Filter": {
+        "Prefix": "backups/processed/"
+      },
+      "Status": "Enabled",
+      "NoncurrentVersionExpiration": {
+        "NoncurrentDays": 1
+      }
+    },
+    {
+      "ID": "Expire noncurrent DATABASE files",
+      "Filter": {
+        "Prefix": "backups/database/"
+      },
+      "Status": "Enabled",
+      "NoncurrentVersionExpiration": {
+        "NoncurrentDays": 90,
+        "NewerNoncurrentVersions": 5
+      }
+    },
+    {
+      "Expiration": {
+        "ExpiredObjectDeleteMarker": true
+      },
+      "ID": "Cleanup deleted files and incomplete uploads",
+      "Filter": {},
+      "Status": "Enabled",
+      "AbortIncompleteMultipartUpload": {
+        "DaysAfterInitiation": 3
+      }
     }
   ]
 }
