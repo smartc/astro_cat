@@ -155,6 +155,11 @@ def _catalog_raw_files(config, cameras, telescopes, filter_mappings, verbose):
                     click.echo(f"\nError adding file: {e}")
                 pbar.update(1)
 
+    # Clean up any orphaned imaging sessions (sessions with no files)
+    orphaned_count = db_service.cleanup_orphaned_imaging_sessions()
+    if verbose and orphaned_count > 0:
+        click.echo(f"\n✓ Cleaned up {orphaned_count} orphaned imaging sessions")
+
     # Report results
     click.echo(f"\n✓ Catalog complete:")
     click.echo(f"  New files:         {added_count:>6}")

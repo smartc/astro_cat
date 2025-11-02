@@ -305,9 +305,9 @@ def extract_fits_metadata_simple(filepath: str, header,
         focal_len_raw, telescopes_dict
     )
 
-    # For BIAS and DARK frames, telescope is not relevant (no optics involved)
+    # For BIAS and DARK frames (including masters), telescope is not relevant (no optics involved)
     # Set to None instead of 'UNKNOWN'
-    if frame_type in ['BIAS', 'DARK']:
+    if frame_type in ['BIAS', 'DARK', 'MASTER BIAS', 'MASTER DARK', 'FLAT_DARK']:
         telescope_name = None
 
     filter_name = normalize_filter(filter_raw, filter_mappings)
