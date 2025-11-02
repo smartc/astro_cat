@@ -21,7 +21,9 @@ LIBRARIES = {
         {
             "name": "Axios",
             "url": "https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js",
-            "filename": "axios.min.js"
+            "filename": "axios.min.js",
+            "source_map_url": "https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js.map",
+            "source_map_filename": "axios.min.js.map"
         },
         {
             "name": "Toast UI Editor JS",
@@ -114,7 +116,7 @@ def install_libraries():
     print("-" * 50)
     for lib in LIBRARIES["js"]:
         output_path = js_lib_dir / lib["filename"]
-        
+
         if output_path.exists():
             print(f"⊙ {lib['name']} already exists, skipping")
             skipped += 1
@@ -126,6 +128,20 @@ def install_libraries():
             else:
                 print(f"✗ Failed to download {lib['name']}")
                 failed += 1
+
+        # Download source map if specified
+        if "source_map_url" in lib:
+            map_path = js_lib_dir / lib["source_map_filename"]
+            if not map_path.exists():
+                print(f"  → Downloading source map...")
+                try:
+                    if download_file(lib["source_map_url"], map_path):
+                        print(f"  ✓ Source map downloaded")
+                    else:
+                        print(f"  ⊙ Source map unavailable (not critical)")
+                except:
+                    print(f"  ⊙ Source map unavailable (not critical)")
+
         print()
     
     # Install CSS libraries
