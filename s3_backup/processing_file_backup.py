@@ -82,21 +82,27 @@ class ProcessingSessionFileBackup:
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         self._cleanup_orphaned_tarballs()  # Clean up any leftover files
 
-        # Initialize S3 client
-        self.s3_client = boto3.client(
-            's3',
-            region_name=s3_config.region
-        )
-        
-        upload_settings = self.s3_config.config.get('upload_settings', {})
-        self.transfer_config = TransferConfig(
-            multipart_threshold=upload_settings.get('multipart_threshold_mb', 100) * 1024 * 1024,
-            multipart_chunksize=upload_settings.get('multipart_chunksize_mb', 25) * 1024 * 1024,
-            max_concurrency=upload_settings.get('max_concurrency', 4),
-            use_threads=upload_settings.get('use_threads', True)
-        )
+        # Initialize S3 client only if enabled
+        if s3_config.enabled:
+            self.s3_client = boto3.client(
+                's3',
+                region_name=s3_config.region
+            )
 
-        self.bucket = s3_config.bucket
+            upload_settings = self.s3_config.config.get('upload_settings', {})
+            self.transfer_config = TransferConfig(
+                multipart_threshold=upload_settings.get('multipart_threshold_mb', 100) * 1024 * 1024,
+                multipart_chunksize=upload_settings.get('multipart_chunksize_mb', 25) * 1024 * 1024,
+                max_concurrency=upload_settings.get('max_concurrency', 4),
+                use_threads=upload_settings.get('use_threads', True)
+            )
+
+            self.bucket = s3_config.bucket
+        else:
+            self.s3_client = None
+            self.transfer_config = None
+            self.bucket = None
+            logger.warning("S3 backup is disabled - ProcessingSessionFileBackup initialized in disabled mode")
 
 
         

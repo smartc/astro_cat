@@ -419,23 +419,22 @@ export AWS_SECRET_ACCESS_KEY=your_secret_key
 pip install boto3
 ```
 
-#### 3. Create S3 Configuration
+#### 3. Configure S3 Settings
 
-Copy and edit the configuration template:
+On first startup, `s3_config.json` is created automatically with S3 disabled. Edit this file to enable S3 backups:
 
 ```bash
-cp s3_backup/s3_config.json.template s3_config.json
 nano s3_config.json  # Edit with your bucket name and region
 ```
 
-Minimum required settings in `s3_config.json`:
+**Required changes** in `s3_config.json`:
 
 ```json
 {
-  "enabled": true,
-  "aws_region": "us-east-1",
+  "enabled": true,              # Change from false to true
+  "aws_region": "us-east-1",    # Your AWS region
   "buckets": {
-    "primary": "your-bucket-name"
+    "primary": "your-bucket-name"  # Your S3 bucket name
   }
 }
 ```

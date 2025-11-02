@@ -119,7 +119,15 @@ async def _get_storage_categories_internal(session_db):
 
     if not db_service:
         raise HTTPException(status_code=503, detail="Database not initialized")
-        
+
+    # Return empty categories if S3 is disabled
+    if not backup_manager or not backup_manager.s3_config.enabled:
+        return {
+            "categories": [],
+            "using_fallback_pricing": False,
+            "s3_disabled": True
+        }
+
     try:
         from models import FitsFile
         from s3_backup.models import S3BackupSessionNote, S3BackupProcessingSession
