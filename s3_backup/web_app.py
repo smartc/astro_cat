@@ -41,6 +41,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Middleware to suppress 404 logs for source maps and Chrome devtools
+@app.middleware("http")
+async def suppress_404_logs(request, call_next):
+    """Suppress logging of 404 errors for source maps and Chrome devtools."""
+    response = await call_next(request)
+
+    # Don't log 404s for these paths
+    if response.status_code == 404:
+        path = request.url.path
+        if path.endswith('.map') or '.well-known' in path:
+            # Suppress logging by not calling the default logger
+            return response
+
+    return response
+
 # Global services
 backup_manager: Optional[S3BackupManager] = None
 processing_file_backup: Optional[ProcessingSessionFileBackup] = None
@@ -436,18 +451,127 @@ async def _get_storage_categories_internal(session_db):
         
     pass
 
+@app.get("/api/config")
+async def get_config():
+    """Get current S3 configuration (without sensitive data)."""
+    import json
+
+    config_path = Path('s3_config.json')
+    if not config_path.exists():
+        raise HTTPException(status_code=404, detail="S3 config file not found")
+
+    config = json.loads(config_path.read_text())
+
+    # Return config without sensitive fields
+    return {
+        "enabled": config.get('enabled', False),
+        "aws_region": config.get('aws_region', 'us-east-1'),
+        "bucket": config.get('buckets', {}).get('primary', ''),
+        "backup_bucket": config.get('buckets', {}).get('backup')
+    }
+
+
+@app.post("/api/config")
+async def update_config(config_update: dict):
+    """Update S3 configuration."""
+    import json
+
+    config_path = Path('s3_config.json')
+    if not config_path.exists():
+        raise HTTPException(status_code=404, detail="S3 config file not found")
+
+    # Load existing config
+    config = json.loads(config_path.read_text())
+
+    # Update fields
+    if 'enabled' in config_update:
+        config['enabled'] = config_update['enabled']
+    if 'aws_region' in config_update:
+        config['aws_region'] = config_update['aws_region']
+    if 'bucket' in config_update:
+        config['buckets']['primary'] = config_update['bucket']
+    if 'backup_bucket' in config_update:
+        config['buckets']['backup'] = config_update['backup_bucket']
+
+    # Write updated config
+    config_path.write_text(json.dumps(config, indent=2))
+
+    return {
+        "success": True,
+        "message": "Configuration updated. Restart the service to apply changes.",
+        "requires_restart": True
+    }
+
+
+@app.post("/api/config/validate")
+async def validate_config():
+    """Validate S3 configuration by attempting to connect."""
+    import json
+
+    config_path = Path('s3_config.json')
+    if not config_path.exists():
+        return {"valid": False, "error": "S3 config file not found"}
+
+    config = json.loads(config_path.read_text())
+
+    if not config.get('enabled', False):
+        return {"valid": False, "error": "S3 backup is disabled"}
+
+    bucket = config.get('buckets', {}).get('primary', '')
+    if not bucket or bucket == 'your-bucket-name':
+        return {"valid": False, "error": "Bucket name not configured"}
+
+    # Try to connect to S3
+    try:
+        import boto3
+        from botocore.config import Config as BotoConfig
+        from botocore.exceptions import ClientError
+
+        boto_config = BotoConfig(
+            region_name=config.get('aws_region', 'us-east-1'),
+            retries={'max_attempts': 2, 'mode': 'standard'}
+        )
+        s3_client = boto3.client('s3', config=boto_config)
+
+        # Test bucket access
+        s3_client.head_bucket(Bucket=bucket)
+
+        return {
+            "valid": True,
+            "message": f"Successfully connected to bucket '{bucket}'",
+            "bucket": bucket,
+            "region": config.get('aws_region', 'us-east-1')
+        }
+
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        if error_code == '404':
+            return {"valid": False, "error": f"Bucket '{bucket}' does not exist"}
+        elif error_code == '403':
+            return {"valid": False, "error": f"Access denied to bucket '{bucket}'. Check AWS credentials."}
+        else:
+            return {"valid": False, "error": f"S3 Error: {error_code} - {e.response['Error'].get('Message', str(e))}"}
+    except Exception as e:
+        return {"valid": False, "error": f"Connection error: {str(e)}"}
+
+
 @app.post("/api/toggle-enabled")
 async def toggle_enabled():
     """Toggle S3 backup enabled status and update config."""
     import json
-    
+
     # Toggle in s3_config.json
     config_path = Path('s3_config.json')
     config = json.loads(config_path.read_text())
-    config['enabled'] = not config.get('enabled', False)
+    new_enabled = not config.get('enabled', False)
+    config['enabled'] = new_enabled
     config_path.write_text(json.dumps(config, indent=2))
-    
-    return {"enabled": config['enabled']}
+
+    return {
+        "enabled": new_enabled,
+        "message": "Restart the service to apply changes" if new_enabled else "S3 backup disabled",
+        "requires_restart": new_enabled
+    }
     
 
 @app.on_event("startup")
