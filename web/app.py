@@ -148,6 +148,14 @@ async def startup_event():
         # Create database service
         db_service = DatabaseService(db_manager)
         logger.info("✓ Database service initialized")
+
+        # Initialize equipment tables in database
+        from cli.utils import convert_equipment_for_db
+        cameras_dict, telescopes_dict, filter_mappings_dict = convert_equipment_for_db(
+            cameras, telescopes, filter_mappings
+        )
+        db_service.initialize_equipment(cameras_dict, telescopes_dict, filter_mappings_dict)
+        logger.info("✓ Equipment tables initialized")
         
         # Initialize processing session manager (needs config AND db_service)
         logger.info("Initializing processing session manager...")
