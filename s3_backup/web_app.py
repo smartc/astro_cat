@@ -966,13 +966,10 @@ async def backup_raw_files(request: BackupRequest):
 
             for session in sessions_to_backup:
                 try:
-                    from datetime import datetime
-                    year = datetime.strptime(session.date, '%Y-%m-%d').year
-
                     result = backup_manager.backup_session(
                         session.id,
-                        year,
-                        cleanup_archives=True
+                        skip_existing=False,
+                        cleanup_archive=True
                     )
 
                     if result.success:
@@ -981,7 +978,7 @@ async def backup_raw_files(request: BackupRequest):
                         stats["failed"] += 1
 
                 except Exception as e:
-                    logger.error(f"Failed to backup session {session.session_id}: {e}")
+                    logger.error(f"Failed to backup session {session.id}: {e}")
                     stats["failed"] += 1
 
             return stats
