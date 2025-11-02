@@ -2,6 +2,8 @@
 
 **astro_cat** is a comprehensive toolkit for managing, cataloging, and archiving astrophotography data. It streamlines raw FITS image intake, session organization, processing workflows, and cloud backups—with an intuitive web interface and powerful CLI tools.
 
+**NO WARRANTY** Please use with caution! I can take no responsibility for data loss, corruption or other issues.  I strongly recommend you back up your data before using this!  Test with a small dataset first!
+
 ---
 
 ## 🚀 Features
