@@ -180,16 +180,66 @@ class FileOrganizer:
             return ""
     
     def _delete_duplicates_folder(self):
-        """Delete the duplicates folder and all its contents."""
+        """Delete the duplicates folder and all its contents, and remove database records."""
         duplicates_folder = Path(self.config.paths.quarantine_dir) / "Duplicates"
         if duplicates_folder.exists():
+            # Get all files in duplicates folder before deleting
+            duplicate_files = list(duplicates_folder.glob("*.fit*"))
+
+            # Remove database records for these files
+            session = self.db_service.db_manager.get_session()
+            try:
+                for dup_file in duplicate_files:
+                    # Find database record by folder and filename
+                    db_record = session.query(FitsFile).filter(
+                        FitsFile.folder == str(duplicates_folder),
+                        FitsFile.file == dup_file.name
+                    ).first()
+
+                    if db_record:
+                        session.delete(db_record)
+                        logger.debug(f"Deleted database record for duplicate: {dup_file.name}")
+
+                session.commit()
+            except Exception as e:
+                logger.error(f"Error deleting duplicate database records: {e}")
+                session.rollback()
+            finally:
+                session.close()
+
+            # Delete the physical files and folder
             shutil.rmtree(duplicates_folder)
             logger.debug(f"Deleted duplicates folder: {duplicates_folder}")
 
     def _delete_bad_files_folder(self):
-        """Delete the bad files folder and all its contents."""
+        """Delete the bad files folder and all its contents, and remove database records."""
         bad_files_folder = Path(self.config.paths.quarantine_dir) / "Bad"
         if bad_files_folder.exists():
+            # Get all files in bad files folder before deleting
+            bad_files = list(bad_files_folder.glob("*.fit*"))
+
+            # Remove database records for these files
+            session = self.db_service.db_manager.get_session()
+            try:
+                for bad_file in bad_files:
+                    # Find database record by folder and filename
+                    db_record = session.query(FitsFile).filter(
+                        FitsFile.folder == str(bad_files_folder),
+                        FitsFile.file == bad_file.name
+                    ).first()
+
+                    if db_record:
+                        session.delete(db_record)
+                        logger.debug(f"Deleted database record for bad file: {bad_file.name}")
+
+                session.commit()
+            except Exception as e:
+                logger.error(f"Error deleting bad file database records: {e}")
+                session.rollback()
+            finally:
+                session.close()
+
+            # Delete the physical files and folder
             shutil.rmtree(bad_files_folder)
             logger.debug(f"Deleted bad files folder: {bad_files_folder}")
     
@@ -418,7 +468,25 @@ class FileOrganizer:
                             for bad_file in bad_files_to_move:
                                 try:
                                     bad_dest = bad_files_folder / bad_file.name
+                                    old_folder = str(bad_file.parent)
+
+                                    # Move physical file
                                     shutil.move(str(bad_file), str(bad_dest))
+
+                                    # Update database record folder path
+                                    db_session = self.db_service.db_manager.get_session()
+                                    try:
+                                        db_record = db_session.query(FitsFile).filter(
+                                            FitsFile.folder == old_folder,
+                                            FitsFile.file == bad_file.name
+                                        ).first()
+
+                                        if db_record:
+                                            db_record.folder = str(bad_files_folder)
+                                            db_session.commit()
+                                    finally:
+                                        db_session.close()
+
                                     stats['bad_files_moved'] += 1
                                 except Exception as e:
                                     logger.error(f"Error moving bad file {bad_file}: {e}")
@@ -432,7 +500,25 @@ class FileOrganizer:
                             for duplicate_file in duplicates_to_move:
                                 try:
                                     duplicate_dest = duplicates_folder / duplicate_file.name
+                                    old_folder = str(duplicate_file.parent)
+
+                                    # Move physical file
                                     shutil.move(str(duplicate_file), str(duplicate_dest))
+
+                                    # Update database record folder path
+                                    db_session = self.db_service.db_manager.get_session()
+                                    try:
+                                        db_record = db_session.query(FitsFile).filter(
+                                            FitsFile.folder == old_folder,
+                                            FitsFile.file == duplicate_file.name
+                                        ).first()
+
+                                        if db_record:
+                                            db_record.folder = str(duplicates_folder)
+                                            db_session.commit()
+                                    finally:
+                                        db_session.close()
+
                                     stats['duplicates_moved'] += 1
                                 except Exception as e:
                                     logger.error(f"Error moving duplicate {duplicate_file}: {e}")
