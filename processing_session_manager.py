@@ -1117,9 +1117,10 @@ _No processing steps completed yet_
             # Parse and preserve custom sections
             preserved_sections = {}
 
-            # Extract sections to preserve (everything after "## Processing Notes")
+            # Extract sections to preserve (custom user content)
+            # Note: Processing Timeline is NOT preserved - it's always regenerated from database
             sections_to_preserve = [
-                'Processing Notes', 'Processing Timeline', 'External References',
+                'Processing Notes', 'External References',
                 'Processing History', 'Folder Structure'
             ]
 
@@ -1188,7 +1189,7 @@ _No processing steps completed yet_
 {preserved_sections.get('Processing Notes', ps.notes or '_No notes provided_')}
 
 ## Processing Timeline
-{preserved_sections.get('Processing Timeline', default_timeline)}
+{default_timeline}
 
 ## External References
 {preserved_sections.get('External References', default_references)}
