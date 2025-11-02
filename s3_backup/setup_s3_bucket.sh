@@ -21,7 +21,7 @@ set -o pipefail  # Exit on pipe failure
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
+CYAN='\033[0;36m'  # Using cyan instead of dark blue for better contrast
 NC='\033[0m' # No Color
 
 # Script directory
@@ -33,9 +33,9 @@ LIFECYCLE_POLICY_FILE="${SCRIPT_DIR}/lifecycle_policy.json"
 ################################################################################
 
 print_header() {
-    echo -e "\n${BLUE}===================================================${NC}"
-    echo -e "${BLUE}$1${NC}"
-    echo -e "${BLUE}===================================================${NC}\n"
+    echo -e "\n${CYAN}===================================================${NC}"
+    echo -e "${CYAN}$1${NC}"
+    echo -e "${CYAN}===================================================${NC}\n"
 }
 
 print_success() {
@@ -51,7 +51,7 @@ print_warning() {
 }
 
 print_info() {
-    echo -e "${BLUE}ℹ $1${NC}"
+    echo -e "${CYAN}ℹ $1${NC}"
 }
 
 # Function to check if a command exists
@@ -117,6 +117,14 @@ validate_bucket_name() {
     fi
 
     return 0
+}
+
+# Function to generate default bucket name
+generate_default_bucket_name() {
+    # Generate 12-character random hex ID
+    local random_id
+    random_id=$(openssl rand -hex 6)
+    echo "fits-cataloger-backup-${random_id}"
 }
 
 ################################################################################
@@ -288,10 +296,16 @@ check_aws_configuration() {
         print_info "You will need:"
         print_info "  - AWS Access Key ID"
         print_info "  - AWS Secret Access Key"
-        print_info "  - Default region"
+        print_info "  - Default region (recommended: us-west-2)"
+        print_info "  - Default output format (recommended: json)"
         print_info ""
 
         if prompt_yes_no "Would you like to configure AWS credentials now?" "y"; then
+            echo ""
+            echo -e "${CYAN}Recommended values:${NC}"
+            echo -e "  Default region name: ${GREEN}us-west-2${NC}"
+            echo -e "  Default output format: ${GREEN}json${NC}"
+            echo ""
             aws configure
 
             # Verify after configuration
@@ -316,15 +330,16 @@ check_aws_configuration() {
 get_bucket_configuration() {
     print_header "Step 3: Bucket Configuration"
 
+    # Generate suggested bucket name
+    local suggested_name
+    suggested_name=$(generate_default_bucket_name)
+
     # Get bucket name
     while true; do
-        echo -e "${BLUE}Enter S3 bucket name:${NC}"
+        echo -e "${CYAN}Enter S3 bucket name${NC}"
+        echo -e "${CYAN}[Press Enter for: $suggested_name]:${NC}"
         read -r BUCKET_NAME
-
-        if [[ -z "$BUCKET_NAME" ]]; then
-            print_error "Bucket name cannot be empty"
-            continue
-        fi
+        BUCKET_NAME=${BUCKET_NAME:-$suggested_name}
 
         if validate_bucket_name "$BUCKET_NAME"; then
             break
@@ -333,36 +348,49 @@ get_bucket_configuration() {
 
     # Get region
     while true; do
-        echo -e "\n${BLUE}Enter AWS region (e.g., us-east-1, ca-west-1, eu-west-1):${NC}"
-        echo -e "${BLUE}[Press Enter for us-east-1]:${NC}"
+        echo -e "\n${CYAN}Enter AWS region (e.g., us-west-2, us-east-1, ca-west-1, eu-west-1):${NC}"
+        echo -e "${CYAN}[Press Enter for us-west-2]:${NC}"
         read -r AWS_REGION
-        AWS_REGION=${AWS_REGION:-us-east-1}
+        AWS_REGION=${AWS_REGION:-us-west-2}
 
         if validate_aws_region "$AWS_REGION"; then
             break
         else
-            print_error "Invalid region format. Examples: us-east-1, ca-west-1, eu-west-1"
+            print_error "Invalid region format. Examples: us-west-2, us-east-1, ca-west-1, eu-west-1"
         fi
     done
 
-    # Enable versioning
+    # Show default lifecycle policy details
     echo ""
-    if prompt_yes_no "Enable bucket versioning? (Recommended for backup protection)" "y"; then
-        ENABLE_VERSIONING=true
-    else
-        ENABLE_VERSIONING=false
-    fi
+    echo -e "${CYAN}Default Lifecycle Policy:${NC}"
+    echo -e "  ${GREEN}•${NC} Raw backups (backups/raw/) → DEEP_ARCHIVE after 1 day"
+    echo -e "  ${GREEN}•${NC} Processed files (backups/processed/) → GLACIER after 30 days"
+    echo -e "  ${GREEN}•${NC} Database backups (backups/database/) → DEEP_ARCHIVE after 7 days"
+    echo -e "  ${GREEN}•${NC} Notes (backups/notes/) → STANDARD_IA after 30 days → GLACIER after 90 days"
+    echo ""
+    echo -e "${YELLOW}Cost savings:${NC} Moving to DEEP_ARCHIVE can save ~90% on storage costs"
+    echo ""
 
     # Apply lifecycle policy
-    echo ""
-    if prompt_yes_no "Apply default lifecycle policy? (Recommended for cost optimization)" "y"; then
+    if prompt_yes_no "Apply this lifecycle policy? (Recommended for cost optimization)" "y"; then
         APPLY_LIFECYCLE=true
     else
         APPLY_LIFECYCLE=false
     fi
 
+    # Enable versioning
+    echo ""
+    echo -e "${YELLOW}Note:${NC} Versioning keeps old versions of files, which can increase costs."
+    echo -e "       Most users don't need this for backup archives."
+    echo ""
+    if prompt_yes_no "Enable bucket versioning?" "n"; then
+        ENABLE_VERSIONING=true
+    else
+        ENABLE_VERSIONING=false
+    fi
+
     # Summary
-    echo -e "\n${BLUE}Configuration Summary:${NC}"
+    echo -e "\n${CYAN}Configuration Summary:${NC}"
     echo -e "  Bucket Name: ${GREEN}$BUCKET_NAME${NC}"
     echo -e "  Region: ${GREEN}$AWS_REGION${NC}"
     echo -e "  Versioning: ${GREEN}$ENABLE_VERSIONING${NC}"
@@ -477,29 +505,37 @@ configure_lifecycle_policy() {
     if [[ ! -f "$LIFECYCLE_POLICY_FILE" ]]; then
         print_error "Lifecycle policy file not found: $LIFECYCLE_POLICY_FILE"
         print_warning "Skipping lifecycle policy configuration"
+        print_info "Expected location: $LIFECYCLE_POLICY_FILE"
         return 1
     fi
 
     print_info "Applying lifecycle policy from: $LIFECYCLE_POLICY_FILE"
     print_info ""
-    print_info "Default policy includes:"
-    print_info "  • Raw backups → DEEP_ARCHIVE after 1 day"
-    print_info "  • Processed files → GLACIER after 30 days"
-    print_info "  • Database backups → DEEP_ARCHIVE after 7 days"
-    print_info "  • Notes → STANDARD_IA after 30 days → GLACIER after 90 days"
-    print_info ""
 
-    if aws s3api put-bucket-lifecycle-configuration \
+    # Try to apply the lifecycle configuration and capture error output
+    local error_output
+    error_output=$(aws s3api put-bucket-lifecycle-configuration \
         --bucket "$BUCKET_NAME" \
-        --lifecycle-configuration "file://$LIFECYCLE_POLICY_FILE" 2>/dev/null; then
+        --lifecycle-configuration "file://$LIFECYCLE_POLICY_FILE" 2>&1)
+    local exit_code=$?
+
+    if [[ $exit_code -eq 0 ]]; then
         print_success "Lifecycle policy applied successfully"
     else
         print_error "Failed to apply lifecycle policy"
+        echo -e "${RED}Error details:${NC}"
+        echo "$error_output" | sed 's/^/  /'
+        echo ""
         print_warning "Continuing anyway - you can apply it manually later"
+        print_info ""
         print_info "Manual command:"
+        print_info "  cd $SCRIPT_DIR"
         print_info "  aws s3api put-bucket-lifecycle-configuration \\"
         print_info "    --bucket $BUCKET_NAME \\"
-        print_info "    --lifecycle-configuration file://$LIFECYCLE_POLICY_FILE"
+        print_info "    --lifecycle-configuration file://lifecycle_policy.json"
+        print_info ""
+        print_info "Or using the s3_backup CLI:"
+        print_info "  python -m s3_backup.cli configure-lifecycle --bucket $BUCKET_NAME"
         return 1
     fi
 }
@@ -576,7 +612,7 @@ print_next_steps() {
 
     echo -e "${GREEN}Your S3 bucket is ready for use with the s3_backup module.${NC}"
     echo ""
-    echo -e "${BLUE}Next steps:${NC}"
+    echo -e "${CYAN}Next steps:${NC}"
     echo ""
     echo "1. Update your s3_backup configuration:"
     echo "   $ cd $SCRIPT_DIR"
@@ -602,7 +638,7 @@ print_next_steps() {
     echo "5. Start backing up your imaging sessions:"
     echo "   $ python -m s3_backup.cli backup --session-id <session_id>"
     echo ""
-    echo -e "${BLUE}Useful commands:${NC}"
+    echo -e "${CYAN}Useful commands:${NC}"
     echo "  • List bucket contents: aws s3 ls s3://$BUCKET_NAME"
     echo "  • View bucket info: aws s3api head-bucket --bucket $BUCKET_NAME"
     echo "  • Check lifecycle: aws s3api get-bucket-lifecycle-configuration --bucket $BUCKET_NAME"
@@ -619,7 +655,7 @@ print_next_steps() {
 
 main() {
     clear
-    echo -e "${BLUE}"
+    echo -e "${CYAN}"
     echo "╔════════════════════════════════════════════════════════════════╗"
     echo "║                                                                ║"
     echo "║           S3 Backup Bucket Setup Script                       ║"
