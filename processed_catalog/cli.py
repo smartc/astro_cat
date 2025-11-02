@@ -30,7 +30,7 @@ def main():
         epilog="""
 Examples:
   # Scan all processing sessions
-  python -m processed_catalog.cli --processing-dir /mnt/ganymede/Astro/Processing
+  python -m processed_catalog.cli --processing-dir /path/to/astro/Processing
   
   # Scan specific session
   python -m processed_catalog.cli --session-id 20241015_ABC123
