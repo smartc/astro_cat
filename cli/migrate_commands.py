@@ -45,19 +45,19 @@ def register_commands(cli):
 
         Examples:
             # Preview migration (dry run)
-            python main_v2.py migrate raw --dry-run
+            python -m main migrate raw --dry-run
 
             # Preview first 20 files
-            python main_v2.py migrate raw --dry-run --limit 20
+            python -m main migrate raw --dry-run --limit 20
 
             # Migrate all auto-migrate files
-            python main_v2.py migrate raw
+            python -m main migrate raw
 
             # Migrate with auto cleanup (no prompts)
-            python main_v2.py migrate raw --auto-cleanup
+            python -m main migrate raw --auto-cleanup
 
             # Migrate limited batch
-            python main_v2.py migrate raw --limit 100
+            python -m main migrate raw --limit 100
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -104,13 +104,13 @@ def _preview_migration(file_organizer, limit):
             click.echo(f"(Limited to {limit} files - use --limit to change)")
         click.echo()
         click.echo("To execute migration:")
-        click.echo("  python main_v2.py migrate raw")
+        click.echo("  python -m main migrate raw")
     else:
         click.echo("No files found ready for migration.")
         click.echo()
         click.echo("Files must have validation score ≥95 to auto-migrate.")
         click.echo("Run validation to score files:")
-        click.echo("  python main_v2.py validate raw")
+        click.echo("  python -m main validate raw")
 
     click.echo("=" * 80)
 
@@ -154,5 +154,5 @@ def _execute_migration(file_organizer, limit, auto_cleanup):
     if stats['moved'] > 0:
         click.echo()
         click.echo("Next steps:")
-        click.echo("  1. Backup files:  python main_v2.py backup raw --not-backed-up")
-        click.echo("  2. View stats:    python main_v2.py stats raw")
+        click.echo("  1. Backup files:  python -m main backup raw --not-backed-up")
+        click.echo("  2. View stats:    python -m main stats raw")

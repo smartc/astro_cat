@@ -39,7 +39,7 @@ def register_commands(cli):
         - Session statistics
 
         Examples:
-            python main_v2.py stats raw
+            python -m main stats raw
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -110,7 +110,7 @@ def register_commands(cli):
         - Breakdown by processing session
 
         Examples:
-            python main_v2.py stats processed
+            python -m main stats processed
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -190,7 +190,7 @@ def register_commands(cli):
         - Backup status by session
 
         Examples:
-            python main_v2.py stats backups
+            python -m main stats backups
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -252,7 +252,7 @@ def register_commands(cli):
         - Disk space usage estimates
 
         Examples:
-            python main_v2.py stats storage
+            python -m main stats storage
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']

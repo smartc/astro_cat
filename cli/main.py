@@ -25,16 +25,16 @@ def cli(ctx, config, verbose):
 
     Examples:
         # Scan for new raw FITS files in quarantine
-        python main_v2.py scan raw
+        python -m main scan raw
 
         # Catalog scanned files to database
-        python main_v2.py catalog raw
+        python -m main catalog raw
 
         # Create a processing session
-        python main_v2.py processing-session create "M31 LRGB" --file-ids "1,2,3"
+        python -m main processing-session create "M31 LRGB" --file-ids "1,2,3"
 
         # Backup processed files
-        python main_v2.py backup processed --processing-session <ID>
+        python -m main backup processed --processing-session <ID>
     """
     ctx.ensure_object(dict)
     ctx.obj['config_path'] = config

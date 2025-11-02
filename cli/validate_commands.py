@@ -44,22 +44,22 @@ def register_commands(cli):
 
         Examples:
             # Validate raw files and score for migration
-            python main_v2.py validate raw
+            python -m main validate raw
 
             # Validate and check physical files exist
-            python main_v2.py validate raw --check-files
+            python -m main validate raw --check-files
 
             # Validate limited set
-            python main_v2.py validate raw --limit 100
+            python -m main validate raw --limit 100
 
             # Remove missing file records (dry run)
-            python main_v2.py validate raw --check-files --remove-missing --dry-run
+            python -m main validate raw --check-files --remove-missing --dry-run
 
             # Actually remove missing records
-            python main_v2.py validate raw --check-files --remove-missing
+            python -m main validate raw --check-files --remove-missing
 
             # Show database validation summary
-            python main_v2.py validate database
+            python -m main validate database
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -116,7 +116,7 @@ def _validate_raw_files(validator, check_files, limit, remove_missing, dry_run, 
             click.echo("\n" + "!" * 60)
             click.echo(f"⚠  Found {stats['missing_files']} files that don't exist on disk")
             click.echo("   Use --remove-missing flag to clean database:")
-            click.echo("     python main_v2.py validate raw --check-files --remove-missing")
+            click.echo("     python -m main validate raw --check-files --remove-missing")
             click.echo("!" * 60)
 
     click.echo(f"Updated:          {stats['updated']:>6}")
@@ -125,7 +125,7 @@ def _validate_raw_files(validator, check_files, limit, remove_missing, dry_run, 
 
     if stats['auto_migrate'] > 0:
         click.echo(f"\n✓ {stats['auto_migrate']} files ready for automatic migration")
-        click.echo("  Run: python main_v2.py migrate raw --dry-run")
+        click.echo("  Run: python -m main migrate raw --dry-run")
 
 
 def _remove_missing_files(validator, dry_run):
@@ -149,7 +149,7 @@ def _remove_missing_files(validator, dry_run):
     if dry_run:
         click.echo(f"  Would remove: {stats['missing']} records")
         click.echo("\nRun without --dry-run to actually remove records:")
-        click.echo("  python main_v2.py validate raw --check-files --remove-missing")
+        click.echo("  python -m main validate raw --check-files --remove-missing")
     else:
         click.echo(f"  Removed: {stats['removed']} records")
         click.echo("✓ Database cleaned")

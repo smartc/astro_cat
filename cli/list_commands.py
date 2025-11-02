@@ -41,19 +41,19 @@ def register_commands(cli):
 
         Examples:
             # List recent files
-            python main_v2.py list raw
+            python -m main list raw
 
             # Find files for specific object
-            python main_v2.py list raw --object "M31"
+            python -m main list raw --object "M31"
 
             # Filter by equipment
-            python main_v2.py list raw --camera "ASI2600MM" --telescope "EF200"
+            python -m main list raw --camera "ASI2600MM" --telescope "EF200"
 
             # Find light frames with specific filter
-            python main_v2.py list raw --frame-type Light --filter Ha
+            python -m main list raw --frame-type Light --filter Ha
 
             # Show more results
-            python main_v2.py list raw --limit 100
+            python -m main list raw --limit 100
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -130,13 +130,13 @@ def register_commands(cli):
 
         Examples:
             # List all processed files
-            python main_v2.py list processed
+            python -m main list processed
 
             # List files for specific session
-            python main_v2.py list processed --processing-session 20250115_ABC123
+            python -m main list processed --processing-session 20250115_ABC123
 
             # List only final JPG files
-            python main_v2.py list processed --file-type jpg --subfolder final
+            python -m main list processed --file-type jpg --subfolder final
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -208,13 +208,13 @@ def register_commands(cli):
 
         Examples:
             # List 20 most recent sessions
-            python main_v2.py list imaging-sessions
+            python -m main list imaging-sessions
 
             # List 50 recent sessions
-            python main_v2.py list imaging-sessions --recent 50
+            python -m main list imaging-sessions --recent 50
 
             # Filter by equipment
-            python main_v2.py list imaging-sessions --camera ASI2600MM
+            python -m main list imaging-sessions --camera ASI2600MM
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -270,10 +270,10 @@ def register_commands(cli):
 
         Examples:
             # List all processing sessions
-            python main_v2.py list processing-sessions
+            python -m main list processing-sessions
 
             # Filter by status
-            python main_v2.py list processing-sessions --status in_progress
+            python -m main list processing-sessions --status in_progress
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']

@@ -171,5 +171,5 @@ def _catalog_raw_files(config, cameras, telescopes, filter_mappings, verbose):
             click.echo(f"    {error_msg}")
 
     click.echo("\nNext steps:")
-    click.echo("  1. Validate files:  python main_v2.py validate raw")
-    click.echo("  2. Migrate files:   python main_v2.py migrate raw --dry-run")
+    click.echo("  1. Validate files:  python -m main validate raw")
+    click.echo("  2. Migrate files:   python -m main migrate raw --dry-run")

@@ -32,7 +32,7 @@ def register_commands(cli):
         """Show detailed information about an imaging session.
 
         Examples:
-            python main_v2.py imaging-session info 20240815_001
+            python -m main imaging-session info 20240815_001
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -83,7 +83,7 @@ def register_commands(cli):
         """Add or update notes for an imaging session.
 
         Examples:
-            python main_v2.py imaging-session notes 20240815_001 "Clear skies, excellent seeing"
+            python -m main imaging-session notes 20240815_001 "Clear skies, excellent seeing"
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']

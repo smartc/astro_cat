@@ -37,13 +37,13 @@ def register_commands(cli):
 
         Examples:
             # Verify all raw files
-            python main_v2.py verify raw --all
+            python -m main verify raw --all
 
             # Verify specific processing session
-            python main_v2.py verify processed --processing-session 20250115_ABC123
+            python -m main verify processed --processing-session 20250115_ABC123
 
             # Verify all processing sessions
-            python main_v2.py verify processed --all
+            python -m main verify processed --all
         """
         config_path = ctx.obj['config_path']
         verbose = ctx.obj['verbose']
@@ -89,8 +89,8 @@ def _verify_processed_files(config_path, session_id, verify_all, verbose):
     if not session_id and not verify_all:
         click.echo("Error: Specify --processing-session or --all")
         click.echo("\nExamples:")
-        click.echo("  python main_v2.py verify processed --processing-session 20250115_ABC123")
-        click.echo("  python main_v2.py verify processed --all")
+        click.echo("  python -m main verify processed --processing-session 20250115_ABC123")
+        click.echo("  python -m main verify processed --all")
         sys.exit(1)
 
     try:
@@ -112,7 +112,7 @@ def _verify_processed_files(config_path, session_id, verify_all, verbose):
         else:
             click.echo("Verify all sessions not yet implemented.")
             click.echo("Verify individual sessions:")
-            click.echo("  python main_v2.py verify processed --processing-session <ID>")
+            click.echo("  python -m main verify processed --processing-session <ID>")
 
     except Exception as e:
         click.echo(f"Error: {e}")
