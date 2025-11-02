@@ -4,10 +4,10 @@ Get your FITS library backed up to S3 in 5 simple steps.
 
 ## Prerequisites
 
-- AWS account with S3 access
-- AWS CLI configured (`aws configure`)
-- S3 bucket created
+- AWS account with S3 access (see main README for account setup guide)
 - Your FITS Cataloger database populated
+
+**Note:** The automated setup script can handle AWS CLI installation, credential configuration, and bucket creation for you. See Step 2 below.
 
 ## Step 1: Install Dependencies
 
@@ -17,7 +17,35 @@ source venv/bin/activate
 pip install boto3
 ```
 
-## Step 2: Create Configuration
+## Step 2: Setup AWS S3 and Bucket
+
+### Option A: Automated Setup (Recommended)
+
+Use the helper script to automatically configure everything:
+
+```bash
+# From the main project directory:
+./s3_backup/setup_s3_bucket.sh
+
+# Or from the s3_backup directory:
+cd s3_backup/
+./setup_s3_bucket.sh
+```
+
+The script will:
+- ✓ Check/install AWS CLI v2 if needed
+- ✓ Configure AWS credentials (if not already configured)
+- ✓ Create the S3 bucket with a generated name
+- ✓ Apply tag-based lifecycle rules for cost optimization
+- ✓ Optionally enable bucket versioning
+- ✓ Generate `s3_config.json` with your bucket details
+- ✓ Validate the complete setup
+
+**After running the script, skip to Step 3.**
+
+### Option B: Manual Configuration
+
+If you prefer manual setup or already have a bucket:
 
 ```bash
 # Copy template
@@ -33,13 +61,17 @@ nano s3_config.json
   "enabled": true,
   "aws_region": "ca-west-1",
   "buckets": {
-    "primary": "fits-cataloger-backup-cs-7a3f"
+    "primary": "your-bucket-name"
   },
   "archive_settings": {
     "compression_level": 0
   }
 }
 ```
+
+**Prerequisites for manual setup:**
+- AWS CLI installed and configured (`aws configure`)
+- S3 bucket already created
 
 ## Step 3: Analyze Your Library
 
@@ -181,24 +213,26 @@ Storage Classes:
 4. Verify `.tar` files exist
 5. Check object tags: `archive=fast`, `backup=deep-archive`
 
-## Setup Lifecycle Rules (Optional but Recommended)
+## Setup Lifecycle Rules
 
-Apply lifecycle policy to transition to Glacier Deep Archive for maximum cost savings:
+**If you used the automated setup script:** Lifecycle rules are already configured! Skip this section or use the commands below to verify the configuration.
 
-### Automated Method (Easiest)
+**If you used manual configuration:** Apply lifecycle policy to transition to Glacier Deep Archive for maximum cost savings:
+
+### Verify or Configure Lifecycle Rules
 
 ```bash
-# Configure lifecycle rules with one command
-python -m s3_backup.cli configure-lifecycle
-
 # View the applied configuration
 python -m s3_backup.cli show-lifecycle
 
 # Estimate your cost savings
 python -m s3_backup.cli estimate-costs
+
+# Or configure lifecycle rules manually (if not using setup script):
+python -m s3_backup.cli configure-lifecycle
 ```
 
-**Result:** Files automatically move to Deep Archive storage after 1 day, reducing cost from $19/month to <$1/month.
+**Result:** Files automatically move to Deep Archive storage based on their tags (7-90 days), reducing cost from $19/month to <$1/month.
 
 ### Manual Method (Alternative)
 
