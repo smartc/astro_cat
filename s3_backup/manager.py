@@ -1091,7 +1091,7 @@ class S3BackupManager:
                 )
             
             # Create archive
-            archive_path = self.create_archive(session_id, year)
+            archive_path = self.create_session_archive(session_id)
             if not archive_path:
                 return ArchiveResult(
                     success=False,
