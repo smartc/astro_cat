@@ -183,10 +183,38 @@ Storage Classes:
 
 ## Setup Lifecycle Rules (Optional but Recommended)
 
-Apply lifecycle policy to transition to Glacier Deep Archive:
+Apply lifecycle policy to transition to Glacier Deep Archive for maximum cost savings:
+
+### Automated Method (Easiest)
 
 ```bash
-# Create policy file
+# Configure lifecycle rules with one command
+python -m s3_backup.cli configure-lifecycle
+
+# View the applied configuration
+python -m s3_backup.cli show-lifecycle
+
+# Estimate your cost savings
+python -m s3_backup.cli estimate-costs
+```
+
+**Result:** Files automatically move to Deep Archive storage after 1 day, reducing cost from $19/month to <$1/month.
+
+### Manual Method (Alternative)
+
+If you prefer to use AWS CLI directly:
+
+```bash
+# Apply the included lifecycle policy template
+aws s3api put-bucket-lifecycle-configuration \
+  --bucket your-bucket-name \
+  --lifecycle-configuration file://s3_backup/lifecycle_policy.json
+```
+
+Or create a custom policy:
+
+```bash
+# Create custom policy file
 cat > lifecycle_policy.json << 'EOF'
 {
   "Rules": [
@@ -209,11 +237,9 @@ EOF
 
 # Apply policy
 aws s3api put-bucket-lifecycle-configuration \
-  --bucket fits-cataloger-backup-cs-7a3f \
+  --bucket your-bucket-name \
   --lifecycle-configuration file://lifecycle_policy.json
 ```
-
-**Result:** Files automatically move to Deep Archive storage after 1 day, reducing cost from $19/month to <$1/month.
 
 ## Ongoing Maintenance
 
