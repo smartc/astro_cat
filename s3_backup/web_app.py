@@ -154,8 +154,6 @@ async def _get_storage_categories_internal(session_db):
         all_fits = session_db.query(FitsFile).all()
         backed_up_sessions = {a.session_id for a in session_db.query(S3BackupArchive).all()}
 
-        logger.debug(f"Backed up sessions from S3BackupArchive: {backed_up_sessions}")
-
         total_local_size = 0
         backed_up_size = 0
         sessions_with_local_files = set()
@@ -168,9 +166,6 @@ async def _get_storage_categories_internal(session_db):
                 sessions_with_local_files.add(f.imaging_session_id)
                 if f.imaging_session_id in backed_up_sessions:
                     backed_up_size += size
-
-        logger.debug(f"Sessions with local files: {sessions_with_local_files}")
-        logger.debug(f"Total local size: {total_local_size}, Backed up size: {backed_up_size}")
 
         # Count sessions not backed up (not individual files)
         local_not_backed_count = len(sessions_with_local_files - backed_up_sessions)

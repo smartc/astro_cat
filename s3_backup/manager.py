@@ -1129,7 +1129,7 @@ class S3BackupManager:
             
             # Verify
             verify_result = self.verify_archive(session_id, year)
-            
+
             if not verify_result.verified:
                 return ArchiveResult(
                     success=False,
@@ -1138,7 +1138,36 @@ class S3BackupManager:
                     s3_key=s3_key,
                     error=f"Verification failed: {verify_result.error}"
                 )
-            
+
+            # Create database record for successful backup
+            from s3_backup.models import S3BackupArchive
+
+            backup_archive = S3BackupArchive(
+                session_id=session_id,
+                session_date=session.date,
+                session_year=year,
+                s3_bucket=self.s3_config.bucket,
+                s3_key=s3_key,
+                s3_region=self.s3_config.region,
+                s3_etag=etag,
+                file_count=len(files),
+                original_size_bytes=original_size,
+                compressed_size_bytes=compressed_size,
+                compression_ratio=compressed_size / original_size if original_size > 0 else 0,
+                uploaded_at=datetime.now(),
+                verified=True,
+                verification_method='head_object',
+                archive_policy=archive_policy,
+                backup_policy=backup_policy,
+                camera_name=session.camera,
+                telescope_name=session.telescope,
+                current_storage_class='STANDARD'
+            )
+
+            session_db.add(backup_archive)
+            session_db.commit()
+            logger.info(f"✓ Created database record for backup: {session_id}")
+
             # Clean up temporary archive if requested
             if cleanup_archive and archive_path.exists():
                 try:
@@ -1146,7 +1175,7 @@ class S3BackupManager:
                     logger.info(f"✓ Cleaned up local archive: {archive_path}")
                 except Exception as e:
                     logger.warning(f"Failed to clean up archive {archive_path}: {e}")
-            
+
             return ArchiveResult(
                 success=True,
                 session_id=session_id,
