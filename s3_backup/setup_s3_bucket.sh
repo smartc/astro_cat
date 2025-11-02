@@ -729,32 +729,175 @@ validate_setup() {
 }
 
 ################################################################################
+# Generate s3_config.json
+################################################################################
+
+generate_s3_config() {
+    print_header "Step 8: Generating Configuration File"
+
+    local config_file="${SCRIPT_DIR}/s3_config.json"
+
+    # Check if config already exists
+    if [[ -f "$config_file" ]]; then
+        print_warning "Configuration file already exists: $config_file"
+        if prompt_yes_no "Overwrite existing s3_config.json?" "n"; then
+            print_info "Backing up existing config to s3_config.json.backup"
+            cp "$config_file" "${config_file}.backup"
+        else
+            print_info "Keeping existing configuration file"
+            return 0
+        fi
+    fi
+
+    print_info "Creating s3_config.json with your bucket details..."
+
+    # Generate the config file
+    cat > "$config_file" << EOF
+{
+  "enabled": true,
+  "aws_region": "$AWS_REGION",
+
+  "buckets": {
+    "primary": "$BUCKET_NAME",
+    "backup": null
+  },
+
+  "s3_paths": {
+    "raw_archives": "backups/raw",
+    "session_notes": "backups/sessions",
+    "processing_notes": "backups/processing",
+    "final_outputs": "backups/final",
+    "database_backups": "backups/database"
+  },
+
+  "backup_rules": {
+    "raw_lights": {
+      "archive_policy": "fast",
+      "backup_policy": "deep",
+      "archive_days": 7,
+      "storage_class": "STANDARD"
+    },
+    "raw_calibration": {
+      "archive_policy": "fast",
+      "backup_policy": "deep",
+      "archive_days": 7,
+      "storage_class": "STANDARD"
+    },
+    "imaging_sessions": {
+      "archive_policy": "standard",
+      "backup_policy": "deep",
+      "archive_days": 30,
+      "storage_class": "STANDARD"
+    },
+    "processing_sessions": {
+      "archive_policy": "delayed",
+      "backup_policy": "flexible",
+      "archive_days": 90,
+      "storage_class": "STANDARD"
+    }
+  },
+
+  "upload_settings": {
+    "multipart_threshold_mb": 100,
+    "multipart_chunksize_mb": 25,
+    "max_concurrency": 4,
+    "use_threads": true,
+    "max_bandwidth_mbps": null
+  },
+
+  "restore_settings": {
+    "default_tier": "Standard",
+    "default_days": 7,
+    "restore_path": "/path/to/restore"
+  },
+
+  "archive_settings": {
+    "compression_level": 0,
+    "use_pigz": false,
+    "verify_after_upload": true,
+    "keep_archive_index": true,
+    "max_archive_size_gb": 50,
+    "temp_dir": ".tmp/backup_archives"
+  },
+
+  "retry_settings": {
+    "max_retries": 3,
+    "initial_backoff_seconds": 2,
+    "max_backoff_seconds": 60,
+    "backoff_multiplier": 2
+  },
+
+  "logging": {
+    "log_uploads": true,
+    "log_verifications": true,
+    "log_restores": true,
+    "verbose": false
+  },
+
+  "cost_tracking": {
+    "track_costs": true,
+    "storage_cost_per_gb_per_month": {
+      "STANDARD": 0.023,
+      "STANDARD_IA": 0.013,
+      "GLACIER_IR": 0.004,
+      "GLACIER_FLEXIBLE": 0.004,
+      "DEEP_ARCHIVE": 0.00099
+    },
+    "data_transfer_cost_per_gb": {
+      "upload": 0.0,
+      "download": 0.09
+    }
+  },
+
+  "notifications": {
+    "email_on_complete": false,
+    "email_address": null,
+    "email_on_error": true
+  }
+}
+EOF
+
+    if [[ -f "$config_file" ]]; then
+        print_success "Configuration file created: $config_file"
+        print_info "Bucket: $BUCKET_NAME"
+        print_info "Region: $AWS_REGION"
+        print_info ""
+        print_info "You can customize the configuration by editing this file."
+        return 0
+    else
+        print_error "Failed to create configuration file"
+        return 1
+    fi
+}
+
+################################################################################
 # Next Steps
 ################################################################################
 
 print_next_steps() {
     print_header "Setup Complete!"
 
-    echo -e "${GREEN}Your S3 bucket is ready for use with the s3_backup module.${NC}"
+    echo -e "${GREEN}Your S3 bucket is ready for use with the s3_backup module!${NC}"
+    echo ""
+    echo -e "${CYAN}What was configured:${NC}"
+    echo "  ✓ S3 bucket: $BUCKET_NAME"
+    echo "  ✓ Region: $AWS_REGION"
+    echo "  ✓ Lifecycle policy: Applied"
+    if [[ "$ENABLE_VERSIONING" == "true" ]]; then
+        echo "  ✓ Versioning: Enabled"
+    fi
+    echo "  ✓ Configuration file: s3_config.json created"
     echo ""
     echo -e "${CYAN}Next steps:${NC}"
     echo ""
-    echo "1. Update your s3_backup configuration:"
+    echo "1. (Optional) Customize s3_config.json:"
     echo "   $ cd $SCRIPT_DIR"
-    echo "   $ cp s3_config.json.template s3_config.json"
-    echo "   $ nano s3_config.json  # Edit the configuration"
+    echo "   $ nano s3_config.json"
     echo ""
-    echo "   Set these values in s3_config.json:"
-    echo "     \"enabled\": true,"
-    echo "     \"aws_region\": \"$AWS_REGION\","
-    echo "     \"buckets\": {"
-    echo "       \"primary\": \"$BUCKET_NAME\""
-    echo "     }"
+    echo "   The file has been pre-configured with your bucket details."
+    echo "   You can adjust upload settings, archive policies, etc."
     echo ""
-    echo "2. Initialize the s3_backup module:"
-    echo "   $ python -m s3_backup.cli init-config"
-    echo ""
-    echo "3. Verify the setup:"
+    echo "2. Verify the setup:"
     echo "   $ python -m s3_backup.cli status"
     echo ""
     echo "4. View lifecycle configuration:"
@@ -797,6 +940,7 @@ main() {
     configure_versioning
     configure_lifecycle_policy
     validate_setup
+    generate_s3_config
     print_next_steps
 
     print_success "Script completed successfully!"

@@ -57,7 +57,31 @@ SESSION_ID.tar
 
 ## Setup
 
-### 1. AWS Prerequisites
+### Quick Start (Recommended)
+
+Use the automated setup script to create and configure your S3 bucket:
+
+```bash
+cd s3_backup/
+./setup_s3_bucket.sh
+```
+
+The script will:
+- Check/install AWS CLI v2 if needed
+- Configure AWS credentials (if not already configured)
+- Create the S3 bucket with a generated name
+- Apply tag-based lifecycle rules for cost optimization
+- Optionally enable bucket versioning
+- Generate `s3_config.json` with your bucket details
+- Validate the complete setup
+
+After running the script, skip to step 2 (Python Dependencies) below.
+
+### Manual Setup
+
+If you prefer manual setup or need custom configuration:
+
+#### 1. AWS Prerequisites
 
 1. **AWS CLI configured** with credentials:
    ```bash
@@ -66,22 +90,26 @@ SESSION_ID.tar
 
 2. **Create S3 bucket**:
    ```bash
-   aws s3 mb s3://your-bucket-name --region ca-west-1
+   aws s3 mb s3://your-bucket-name --region us-west-2
    ```
 
-3. **Enable versioning** (optional but recommended):
+3. **Apply tag-based lifecycle rules** (recommended):
+   ```bash
+   cd s3_backup/
+   aws s3api put-bucket-lifecycle-configuration \
+     --bucket your-bucket-name \
+     --region us-west-2 \
+     --lifecycle-configuration file://lifecycle_policy.json
+   ```
+
+   See [Lifecycle Management](#lifecycle-management) section below for details on the tag-based policy.
+
+4. **Enable versioning** (optional):
    ```bash
    aws s3api put-bucket-versioning \
      --bucket your-bucket-name \
+     --region us-west-2 \
      --versioning-configuration Status=Enabled
-   ```
-
-4. **Create lifecycle rules**:
-   ```bash
-   # See lifecycle_policy.json example below
-   aws s3api put-bucket-lifecycle-configuration \
-     --bucket your-bucket-name \
-     --lifecycle-configuration file://lifecycle_policy.json
    ```
 
 ### 2. Python Dependencies
@@ -98,7 +126,9 @@ pip install boto3
 
 ### 3. Configuration
 
-1. **Initialize config**:
+If you used the automated setup script, `s3_config.json` was already created for you. Otherwise:
+
+1. **Initialize config** (if not using setup script):
    ```bash
    python -m s3_backup.cli init-config
    ```
@@ -107,12 +137,38 @@ pip install boto3
    ```json
    {
      "enabled": true,
-     "aws_region": "ca-west-1",
+     "aws_region": "us-west-2",
      "buckets": {
        "primary": "your-bucket-name"
+     },
+     "backup_rules": {
+       "raw_lights": {
+         "archive_policy": "fast",
+         "backup_policy": "deep",
+         "archive_days": 7
+       },
+       "imaging_sessions": {
+         "archive_policy": "standard",
+         "backup_policy": "deep",
+         "archive_days": 30
+       },
+       "processing_sessions": {
+         "archive_policy": "delayed",
+         "backup_policy": "flexible",
+         "archive_days": 90
+       }
      }
    }
    ```
+
+   **Archive policy tags** (`archive_policy`):
+   - `fast` (7 days): Raw data you won't reprocess
+   - `standard` (30 days): Final products you might reference
+   - `delayed` (90 days): Processing notes and logs
+
+   **Backup policy tags** (`backup_policy`):
+   - `deep`: Direct to DEEP_ARCHIVE (cheapest)
+   - `flexible`: GLACIER first, then DEEP_ARCHIVE (easier retrieval)
 
 3. **Create database tables**:
    ```bash
@@ -196,97 +252,132 @@ python -m s3_backup.cli list-sessions --not-backed-up
 
 ## Lifecycle Management
 
-Lifecycle rules automatically transition objects to lower-cost storage classes over time. This is essential for cost-effective long-term storage of FITS data.
+The s3_backup module uses **tag-based lifecycle rules** to automatically transition objects to lower-cost storage classes. This is essential for cost-effective long-term storage of FITS data.
 
-### Automated Lifecycle Configuration (Recommended)
+### How It Works
 
-The easiest way to configure lifecycle rules is using the built-in CLI command:
+1. **Files are tagged** with `archive_policy` and `backup_policy` when uploaded
+2. **S3 lifecycle rules** automatically transition files based on these tags
+3. **No folder structure required** - tags provide flexible, per-file control
+
+### Tag-Based Policy
+
+The lifecycle policy includes 6 tag-based rules covering all combinations:
+
+| archive_policy | backup_policy | Transition Schedule |
+|---------------|---------------|---------------------|
+| **fast** | **deep** | 7 days → DEEP_ARCHIVE |
+| **standard** | **deep** | 30 days → DEEP_ARCHIVE |
+| **delayed** | **deep** | 90 days → DEEP_ARCHIVE |
+| **fast** | **flexible** | 7 days → GLACIER, 97 days → DEEP_ARCHIVE |
+| **standard** | **flexible** | 30 days → GLACIER, 120 days → DEEP_ARCHIVE |
+| **delayed** | **flexible** | 90 days → GLACIER, 180 days → DEEP_ARCHIVE |
+
+**Plus cleanup rules:**
+- Expire old RAW file versions after 1 day (if versioning enabled)
+- Expire old PROCESSED file versions after 1 day
+- Keep 5 newest DATABASE versions, delete rest after 90 days
+- Abort incomplete multipart uploads after 3 days
+
+### Customizing Lifecycle Policy
+
+Use the generator script to create custom policies:
 
 ```bash
-# Apply default lifecycle policy (recommended settings)
-python -m s3_backup.cli configure-lifecycle
+cd s3_backup/
 
-# View current lifecycle configuration
-python -m s3_backup.cli show-lifecycle
+# View defaults
+python generate_lifecycle_policy.py --show-defaults
 
-# Customize transition periods
-python -m s3_backup.cli configure-lifecycle \
-  --raw-days 7 \
-  --processed-days 60 \
-  --database-days 14
+# Generate custom policy
+python generate_lifecycle_policy.py \
+  --fast-days 14 \
+  --standard-days 60 \
+  --delayed-days 120 \
+  --flexible-to-deep-days 180 \
+  -o my_custom_policy.json
 
-# Dry run to preview changes
-python -m s3_backup.cli configure-lifecycle --dry-run
+# Apply to bucket
+aws s3api put-bucket-lifecycle-configuration \
+  --bucket your-bucket-name \
+  --region us-west-2 \
+  --lifecycle-configuration file://my_custom_policy.json
 ```
 
-**Default transition schedule:**
-- Raw backups → Deep Archive after 1 day
-- Processed files → Glacier after 30 days
-- Database backups → Deep Archive after 7 days
-- Session notes → Standard-IA after 30 days, Glacier after 90 days
+See `LIFECYCLE_POLICY.md` for complete documentation.
 
 ### Manual Lifecycle Configuration
 
-If you prefer to configure lifecycle rules manually, a template policy is provided in `lifecycle_policy.json`:
+The default tag-based policy is in `lifecycle_policy.json`:
 
 ```bash
-# Apply the included lifecycle policy template
+# Apply the included lifecycle policy
+cd s3_backup/
 aws s3api put-bucket-lifecycle-configuration \
   --bucket your-bucket-name \
-  --lifecycle-configuration file://s3_backup/lifecycle_policy.json
+  --region us-west-2 \
+  --lifecycle-configuration file://lifecycle_policy.json
 
-# Or customize the JSON file first, then apply
-nano s3_backup/lifecycle_policy.json
-aws s3api put-bucket-lifecycle-configuration \
+# View current lifecycle rules
+aws s3api get-bucket-lifecycle-configuration \
   --bucket your-bucket-name \
-  --lifecycle-configuration file://s3_backup/lifecycle_policy.json
+  --region us-west-2
 ```
 
-### Lifecycle Policy Template
+### Lifecycle Policy Example
 
-The included `lifecycle_policy.json` contains rules optimized for FITS backup:
+The `lifecycle_policy.json` uses S3 object tags for flexible archival (abbreviated example):
 
 ```json
 {
   "Rules": [
     {
-      "Id": "TransitionRawBackupsToDeepArchive",
+      "ID": "Archive - Fast/Deep",
+      "Filter": {
+        "And": {
+          "Tags": [
+            {"Key": "archive_policy", "Value": "fast"},
+            {"Key": "backup_policy", "Value": "deep"}
+          ]
+        }
+      },
       "Status": "Enabled",
-      "Filter": {"Prefix": "backups/raw/"},
-      "Transitions": [
-        {"Days": 1, "StorageClass": "DEEP_ARCHIVE"}
-      ]
-    },
-    {
-      "Id": "TransitionProcessedToGlacier",
-      "Status": "Enabled",
-      "Filter": {"Prefix": "backups/processed/"},
-      "Transitions": [
-        {"Days": 30, "StorageClass": "GLACIER_FLEXIBLE_RETRIEVAL"}
-      ]
-    },
-    {
-      "Id": "TransitionDatabaseBackupsToDeepArchive",
-      "Status": "Enabled",
-      "Filter": {"Prefix": "backups/database/"},
       "Transitions": [
         {"Days": 7, "StorageClass": "DEEP_ARCHIVE"}
+      ],
+      "NoncurrentVersionTransitions": [
+        {"NoncurrentDays": 7, "StorageClass": "DEEP_ARCHIVE"}
       ]
     },
     {
-      "Id": "TransitionNotesToStandardIA",
+      "ID": "Archive - Standard/Flexible",
+      "Filter": {
+        "And": {
+          "Tags": [
+            {"Key": "archive_policy", "Value": "standard"},
+            {"Key": "backup_policy", "Value": "flexible"}
+          ]
+        }
+      },
       "Status": "Enabled",
-      "Filter": {"Prefix": "backups/notes/"},
       "Transitions": [
-        {"Days": 30, "StorageClass": "STANDARD_IA"},
-        {"Days": 90, "StorageClass": "GLACIER_FLEXIBLE_RETRIEVAL"}
+        {"Days": 30, "StorageClass": "GLACIER"},
+        {"Days": 120, "StorageClass": "DEEP_ARCHIVE"}
       ]
+    },
+    {
+      "ID": "Expire non-current versions for RAW",
+      "Filter": {"Prefix": "backups/raw/"},
+      "Status": "Enabled",
+      "NoncurrentVersionExpiration": {"NoncurrentDays": 1}
     }
   ]
 }
 ```
 
-### Storage Classes & Costs (ca-west-1)
+See `lifecycle_policy.json` for the complete policy with all 10 rules.
+
+### Storage Classes & Costs
 
 | Storage Class | Cost/GB/Month | Retrieval Time | Use Case |
 |--------------|---------------|----------------|----------|
