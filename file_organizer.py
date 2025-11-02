@@ -474,27 +474,46 @@ class FileOrganizer:
                     
                     with tqdm(total=total_remaining, desc="Categorizing files") as pbar:
                         for idx, physical_file in enumerate(remaining_files):
-                            
-                            if "BAD_" in physical_file.name:
+
+                            # Check for bad files (case-insensitive check for BAD_ prefix)
+                            if physical_file.name.upper().startswith("BAD_"):
                                 bad_files_to_move.append(physical_file)
                                 pbar.update(1)
                                 continue
-                            
+
+                            # Check for duplicates
+                            # A file is a duplicate only if ANOTHER file (not itself) has the same MD5
                             md5_hash = self._get_file_md5(str(physical_file))
                             if md5_hash:
-                                existing_record = session.query(FitsFile).filter_by(md5sum=md5_hash).first()
-                                if existing_record:
-                                    original_path = Path(existing_record.folder) / existing_record.file
-                                    if original_path.exists():
-                                        duplicates_to_move.append(physical_file)
-                                    else:
-                                        logger.warning(f"Found file with database record but missing original: {physical_file}")
-                            
+                                # Get all records with this MD5
+                                all_records = session.query(FitsFile).filter_by(md5sum=md5_hash).all()
+
+                                # Check if any OTHER file (different path) exists with this MD5
+                                is_duplicate = False
+                                physical_file_str = str(physical_file)
+
+                                for record in all_records:
+                                    record_path = Path(record.folder) / record.file
+                                    record_path_str = str(record_path)
+
+                                    # Is this a different file than the one we're checking?
+                                    if record_path_str != physical_file_str:
+                                        # Does that different file exist?
+                                        if record_path.exists():
+                                            is_duplicate = True
+                                            logger.info(f"Found duplicate: {physical_file.name} matches {record_path}")
+                                            break
+
+                                if is_duplicate:
+                                    duplicates_to_move.append(physical_file)
+
+                            # If not duplicate or bad, leave in quarantine for manual review
+
                             # Update progress every 10 files
                             if (idx + 1) % 10 == 0 or (idx + 1) == total_remaining:
                                 cat_progress = ((idx + 1) / total_remaining) * 100
                                 update_progress(cat_progress, stage_weight)
-                            
+
                             pbar.update(1)
                     
                     # Move bad files
