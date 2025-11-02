@@ -6,7 +6,7 @@ const ProcessingSessionModals = {
     template: `
         <div>
             <!-- Create Processing Session Modal -->
-            <div v-if="showCreateModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div v-if="showCreateModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" style="z-index: 300;">
                 <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
                     <h3 class="text-lg font-bold mb-4">Create Processing Session</h3>
                     <div class="space-y-4">
@@ -32,7 +32,7 @@ const ProcessingSessionModals = {
             </div>
 
             <!-- Add to New Session Modal -->
-            <div v-if="showAddToNewModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div v-if="showAddToNewModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" style="z-index: 300;">
                 <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
                     <h3 class="text-lg font-bold mb-4">Create New Processing Session</h3>
                     <div class="mb-4 p-3 bg-blue-50 rounded">
@@ -58,7 +58,7 @@ const ProcessingSessionModals = {
             </div>
 
             <!-- Add to Existing Session Modal -->
-            <div v-if="showAddToExistingSessionModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div v-if="showAddToExistingSessionModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" style="z-index: 300;">
                 <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
                     <h3 class="text-lg font-bold mb-4">Add to Existing Processing Session</h3>
                     <div class="mb-4 p-3 bg-blue-50 rounded">
@@ -162,33 +162,43 @@ const ProcessingSessionModals = {
         async createSessionFromSelectedFiles() {
             try {
                 const app = this.$root;
-                
+
                 if (!this.newSessionFromFiles.name.trim()) {
                     alert('Session name is required');
                     return;
                 }
-                
+
                 if (app.selectedFiles.length === 0) {
                     alert('No files selected');
                     return;
                 }
-                
+
                 const payload = {
                     name: this.newSessionFromFiles.name.trim(),
                     file_ids: app.selectedFiles,
                     notes: this.newSessionFromFiles.notes.trim() || null
                 };
-                
-                await ApiService.processingSessions.create(payload);
-                
+
+                const response = await ApiService.processingSessions.create(payload);
+                const sessionId = response.data.session_id;
+
                 this.showAddToNewModal = false;
                 app.clearSelection();
-                alert(`Processing session "${this.newSessionFromFiles.name}" created successfully with ${payload.file_ids.length} files!`);
                 await app.loadProcessingSessions();
 
                 // REFRESH STATS AFTER ADDING FILES
-                await window.refreshStats();                
-                
+                await window.refreshStats();
+
+                // Close imaging session modal if open
+                if (app.$refs.sessionDetailModal && app.$refs.sessionDetailModal.showDetailModal) {
+                    app.$refs.sessionDetailModal.closeSessionDetails();
+                }
+
+                // Open processing session details modal for the newly created session
+                if (app.$refs.processingDetailsModal && sessionId) {
+                    await app.$refs.processingDetailsModal.viewProcessingSession(sessionId);
+                }
+
             } catch (error) {
                 console.error('Error creating processing session from files:', error);
                 alert(`Failed to create processing session: ${error.response?.data?.detail || error.message}`);
@@ -220,26 +230,36 @@ const ProcessingSessionModals = {
         async addToExistingSession() {
             try {
                 const app = this.$root;
-                
+
                 if (!this.selectedExistingSession) {
                     alert('Please select a session');
                     return;
                 }
-                
+
+                const sessionId = this.selectedExistingSession;
+
                 await ApiService.processingSessions.addFiles(
-                    this.selectedExistingSession, 
+                    sessionId,
                     app.selectedFiles
                 );
-                
+
                 this.showAddToExistingSessionModal = false;
-                const fileCount = app.selectedFiles.length;
                 app.clearSelection();
-                alert(`Added ${fileCount} files to session!`);
                 await app.loadProcessingSessions();
 
                 // REFRESH STATS AFTER ADDING FILES
                 await window.refreshStats();
-                
+
+                // Close imaging session modal if open
+                if (app.$refs.sessionDetailModal && app.$refs.sessionDetailModal.showDetailModal) {
+                    app.$refs.sessionDetailModal.closeSessionDetails();
+                }
+
+                // Open processing session details modal for the updated session
+                if (app.$refs.processingDetailsModal && sessionId) {
+                    await app.$refs.processingDetailsModal.viewProcessingSession(sessionId);
+                }
+
             } catch (error) {
                 console.error('Error adding files to session:', error);
                 alert(`Failed to add files: ${error.response?.data?.detail || error.message}`);

@@ -1076,25 +1076,142 @@ _No processing steps completed yet_
 
     
     def _update_session_info_file(self, session_folder: Path, ps: ProcessingSession):
-        """Update the session info file with current session data."""
+        """Update the session info file with current session data, preserving custom notes."""
+        import re
+
         objects = json.loads(ps.objects) if ps.objects else []
-        
+
         # Get current file counts
         session = self.db_service.db_manager.get_session()
         try:
             file_counts_query = session.query(ProcessingSessionFile.frame_type).filter(
                 ProcessingSessionFile.processing_session_id == ps.id
             ).all()
-            
+
             frame_counts = {'LIGHT': 0, 'DARK': 0, 'FLAT': 0, 'BIAS': 0}
             for (frame_type,) in file_counts_query:
                 if frame_type in frame_counts:
                     frame_counts[frame_type] += 1
         finally:
             session.close()
-        
-        self._create_session_info_file(session_folder, ps.id, ps.name, objects, 
-                                     frame_counts, ps.notes, None)
+
+        # Determine file location
+        try:
+            year = int(ps.id[:4])
+        except (ValueError, IndexError):
+            year = datetime.now().year
+
+        notes_dir = Path(self.config.paths.notes_dir) / "Processing_Sessions" / str(year)
+        info_file = notes_dir / f"{ps.id}.md"
+
+        # Check if file exists to preserve custom sections
+        existing_content = None
+        if info_file.exists():
+            try:
+                with open(info_file, 'r') as f:
+                    existing_content = f.read()
+            except Exception as e:
+                logger.warning(f"Could not read existing markdown file: {e}")
+
+        if existing_content:
+            # Parse and preserve custom sections
+            preserved_sections = {}
+
+            # Extract sections to preserve (custom user content)
+            # Note: Processing Timeline is NOT preserved - it's always regenerated from database
+            sections_to_preserve = [
+                'Processing Notes', 'External References',
+                'Processing History', 'Folder Structure'
+            ]
+
+            for section in sections_to_preserve:
+                # Match section heading and content until next ## heading or end of file
+                pattern = rf'## {re.escape(section)}\s*\n(.*?)(?=\n## |\n---|\Z)'
+                match = re.search(pattern, existing_content, re.DOTALL)
+                if match:
+                    preserved_sections[section] = match.group(1).rstrip()
+
+            # Build new acquisition and calibration tables
+            acquisition_table = self._build_acquisition_table(ps.id, None)
+            calibration_table = self._build_calibration_table(ps.id, None)
+
+            # Format objects list
+            objects_str = ', '.join(objects) if objects else 'No objects specified'
+
+            # Default values for sections (to avoid backslash issues in f-strings)
+            default_folder_structure = f'''```
+{ps.id}/
+├── raw/
+│   ├── lights/           # Light frames (symbolic links)
+│   └── calibration/      # Calibration frames (symbolic links)
+│       ├── darks/
+│       ├── flats/
+│       └── bias/
+├── intermediate/         # Intermediate processing files
+└── final/               # Final processed images
+    ├── drafts/          # Draft versions
+    └── published/       # Published versions
+```'''
+
+            # Build timeline with actual dates if available
+            started_text = ps.processing_started.strftime('%Y-%m-%d %H:%M:%S') if ps.processing_started else '_TBD_'
+            completed_text = ps.processing_completed.strftime('%Y-%m-%d %H:%M:%S') if ps.processing_completed else '_TBD_'
+            default_timeline = f'- **Started:** {started_text}\n- **Completed:** {completed_text}'
+
+            default_references = '- **AstroBin URL:** _TBD_\n- **Social Media:** _TBD_'
+
+            # Reconstruct file with updated sections and preserved custom content
+            content = f"""# Processing Session: {ps.name}
+
+**Session ID:** `{ps.id}`
+**Created:** {ps.created_at.strftime('%Y-%m-%d %H:%M:%S') if ps.created_at else datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+**Status:** {ps.status or 'Not Started'}
+
+## Objects
+{objects_str}
+
+## File Summary
+- **Light frames:** {frame_counts['LIGHT']}
+- **Dark frames:** {frame_counts['DARK']}
+- **Flat frames:** {frame_counts['FLAT']}
+- **Bias frames:** {frame_counts['BIAS']}
+- **Total files:** {sum(frame_counts.values())}
+
+## Acquisition Details
+
+### Light Frames
+{acquisition_table}
+
+### Calibration Frames
+{calibration_table}
+
+## Processing Notes
+{preserved_sections.get('Processing Notes', ps.notes or '_No notes provided_')}
+
+## Processing Timeline
+{default_timeline}
+
+## External References
+{preserved_sections.get('External References', default_references)}
+
+## Folder Structure
+{preserved_sections.get('Folder Structure', default_folder_structure)}
+
+## Processing History
+{preserved_sections.get('Processing History', '_No processing steps completed yet_')}
+
+---
+*Generated by FITS Cataloger Processing Session Manager*
+"""
+
+            with open(info_file, 'w') as f:
+                f.write(content)
+
+            logger.debug(f"Updated session info file preserving custom sections: {info_file}")
+        else:
+            # File doesn't exist, create it fresh
+            self._create_session_info_file(session_folder, ps.id, ps.name, objects,
+                                         frame_counts, ps.notes, None)
         
     def list_processing_sessions(self, status_filter: Optional[str] = None) -> List[ProcessingSessionInfo]:
         """List all processing sessions with optional status filter."""
@@ -1188,8 +1305,13 @@ _No processing steps completed yet_
                 ps.processing_started = datetime.now()
             elif status == 'complete' and old_status != 'complete':
                 ps.processing_completed = datetime.now()
-            
+
             session.commit()
+
+            # Update markdown file to reflect new status
+            session_folder = Path(ps.folder_path)
+            self._update_session_info_file(session_folder, ps)
+
             logger.info(f"Updated processing session {session_id} status: {old_status} -> {status}")
             return True
             
