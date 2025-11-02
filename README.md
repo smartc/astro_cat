@@ -73,7 +73,23 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 4. Verify Installation
+### 4. Install Frontend Libraries
+
+The web interface requires JavaScript and CSS libraries that are not included in the repository. Run the installer script to download them:
+
+```bash
+python install_frontend_libs.py
+```
+
+This will download:
+- Vue.js 3.4.21
+- Axios 1.6.7
+- Toast UI Editor (latest)
+- Tailwind CSS 2.2.19
+
+**Note**: These libraries are downloaded to `static/js/lib/` and `static/css/lib/` directories, which are excluded from version control.
+
+### 5. Verify Installation
 
 ```bash
 python main.py --help
@@ -181,6 +197,14 @@ If the database doesn't exist, it will be created with the proper schema.
 ## 🌐 Web Interface Usage
 
 ### Starting the Web Server
+
+**Important**: Before starting the web server for the first time, make sure you've installed the frontend libraries:
+
+```bash
+python install_frontend_libs.py
+```
+
+Then start the server:
 
 ```bash
 python run_web.py
