@@ -41,21 +41,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Middleware to suppress 404 logs for source maps and Chrome devtools
-@app.middleware("http")
-async def suppress_404_logs(request, call_next):
-    """Suppress logging of 404 errors for source maps and Chrome devtools."""
-    response = await call_next(request)
-
-    # Don't log 404s for these paths
-    if response.status_code == 404:
-        path = request.url.path
-        if path.endswith('.map') or '.well-known' in path:
-            # Suppress logging by not calling the default logger
-            return response
-
-    return response
-
 # Global services
 backup_manager: Optional[S3BackupManager] = None
 processing_file_backup: Optional[ProcessingSessionFileBackup] = None

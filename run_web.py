@@ -32,6 +32,32 @@ def check_config():
     return True
 
 
+def check_frontend_libraries():
+    """Check if frontend JavaScript/CSS libraries are installed."""
+    static_dir = Path("static")
+    required_files = [
+        static_dir / "js" / "lib" / "axios.min.js",
+        static_dir / "js" / "lib" / "vue.global.prod.js",
+        static_dir / "css" / "lib" / "tailwind.min.css"
+    ]
+
+    missing = [f for f in required_files if not f.exists()]
+
+    if missing:
+        print("❌ Frontend libraries not installed!")
+        print()
+        print("Missing files:")
+        for f in missing:
+            print(f"  - {f}")
+        print()
+        print("Please run the frontend library installer:")
+        print("  python install_frontend_libs.py")
+        print()
+        return False
+
+    return True
+
+
 def main():
     """Start the web interface."""
     print("FITS Cataloger Web Interface")
@@ -40,13 +66,18 @@ def main():
     # Check requirements
     if not check_requirements():
         sys.exit(1)
-    
+
     # Check configuration
     if not check_config():
         sys.exit(1)
-    
+
+    # Check frontend libraries
+    if not check_frontend_libraries():
+        sys.exit(1)
+
     print("✓ Requirements satisfied")
     print("✓ Configuration found")
+    print("✓ Frontend libraries installed")
     print()
     print("Starting web interface...")
     print("Open your browser to: http://localhost:8000")
