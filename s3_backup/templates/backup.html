@@ -151,13 +151,13 @@
                                 </td>
                                 <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700 text-right">${{ cat.annual_cost.toFixed(2) }}</td>
                                 <td class="px-4 py-3 whitespace-nowrap text-sm text-center">
-                                    <button 
-                                        @click="startBackup(cat.name)" 
-                                        :disabled="!status.enabled || isBackingUp(cat.name)"
+                                    <button
+                                        @click="startBackup(cat.name)"
+                                        :disabled="isBackupDisabled(cat.name)"
                                         :class="[
                                             'px-3 py-1 rounded text-xs font-medium transition',
-                                            status.enabled && !isBackingUp(cat.name) 
-                                                ? 'bg-blue-500 hover:bg-blue-600 text-white' 
+                                            !isBackupDisabled(cat.name)
+                                                ? 'bg-blue-500 hover:bg-blue-600 text-white'
                                                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                                         ]"
                                         :title="getBackupButtonTitle(cat.name)">
@@ -312,7 +312,7 @@
                                 annual_cost: 0,
                                 backup_pct: 0
                             };
-                            
+
                             this.storageCategories.forEach(cat => {
                                 total.local_files += cat.local_files;
                                 total.s3_files += cat.s3_files;
@@ -322,12 +322,15 @@
                                 total.backed_up_size += cat.backed_up_size;
                                 total.annual_cost += cat.annual_cost;
                             });
-                            
-                            total.backup_pct = total.local_storage > 0 
-                                ? (total.backed_up_size / total.local_storage) * 100 
+
+                            total.backup_pct = total.local_storage > 0
+                                ? (total.backed_up_size / total.local_storage) * 100
                                 : 0;
-                            
+
                             return total;
+                        },
+                        hasAnyBackupRunning() {
+                            return Object.values(this.backupTasks).some(task => task.status === 'running');
                         }
                     },
                     methods: {
@@ -376,6 +379,23 @@
                                 };
                             } catch (error) {
                                 console.error('Failed to load config:', error);
+                            }
+                        },
+                        async loadActiveBackups() {
+                            try {
+                                const response = await axios.get('/api/backup/tasks/active');
+                                const activeTasks = response.data.active_tasks;
+
+                                // Restore backup state for each active task
+                                for (const [taskId, taskInfo] of Object.entries(activeTasks)) {
+                                    if (taskInfo.category) {
+                                        this.backupTasks[taskInfo.category] = { status: 'running' };
+                                        // Start polling for this task
+                                        this.pollBackupTask(taskInfo.category, taskId);
+                                    }
+                                }
+                            } catch (error) {
+                                console.error('Failed to load active backups:', error);
                             }
                         },
                         async saveConfig() {
@@ -442,7 +462,13 @@
                             if (this.isBackingUp(categoryName)) {
                                 return 'Backup in progress...';
                             }
+                            if (this.hasAnyBackupRunning) {
+                                return 'Another backup is in progress';
+                            }
                             return `Start backup for ${categoryName}`;
+                        },
+                        isBackupDisabled(categoryName) {
+                            return !this.status.enabled || (this.hasAnyBackupRunning && !this.isBackingUp(categoryName));
                         },
                         async startBackup(categoryName) {
                             if (!this.status.enabled) {
@@ -563,9 +589,10 @@
                             }
                         }
                     },
-                    mounted() {
+                    async mounted() {
                         this.refreshData();
                         this.loadConfig();
+                        await this.loadActiveBackups();
                     }
                 }).mount('#app');
             });
