@@ -157,7 +157,7 @@ def register_commands(cli):
             db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
-            session_info = processing_manager.get_processing_session_info(session_id)
+            session_info = processing_manager.get_processing_session(session_id)
 
             if not session_info:
                 click.echo(f"✗ Processing session '{session_id}' not found")
@@ -274,7 +274,7 @@ def register_commands(cli):
             db_service = get_db_service(config, cameras, telescopes, filter_mappings)
             processing_manager = ProcessingSessionManager(config, db_service)
 
-            session_info = processing_manager.get_processing_session_info(session_id)
+            session_info = processing_manager.get_processing_session(session_id)
 
             if not session_info:
                 click.echo(f"✗ Processing session '{session_id}' not found")

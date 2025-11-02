@@ -258,7 +258,7 @@ def register_commands(cli):
                         (s.id or 'N/A')[:25],
                         (str(s.date) if s.date else 'N/A')[:12],
                         (s.camera or 'Unknown')[:20],
-                        (s.telescope or 'Unknown')[:20],
+                        (s.telescope or '')[:20],
                         str(file_count)
                     ],
                     [25, 12, 20, 20, 8]
