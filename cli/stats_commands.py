@@ -64,8 +64,11 @@ def register_commands(cli):
 
             # By Telescope
             click.echo("\nBy Telescope:")
-            for telescope, count in sorted(stats.get('by_telescope', {}).items()):
-                click.echo(f"  {telescope:.<40} {count:>6}")
+            # Sort with None values treated as empty string for sorting
+            for telescope, count in sorted(stats.get('by_telescope', {}).items(),
+                                          key=lambda x: (x[0] or '')):
+                telescope_display = telescope if telescope else '(None - BIAS/DARK)'
+                click.echo(f"  {telescope_display:.<40} {count:>6}")
 
             # By Frame Type
             click.echo("\nBy Frame Type:")
