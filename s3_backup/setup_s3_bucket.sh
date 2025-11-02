@@ -1,0 +1,645 @@
+#!/usr/bin/env bash
+
+################################################################################
+# S3 Backup Bucket Setup Script
+#
+# This script automates the setup of an S3 bucket for the astro_cat s3_backup
+# module, including:
+# - AWS CLI installation verification and installation
+# - S3 bucket creation with proper configuration
+# - Lifecycle policy application for cost optimization
+# - Optional bucket versioning
+# - Setup validation
+#
+# Usage: ./setup_s3_bucket.sh
+################################################################################
+
+set -e  # Exit on error
+set -o pipefail  # Exit on pipe failure
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIFECYCLE_POLICY_FILE="${SCRIPT_DIR}/lifecycle_policy.json"
+
+################################################################################
+# Helper Functions
+################################################################################
+
+print_header() {
+    echo -e "\n${BLUE}===================================================${NC}"
+    echo -e "${BLUE}$1${NC}"
+    echo -e "${BLUE}===================================================${NC}\n"
+}
+
+print_success() {
+    echo -e "${GREEN}✓ $1${NC}"
+}
+
+print_error() {
+    echo -e "${RED}✗ $1${NC}"
+}
+
+print_warning() {
+    echo -e "${YELLOW}⚠ $1${NC}"
+}
+
+print_info() {
+    echo -e "${BLUE}ℹ $1${NC}"
+}
+
+# Function to check if a command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Function to prompt for yes/no
+prompt_yes_no() {
+    local prompt="$1"
+    local default="${2:-n}"
+    local response
+
+    if [[ "$default" == "y" ]]; then
+        prompt="${prompt} [Y/n]: "
+    else
+        prompt="${prompt} [y/N]: "
+    fi
+
+    read -r -p "$prompt" response
+    response=${response:-$default}
+
+    [[ "$response" =~ ^[Yy]$ ]]
+}
+
+# Function to validate AWS region
+validate_aws_region() {
+    local region="$1"
+    # Basic validation - just check format
+    if [[ ! "$region" =~ ^[a-z]{2}-[a-z]+-[0-9]{1}$ ]]; then
+        return 1
+    fi
+    return 0
+}
+
+# Function to validate S3 bucket name
+validate_bucket_name() {
+    local bucket="$1"
+
+    # Check length
+    if [[ ${#bucket} -lt 3 || ${#bucket} -gt 63 ]]; then
+        print_error "Bucket name must be between 3 and 63 characters"
+        return 1
+    fi
+
+    # Check format
+    if [[ ! "$bucket" =~ ^[a-z0-9][a-z0-9.-]*[a-z0-9]$ ]]; then
+        print_error "Bucket name must start and end with lowercase letter or number"
+        print_error "Can only contain lowercase letters, numbers, hyphens, and periods"
+        return 1
+    fi
+
+    # Check for consecutive periods
+    if [[ "$bucket" =~ \.\. ]]; then
+        print_error "Bucket name cannot contain consecutive periods"
+        return 1
+    fi
+
+    # Check for IP address format
+    if [[ "$bucket" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        print_error "Bucket name cannot be formatted as an IP address"
+        return 1
+    fi
+
+    return 0
+}
+
+################################################################################
+# AWS CLI Installation
+################################################################################
+
+check_and_install_aws_cli() {
+    print_header "Step 1: Checking AWS CLI Installation"
+
+    if command_exists aws; then
+        local current_version
+        current_version=$(aws --version 2>&1 | cut -d' ' -f1 | cut -d'/' -f2)
+        print_success "AWS CLI is already installed (version: $current_version)"
+
+        # Check if it's AWS CLI v2
+        if [[ "$current_version" =~ ^2\. ]]; then
+            print_success "AWS CLI v2 detected - you have the latest major version"
+            return 0
+        else
+            print_warning "AWS CLI v1 detected. Version 2 is recommended."
+            if prompt_yes_no "Would you like to upgrade to AWS CLI v2?" "n"; then
+                install_aws_cli_v2
+            else
+                print_info "Continuing with AWS CLI v1..."
+                return 0
+            fi
+        fi
+    else
+        print_warning "AWS CLI is not installed"
+        if prompt_yes_no "Would you like to install AWS CLI v2 now?" "y"; then
+            install_aws_cli_v2
+        else
+            print_error "AWS CLI is required. Please install it manually and re-run this script."
+            print_info "Installation guide: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+            exit 1
+        fi
+    fi
+}
+
+install_aws_cli_v2() {
+    print_info "Installing AWS CLI v2..."
+
+    local os_type
+    os_type=$(uname -s)
+
+    case "$os_type" in
+        Linux)
+            install_aws_cli_linux
+            ;;
+        Darwin)
+            install_aws_cli_macos
+            ;;
+        *)
+            print_error "Unsupported operating system: $os_type"
+            print_info "Please install AWS CLI manually: https://aws.amazon.com/cli/"
+            exit 1
+            ;;
+    esac
+}
+
+install_aws_cli_linux() {
+    print_info "Detected Linux system"
+
+    # Check for required tools
+    if ! command_exists curl; then
+        print_error "curl is required but not installed. Please install curl first."
+        exit 1
+    fi
+
+    if ! command_exists unzip; then
+        print_error "unzip is required but not installed. Please install unzip first."
+        exit 1
+    fi
+
+    # Create temporary directory
+    local temp_dir
+    temp_dir=$(mktemp -d)
+    cd "$temp_dir" || exit 1
+
+    print_info "Downloading AWS CLI v2..."
+    if curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; then
+        print_success "Download complete"
+    else
+        print_error "Failed to download AWS CLI"
+        rm -rf "$temp_dir"
+        exit 1
+    fi
+
+    print_info "Extracting archive..."
+    unzip -q awscliv2.zip
+
+    print_info "Installing AWS CLI (may require sudo)..."
+    if sudo ./aws/install; then
+        print_success "AWS CLI v2 installed successfully"
+    else
+        print_error "Installation failed"
+        rm -rf "$temp_dir"
+        exit 1
+    fi
+
+    # Cleanup
+    cd - > /dev/null || exit 1
+    rm -rf "$temp_dir"
+
+    # Verify installation
+    if command_exists aws; then
+        local version
+        version=$(aws --version 2>&1)
+        print_success "Verification: $version"
+    else
+        print_error "Installation appeared to succeed but 'aws' command not found"
+        print_info "You may need to restart your shell or update your PATH"
+        exit 1
+    fi
+}
+
+install_aws_cli_macos() {
+    print_info "Detected macOS system"
+
+    # Check for Homebrew
+    if command_exists brew; then
+        print_info "Installing AWS CLI via Homebrew..."
+        brew install awscli
+        print_success "AWS CLI installed successfully"
+    else
+        print_info "Homebrew not found. Installing using official installer..."
+
+        local temp_dir
+        temp_dir=$(mktemp -d)
+        cd "$temp_dir" || exit 1
+
+        print_info "Downloading AWS CLI v2..."
+        curl -s "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "AWSCLIV2.pkg"
+
+        print_info "Installing AWS CLI (may require sudo)..."
+        sudo installer -pkg AWSCLIV2.pkg -target /
+
+        cd - > /dev/null || exit 1
+        rm -rf "$temp_dir"
+
+        print_success "AWS CLI v2 installed successfully"
+    fi
+}
+
+################################################################################
+# AWS Configuration
+################################################################################
+
+check_aws_configuration() {
+    print_header "Step 2: Checking AWS Configuration"
+
+    if aws sts get-caller-identity &>/dev/null; then
+        local account_id
+        local user_arn
+        account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
+        user_arn=$(aws sts get-caller-identity --query Arn --output text 2>/dev/null)
+
+        print_success "AWS credentials are configured"
+        print_info "Account ID: $account_id"
+        print_info "User/Role: $user_arn"
+
+        return 0
+    else
+        print_warning "AWS credentials are not configured or invalid"
+        print_info ""
+        print_info "Please configure AWS CLI with your credentials:"
+        print_info "  $ aws configure"
+        print_info ""
+        print_info "You will need:"
+        print_info "  - AWS Access Key ID"
+        print_info "  - AWS Secret Access Key"
+        print_info "  - Default region"
+        print_info ""
+
+        if prompt_yes_no "Would you like to configure AWS credentials now?" "y"; then
+            aws configure
+
+            # Verify after configuration
+            if aws sts get-caller-identity &>/dev/null; then
+                print_success "AWS credentials configured successfully"
+                return 0
+            else
+                print_error "AWS credentials verification failed"
+                exit 1
+            fi
+        else
+            print_error "AWS credentials are required. Please configure and re-run this script."
+            exit 1
+        fi
+    fi
+}
+
+################################################################################
+# Bucket Configuration
+################################################################################
+
+get_bucket_configuration() {
+    print_header "Step 3: Bucket Configuration"
+
+    # Get bucket name
+    while true; do
+        echo -e "${BLUE}Enter S3 bucket name:${NC}"
+        read -r BUCKET_NAME
+
+        if [[ -z "$BUCKET_NAME" ]]; then
+            print_error "Bucket name cannot be empty"
+            continue
+        fi
+
+        if validate_bucket_name "$BUCKET_NAME"; then
+            break
+        fi
+    done
+
+    # Get region
+    while true; do
+        echo -e "\n${BLUE}Enter AWS region (e.g., us-east-1, ca-west-1, eu-west-1):${NC}"
+        echo -e "${BLUE}[Press Enter for us-east-1]:${NC}"
+        read -r AWS_REGION
+        AWS_REGION=${AWS_REGION:-us-east-1}
+
+        if validate_aws_region "$AWS_REGION"; then
+            break
+        else
+            print_error "Invalid region format. Examples: us-east-1, ca-west-1, eu-west-1"
+        fi
+    done
+
+    # Enable versioning
+    echo ""
+    if prompt_yes_no "Enable bucket versioning? (Recommended for backup protection)" "y"; then
+        ENABLE_VERSIONING=true
+    else
+        ENABLE_VERSIONING=false
+    fi
+
+    # Apply lifecycle policy
+    echo ""
+    if prompt_yes_no "Apply default lifecycle policy? (Recommended for cost optimization)" "y"; then
+        APPLY_LIFECYCLE=true
+    else
+        APPLY_LIFECYCLE=false
+    fi
+
+    # Summary
+    echo -e "\n${BLUE}Configuration Summary:${NC}"
+    echo -e "  Bucket Name: ${GREEN}$BUCKET_NAME${NC}"
+    echo -e "  Region: ${GREEN}$AWS_REGION${NC}"
+    echo -e "  Versioning: ${GREEN}$ENABLE_VERSIONING${NC}"
+    echo -e "  Lifecycle Policy: ${GREEN}$APPLY_LIFECYCLE${NC}"
+    echo ""
+
+    if ! prompt_yes_no "Proceed with this configuration?" "y"; then
+        print_info "Setup cancelled by user"
+        exit 0
+    fi
+}
+
+################################################################################
+# S3 Bucket Creation
+################################################################################
+
+create_s3_bucket() {
+    print_header "Step 4: Creating S3 Bucket"
+
+    # Check if bucket already exists
+    if aws s3 ls "s3://$BUCKET_NAME" &>/dev/null; then
+        print_warning "Bucket '$BUCKET_NAME' already exists"
+
+        # Check if it's in the correct region
+        local bucket_region
+        bucket_region=$(aws s3api get-bucket-location --bucket "$BUCKET_NAME" --output text 2>/dev/null || echo "unknown")
+
+        if [[ "$bucket_region" == "None" ]]; then
+            bucket_region="us-east-1"  # AWS returns 'None' for us-east-1
+        fi
+
+        if [[ "$bucket_region" == "$AWS_REGION" ]]; then
+            print_success "Bucket exists in the correct region ($AWS_REGION)"
+
+            if ! prompt_yes_no "Continue with existing bucket?" "y"; then
+                print_info "Setup cancelled by user"
+                exit 0
+            fi
+            return 0
+        else
+            print_error "Bucket exists but in different region: $bucket_region (expected: $AWS_REGION)"
+            print_error "Please choose a different bucket name or region"
+            exit 1
+        fi
+    fi
+
+    print_info "Creating bucket '$BUCKET_NAME' in region '$AWS_REGION'..."
+
+    # Create bucket (us-east-1 doesn't need location constraint)
+    if [[ "$AWS_REGION" == "us-east-1" ]]; then
+        if aws s3 mb "s3://$BUCKET_NAME" 2>/dev/null; then
+            print_success "Bucket created successfully"
+        else
+            print_error "Failed to create bucket"
+            print_info "Common issues:"
+            print_info "  - Bucket name already taken globally"
+            print_info "  - Insufficient IAM permissions"
+            print_info "  - Invalid bucket name format"
+            exit 1
+        fi
+    else
+        if aws s3 mb "s3://$BUCKET_NAME" --region "$AWS_REGION" 2>/dev/null; then
+            print_success "Bucket created successfully"
+        else
+            print_error "Failed to create bucket"
+            print_info "Common issues:"
+            print_info "  - Bucket name already taken globally"
+            print_info "  - Insufficient IAM permissions"
+            print_info "  - Invalid bucket name format"
+            exit 1
+        fi
+    fi
+}
+
+################################################################################
+# Bucket Versioning
+################################################################################
+
+configure_versioning() {
+    if [[ "$ENABLE_VERSIONING" != "true" ]]; then
+        print_info "Skipping versioning configuration"
+        return 0
+    fi
+
+    print_header "Step 5: Configuring Bucket Versioning"
+
+    print_info "Enabling versioning on bucket '$BUCKET_NAME'..."
+
+    if aws s3api put-bucket-versioning \
+        --bucket "$BUCKET_NAME" \
+        --versioning-configuration Status=Enabled 2>/dev/null; then
+        print_success "Bucket versioning enabled"
+    else
+        print_error "Failed to enable versioning"
+        print_warning "Continuing anyway - you can enable it manually later"
+    fi
+}
+
+################################################################################
+# Lifecycle Policy
+################################################################################
+
+configure_lifecycle_policy() {
+    if [[ "$APPLY_LIFECYCLE" != "true" ]]; then
+        print_info "Skipping lifecycle policy configuration"
+        return 0
+    fi
+
+    print_header "Step 6: Configuring Lifecycle Policy"
+
+    # Check if lifecycle policy file exists
+    if [[ ! -f "$LIFECYCLE_POLICY_FILE" ]]; then
+        print_error "Lifecycle policy file not found: $LIFECYCLE_POLICY_FILE"
+        print_warning "Skipping lifecycle policy configuration"
+        return 1
+    fi
+
+    print_info "Applying lifecycle policy from: $LIFECYCLE_POLICY_FILE"
+    print_info ""
+    print_info "Default policy includes:"
+    print_info "  • Raw backups → DEEP_ARCHIVE after 1 day"
+    print_info "  • Processed files → GLACIER after 30 days"
+    print_info "  • Database backups → DEEP_ARCHIVE after 7 days"
+    print_info "  • Notes → STANDARD_IA after 30 days → GLACIER after 90 days"
+    print_info ""
+
+    if aws s3api put-bucket-lifecycle-configuration \
+        --bucket "$BUCKET_NAME" \
+        --lifecycle-configuration "file://$LIFECYCLE_POLICY_FILE" 2>/dev/null; then
+        print_success "Lifecycle policy applied successfully"
+    else
+        print_error "Failed to apply lifecycle policy"
+        print_warning "Continuing anyway - you can apply it manually later"
+        print_info "Manual command:"
+        print_info "  aws s3api put-bucket-lifecycle-configuration \\"
+        print_info "    --bucket $BUCKET_NAME \\"
+        print_info "    --lifecycle-configuration file://$LIFECYCLE_POLICY_FILE"
+        return 1
+    fi
+}
+
+################################################################################
+# Validation
+################################################################################
+
+validate_setup() {
+    print_header "Step 7: Validating Setup"
+
+    local all_good=true
+
+    # Check bucket exists
+    print_info "Checking bucket existence..."
+    if aws s3 ls "s3://$BUCKET_NAME" &>/dev/null; then
+        print_success "Bucket is accessible"
+    else
+        print_error "Cannot access bucket"
+        all_good=false
+    fi
+
+    # Check versioning status
+    if [[ "$ENABLE_VERSIONING" == "true" ]]; then
+        print_info "Checking versioning status..."
+        local version_status
+        version_status=$(aws s3api get-bucket-versioning --bucket "$BUCKET_NAME" --query Status --output text 2>/dev/null)
+
+        if [[ "$version_status" == "Enabled" ]]; then
+            print_success "Versioning is enabled"
+        else
+            print_warning "Versioning is not enabled (status: $version_status)"
+        fi
+    fi
+
+    # Check lifecycle policy
+    if [[ "$APPLY_LIFECYCLE" == "true" ]]; then
+        print_info "Checking lifecycle policy..."
+        if aws s3api get-bucket-lifecycle-configuration --bucket "$BUCKET_NAME" &>/dev/null; then
+            local rule_count
+            rule_count=$(aws s3api get-bucket-lifecycle-configuration --bucket "$BUCKET_NAME" --query 'length(Rules)' --output text 2>/dev/null)
+            print_success "Lifecycle policy is active ($rule_count rules)"
+        else
+            print_warning "No lifecycle policy configured"
+        fi
+    fi
+
+    # Test write permission
+    print_info "Testing write permissions..."
+    local test_file="test-$(date +%s).txt"
+    if echo "test" | aws s3 cp - "s3://$BUCKET_NAME/$test_file" &>/dev/null; then
+        print_success "Write test successful"
+        # Cleanup test file
+        aws s3 rm "s3://$BUCKET_NAME/$test_file" &>/dev/null || true
+    else
+        print_error "Write test failed - check IAM permissions"
+        all_good=false
+    fi
+
+    echo ""
+    if [[ "$all_good" == "true" ]]; then
+        print_success "All validation checks passed!"
+    else
+        print_warning "Some validation checks failed - please review above"
+    fi
+}
+
+################################################################################
+# Next Steps
+################################################################################
+
+print_next_steps() {
+    print_header "Setup Complete!"
+
+    echo -e "${GREEN}Your S3 bucket is ready for use with the s3_backup module.${NC}"
+    echo ""
+    echo -e "${BLUE}Next steps:${NC}"
+    echo ""
+    echo "1. Update your s3_backup configuration:"
+    echo "   $ cd $SCRIPT_DIR"
+    echo "   $ cp s3_config.json.template s3_config.json"
+    echo "   $ nano s3_config.json  # Edit the configuration"
+    echo ""
+    echo "   Set these values in s3_config.json:"
+    echo "     \"enabled\": true,"
+    echo "     \"aws_region\": \"$AWS_REGION\","
+    echo "     \"buckets\": {"
+    echo "       \"primary\": \"$BUCKET_NAME\""
+    echo "     }"
+    echo ""
+    echo "2. Initialize the s3_backup module:"
+    echo "   $ python -m s3_backup.cli init-config"
+    echo ""
+    echo "3. Verify the setup:"
+    echo "   $ python -m s3_backup.cli status"
+    echo ""
+    echo "4. View lifecycle configuration:"
+    echo "   $ python -m s3_backup.cli show-lifecycle"
+    echo ""
+    echo "5. Start backing up your imaging sessions:"
+    echo "   $ python -m s3_backup.cli backup --session-id <session_id>"
+    echo ""
+    echo -e "${BLUE}Useful commands:${NC}"
+    echo "  • List bucket contents: aws s3 ls s3://$BUCKET_NAME"
+    echo "  • View bucket info: aws s3api head-bucket --bucket $BUCKET_NAME"
+    echo "  • Check lifecycle: aws s3api get-bucket-lifecycle-configuration --bucket $BUCKET_NAME"
+    echo ""
+    echo -e "${YELLOW}Documentation:${NC}"
+    echo "  • s3_backup README: $SCRIPT_DIR/README.md"
+    echo "  • AWS S3 docs: https://docs.aws.amazon.com/s3/"
+    echo ""
+}
+
+################################################################################
+# Main Script
+################################################################################
+
+main() {
+    clear
+    echo -e "${BLUE}"
+    echo "╔════════════════════════════════════════════════════════════════╗"
+    echo "║                                                                ║"
+    echo "║           S3 Backup Bucket Setup Script                       ║"
+    echo "║           for astro_cat s3_backup module                      ║"
+    echo "║                                                                ║"
+    echo "╚════════════════════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+
+    # Run setup steps
+    check_and_install_aws_cli
+    check_aws_configuration
+    get_bucket_configuration
+    create_s3_bucket
+    configure_versioning
+    configure_lifecycle_policy
+    validate_setup
+    print_next_steps
+
+    print_success "Script completed successfully!"
+}
+
+# Run main function
+main "$@"
