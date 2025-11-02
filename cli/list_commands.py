@@ -164,7 +164,7 @@ def register_commands(cli):
                 query = query.filter(ProcessedFile.subfolder == subfolder)
 
             # Order by created date
-            query = query.order_by(ProcessedFile.created_at.desc())
+            query = query.order_by(ProcessedFile.created_date.desc())
 
             # Apply limit
             files = query.limit(limit).all()
