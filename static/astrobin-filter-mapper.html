@@ -100,23 +100,35 @@
                                 <label class="block text-sm font-medium mb-1">Filter Name *</label>
                                 <textarea
                                     v-model="filterMappings[filterId].name"
-                                    class="form-input text-base"
+                                    class="form-input text-base w-full"
                                     rows="2"
                                     placeholder="e.g., Antlia 3nm Narrowband H-alpha 1.25&quot;"
                                     required></textarea>
                                 <p class="text-xs text-gray-500 mt-1">Full descriptive name of the filter</p>
                             </div>
 
+                            <div>
+                                <label class="block text-sm font-medium mb-1">Standard Name *</label>
+                                <input
+                                    v-model="filterMappings[filterId].standard_name"
+                                    type="text"
+                                    class="form-input text-base w-full"
+                                    placeholder="e.g., Ha-3nm"
+                                    required>
+                                <p class="text-xs text-gray-500 mt-1">Standardized short name</p>
+                            </div>
+
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label class="block text-sm font-medium mb-1">Standard Name *</label>
-                                    <input
-                                        v-model="filterMappings[filterId].standard_name"
-                                        type="text"
-                                        class="form-input text-base"
-                                        placeholder="e.g., Ha-3nm"
-                                        required>
-                                    <p class="text-xs text-gray-500 mt-1">Standardized short name</p>
+                                    <label class="block text-sm font-medium mb-1">Filter Type</label>
+                                    <select v-model="filterMappings[filterId].filter_type" class="form-input text-base w-full">
+                                        <option value="narrowband">Narrowband</option>
+                                        <option value="broadband">Broadband</option>
+                                        <option value="rgb">RGB</option>
+                                        <option value="luminance">Luminance</option>
+                                        <option value="light_pollution_suppression">Light Pollution Suppression</option>
+                                        <option value="other">Other</option>
+                                    </select>
                                 </div>
 
                                 <div>
@@ -124,22 +136,10 @@
                                     <input
                                         v-model="filterMappings[filterId].bandpass"
                                         type="text"
-                                        class="form-input text-base"
+                                        class="form-input text-base w-full"
                                         placeholder="e.g., 3nm, 7nm">
                                     <p class="text-xs text-gray-500 mt-1">Optional: bandwidth specification</p>
                                 </div>
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-medium mb-1">Filter Type</label>
-                                <select v-model="filterMappings[filterId].filter_type" class="form-input text-base">
-                                    <option value="narrowband">Narrowband</option>
-                                    <option value="broadband">Broadband</option>
-                                    <option value="rgb">RGB</option>
-                                    <option value="luminance">Luminance</option>
-                                    <option value="light_pollution_suppression">Light Pollution Suppression</option>
-                                    <option value="other">Other</option>
-                                </select>
                             </div>
 
                         </div>
