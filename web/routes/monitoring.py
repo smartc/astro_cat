@@ -62,48 +62,69 @@ async def monitoring_callback(filepaths: list):
 async def periodic_scan_task(interval_minutes: int, initial_delay_minutes: int = 0):
     """
     Periodic scanning task with optional initial delay.
-    
+
     Args:
         interval_minutes: Minutes between scans
         initial_delay_minutes: Minutes to wait before first scan (0 = scan immediately)
     """
     global monitoring_enabled, last_scan
-    
+
     app_module = sys.modules['web.app']
     config = app_module.config
     db_service = app_module.db_service
-    
+
     # Wait for initial delay if specified
     if initial_delay_minutes > 0:
         logger.info(f"First scan will run in {initial_delay_minutes} minutes")
         await asyncio.sleep(initial_delay_minutes * 60)
-    
+
     logger.info(f"Periodic scanning active (interval: {interval_minutes} minutes)")
-    
+
     while monitoring_enabled:
         try:
             last_scan = datetime.now().isoformat()
             logger.info("Running scheduled scan...")
-            
+
             # Scan quarantine
             from fits_processor import OptimizedFitsProcessor
             processor = OptimizedFitsProcessor(
-                config, 
-                app_module.cameras, 
-                app_module.telescopes, 
-                app_module.filter_mappings, 
+                config,
+                app_module.cameras,
+                app_module.telescopes,
+                app_module.filter_mappings,
                 db_service
             )
-            
+
             df, sessions = processor.scan_quarantine()
-            logger.info(f"Scan complete: {len(df)} files found")
-            
+            logger.info(f"Scan complete: {len(df)} raw files found")
+
+            # Catalog processed files (final and intermediate outputs)
+            from pathlib import Path
+            from processed_catalog.cataloger import ProcessedFileCataloger
+
+            logger.info("Cataloging processed files...")
+            processed_cataloger = ProcessedFileCataloger(config.paths.database_path)
+            processing_dir = Path(config.paths.processing_dir)
+
+            # Get sessions and catalog files
+            sessions_to_catalog = processed_cataloger.get_processing_sessions(processing_dir)
+            logger.info(f"Found {len(sessions_to_catalog)} processing session(s) to catalog")
+
+            for session_info in sessions_to_catalog:
+                processed_cataloger.catalog_session(session_info)
+
+            processed_stats = processed_cataloger.stats
+            logger.info(f"Processed file cataloging: {processed_stats['files_cataloged']} cataloged, "
+                       f"{processed_stats['files_updated']} updated, "
+                       f"{processed_stats['files_skipped']} skipped")
+
+            # If raw files were found, trigger the full scan/validate/migrate chain
             if len(df) > 0:
                 await monitoring_callback([])
-                
+
         except Exception as e:
             logger.error(f"Error in periodic scan: {e}", exc_info=True)
-        
+
         # Wait for next interval
         await asyncio.sleep(interval_minutes * 60)
 
