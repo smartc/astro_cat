@@ -6,7 +6,7 @@ const ProcessingSessionModals = {
     template: `
         <div>
             <!-- Create Processing Session Modal -->
-            <div v-if="showCreateModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div v-if="showCreateModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[300]">
                 <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
                     <h3 class="text-lg font-bold mb-4">Create Processing Session</h3>
                     <div class="space-y-4">
@@ -32,7 +32,7 @@ const ProcessingSessionModals = {
             </div>
 
             <!-- Add to New Session Modal -->
-            <div v-if="showAddToNewModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div v-if="showAddToNewModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[300]">
                 <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
                     <h3 class="text-lg font-bold mb-4">Create New Processing Session</h3>
                     <div class="mb-4 p-3 bg-blue-50 rounded">
@@ -58,7 +58,7 @@ const ProcessingSessionModals = {
             </div>
 
             <!-- Add to Existing Session Modal -->
-            <div v-if="showAddToExistingSessionModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div v-if="showAddToExistingSessionModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[300]">
                 <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
                     <h3 class="text-lg font-bold mb-4">Add to Existing Processing Session</h3>
                     <div class="mb-4 p-3 bg-blue-50 rounded">
