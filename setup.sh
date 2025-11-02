@@ -180,11 +180,40 @@ setup_virtual_environment() {
     fi
 
     print_info "Creating virtual environment..."
-    if python3 -m venv venv; then
+    if python3 -m venv venv 2>/dev/null; then
         print_success "Virtual environment created"
     else
-        print_error "Failed to create virtual environment"
-        exit 1
+        print_warning "Standard venv creation failed (ensurepip not available)"
+        print_info "Trying alternative method (creating venv without pip)..."
+
+        if python3 -m venv --without-pip venv; then
+            print_success "Virtual environment created (without pip)"
+
+            # Install pip manually
+            print_info "Installing pip manually..."
+            source venv/bin/activate
+
+            # Try to install pip using get-pip.py
+            if command_exists curl; then
+                curl -sS https://bootstrap.pypa.io/get-pip.py | python
+            elif command_exists wget; then
+                wget -qO- https://bootstrap.pypa.io/get-pip.py | python
+            else
+                print_error "Neither curl nor wget found. Cannot install pip."
+                print_info "Please install curl or wget and run this script again."
+                exit 1
+            fi
+
+            if python -m pip --version &>/dev/null; then
+                print_success "pip installed successfully"
+            else
+                print_error "Failed to install pip"
+                exit 1
+            fi
+        else
+            print_error "Failed to create virtual environment"
+            exit 1
+        fi
     fi
 }
 
