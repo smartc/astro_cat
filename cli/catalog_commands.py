@@ -114,7 +114,19 @@ def _catalog_raw_files(config, cameras, telescopes, filter_mappings, verbose):
         click.echo("✗ No valid metadata extracted from files")
         return
 
-    # Add files to database
+    # Add sessions to database FIRST (before files that reference them)
+    session_added_count = 0
+    if session_data:
+        click.echo(f"Processing {len(session_data)} imaging sessions...")
+        for session in session_data:
+            try:
+                db_service.add_session(session)
+                session_added_count += 1
+            except Exception as e:
+                if verbose:
+                    click.echo(f"Error adding session {session['session_id']}: {e}")
+
+    # Add files to database (after sessions exist)
     added_count = 0
     duplicate_count = 0
     error_count = 0
@@ -131,29 +143,17 @@ def _catalog_raw_files(config, cameras, telescopes, filter_mappings, verbose):
                         added_count += 1
                 else:
                     error_count += 1
-                    filename = row.get('filename', 'unknown')
+                    filename = row.get('file', 'unknown')
                     errors.append((filename, "Failed to add to database"))
                 pbar.update(1)
 
             except Exception as e:
                 error_count += 1
-                filename = row.get('filename', 'unknown')
+                filename = row.get('file', 'unknown')
                 errors.append((filename, str(e)))
                 if verbose:
                     click.echo(f"\nError adding file: {e}")
                 pbar.update(1)
-
-    # Add sessions to database
-    session_added_count = 0
-    if session_data:
-        click.echo(f"Processing {len(session_data)} imaging sessions...")
-        for session in session_data:
-            try:
-                db_service.add_session(session)
-                session_added_count += 1
-            except Exception as e:
-                if verbose:
-                    click.echo(f"Error adding session {session['session_id']}: {e}")
 
     # Report results
     click.echo(f"\n✓ Catalog complete:")
