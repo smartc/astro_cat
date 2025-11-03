@@ -90,6 +90,12 @@
                     <div v-for="filterId in filterIds" :key="filterId" class="border rounded-lg p-4" :class="filterMappings[filterId].isExisting ? 'bg-yellow-50 border-yellow-300' : ''">
                         <h3 class="font-bold text-lg mb-3">
                             AstroBin ID: {{ filterId }}
+                            <a :href="'https://app.astrobin.com/equipment/explorer/filter/' + filterId"
+                               target="_blank"
+                               class="ml-2 text-blue-600 hover:text-blue-800 text-sm font-normal"
+                               title="View on AstroBin">
+                                🔗 View on AstroBin
+                            </a>
                             <span v-if="filterMappings[filterId].isExisting" class="ml-2 text-sm text-yellow-700 font-normal">
                                 (Existing - Editing)
                             </span>
@@ -178,7 +184,14 @@
                         </thead>
                         <tbody>
                             <tr v-for="mapping in existingMappings" :key="mapping.id" class="border-t hover:bg-gray-50">
-                                <td class="px-4 py-2 text-left font-mono text-sm">{{ mapping.id }}</td>
+                                <td class="px-4 py-2 text-left font-mono text-sm">
+                                    <a :href="'https://app.astrobin.com/equipment/explorer/filter/' + mapping.id"
+                                       target="_blank"
+                                       class="text-blue-600 hover:text-blue-800 hover:underline"
+                                       title="View on AstroBin">
+                                        {{ mapping.id }}
+                                    </a>
+                                </td>
                                 <td class="px-4 py-2 text-left">{{ mapping.name }}</td>
                                 <td class="px-4 py-2 text-left font-semibold">{{ mapping.standard_name }}</td>
                                 <td class="px-4 py-2 text-left">{{ mapping.filter_type }}</td>
