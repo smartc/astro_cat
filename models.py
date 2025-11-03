@@ -231,6 +231,7 @@ class FilterMapping(Base):
     standard_name = Column(String(20), nullable=False)
     filter_type = Column(String(20))
     bandpass = Column(String(20))
+    astrobin_id = Column(Integer)
     notes = Column(Text)
 
 

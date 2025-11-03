@@ -69,6 +69,7 @@ class FilterMapping(BaseModel):
     """Filter name mapping."""
     raw_name: str
     proper_name: str
+    astrobin_id: Optional[int] = None
 
 
 class EquipmentPaths(BaseModel):
@@ -76,24 +77,27 @@ class EquipmentPaths(BaseModel):
     cameras_file: str = "cameras.json"
     telescopes_file: str = "telescopes.json"
     filters_file: str = "filters.json"
+    astrobin_filters_file: str = "astrobin_filters.json"
 
 
 class EquipmentManager:
     """Manages loading and validation of equipment data."""
-    
+
     def __init__(self, equipment_paths: EquipmentPaths):
         self.equipment_paths = equipment_paths
         self.cameras: List[Camera] = []
         self.telescopes: List[Telescope] = []
         self.filter_mappings: Dict[str, str] = {}
+        self.astrobin_filters: Dict[str, Dict] = {}
     
     def load_equipment(self):
         """Load equipment data from JSON files with validation."""
         self.cameras = self._load_cameras()
         self.telescopes = self._load_telescopes()
         self.filter_mappings = self._load_filter_mappings()
-        
-        print(f"Loaded {len(self.cameras)} cameras, {len(self.telescopes)} telescopes, {len(self.filter_mappings)} filter mappings")
+        self.astrobin_filters = self._load_astrobin_filters()
+
+        print(f"Loaded {len(self.cameras)} cameras, {len(self.telescopes)} telescopes, {len(self.filter_mappings)} filter mappings, {len(self.astrobin_filters)} AstroBin filters")
         return self.cameras, self.telescopes, self.filter_mappings
     
     def _load_cameras(self) -> List[Camera]:
@@ -169,9 +173,30 @@ class EquipmentManager:
             
         except Exception as e:
             print(f"Error loading filters from {filter_file}: {e}")
-            
+
         return filter_mappings
-    
+
+    def _load_astrobin_filters(self) -> Dict[str, Dict]:
+        """Load AstroBin filter ID mappings from JSON file."""
+        astrobin_filters = {}
+        astrobin_file = Path(self.equipment_paths.astrobin_filters_file)
+
+        if not astrobin_file.exists():
+            print(f"Info: AstroBin filter file not found: {astrobin_file} (this is optional)")
+            return astrobin_filters
+
+        try:
+            with open(astrobin_file, 'r') as f:
+                data = json.load(f)
+
+            # Filter out the comment key
+            astrobin_filters = {k: v for k, v in data.items() if not k.startswith('_')}
+
+        except Exception as e:
+            print(f"Error loading AstroBin filters from {astrobin_file}: {e}")
+
+        return astrobin_filters
+
     def create_default_equipment_files(self):
         """Create default equipment files if they don't exist."""
         if not Path(self.equipment_paths.cameras_file).exists():

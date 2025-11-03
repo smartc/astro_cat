@@ -142,13 +142,21 @@ const EquipmentTab = {
                 <div class="p-6">
                     <div class="flex justify-between items-center mb-4">
                         <h2 class="text-xl font-bold">Filter Mappings</h2>
-                        <button @click="addNewFilter" class="btn btn-green">Add Filter Mapping</button>
+                        <div class="flex space-x-2">
+                            <a href="/static/astrobin-filter-mapper.html" target="_blank" class="btn btn-blue">
+                                🔗 AstroBin Filter Mapper
+                            </a>
+                            <button @click="addNewFilter" class="btn btn-green">Add Filter Mapping</button>
+                        </div>
                     </div>
-                    
+
                     <div class="mb-4 p-4 bg-blue-50 rounded">
                         <p class="text-sm text-gray-700">
-                            Filter mappings normalize varying filter names in FITS headers. 
+                            Filter mappings normalize varying filter names in FITS headers.
                             For example, map "Ha" and "H-Alpha" to a standard "HA".
+                        </p>
+                        <p class="text-sm text-gray-700 mt-2">
+                            <strong>Tip:</strong> Use the <a href="/static/astrobin-filter-mapper.html" target="_blank" class="text-blue-600 hover:text-blue-800 underline">AstroBin Filter Mapper</a> to import filter data from AstroBin CSV exports.
                         </p>
                     </div>
                     

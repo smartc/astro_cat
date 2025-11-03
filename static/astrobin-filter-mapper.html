@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AstroBin Filter Mapper - FITS Cataloger</title>
+
+    <link rel="icon" type="image/png" href="/static/assets/favicon.png">
+
+    <script src="/static/js/lib/vue.global.prod.js"></script>
+    <script src="/static/js/lib/axios.min.js"></script>
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/static/css/lib/tailwind.min.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/buttons.css">
+    <link rel="stylesheet" href="/static/css/tables.css">
+    <link rel="stylesheet" href="/static/css/forms.css">
+    <link rel="stylesheet" href="/static/css/cards.css">
+
+</head>
+<body class="bg-gray-100">
+    <div id="app" class="min-h-screen">
+        <!-- Header -->
+        <header class="bg-gradient-to-r from-indigo-900 via-purple-900 to-pink-900 text-white shadow-lg">
+            <div class="mx-auto px-6 py-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h1 class="text-2xl font-bold">AstroBin Filter Mapper</h1>
+                        <p class="text-sm text-purple-200">Map AstroBin equipment IDs to filter names</p>
+                    </div>
+                    <a href="/static/dashboard.html" class="btn btn-white">
+                        ← Back to Dashboard
+                    </a>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="mx-auto p-6 max-w-6xl">
+            <!-- Instructions Card -->
+            <div class="bg-white rounded-lg shadow p-6 mb-6">
+                <h2 class="text-xl font-bold mb-4">How to Use</h2>
+                <ol class="list-decimal list-inside space-y-2 text-gray-700">
+                    <li>Export CSV data from an AstroBin image (includes filter IDs in the filter column)</li>
+                    <li>Paste the CSV data into the text area below</li>
+                    <li>Click "Parse CSV" to extract filter IDs</li>
+                    <li>Map each filter ID to its proper name and standard name</li>
+                    <li>Click "Save Mappings" to save to astrobin_filters.json</li>
+                </ol>
+                <div class="mt-4 p-4 bg-blue-50 rounded">
+                    <p class="text-sm text-gray-700">
+                        <strong>Example CSV format:</strong>
+                    </p>
+                    <pre class="mt-2 text-xs bg-white p-2 rounded border">date,filter,number,duration,binning
+2025-10-09,4386,27,300,0
+2025-10-09,4390,27,300,0</pre>
+                    <p class="text-xs text-gray-600 mt-2">
+                        In this example, 4386, 4390 are AstroBin equipment IDs for specific filters.
+                    </p>
+                </div>
+            </div>
+
+            <!-- CSV Input Section -->
+            <div class="bg-white rounded-lg shadow p-6 mb-6">
+                <h2 class="text-xl font-bold mb-4">Step 1: Paste CSV Data</h2>
+                <textarea
+                    v-model="csvData"
+                    class="form-input font-mono text-sm w-full"
+                    rows="20"
+                    placeholder="Paste your AstroBin CSV data here..."></textarea>
+                <div class="mt-4 flex space-x-4">
+                    <button @click="parseCSV" class="btn btn-blue" :disabled="!csvData">
+                        Parse CSV
+                    </button>
+                    <button @click="clearCSV" class="btn btn-gray">
+                        Clear
+                    </button>
+                </div>
+                <div v-if="parseError" class="mt-4 p-4 bg-red-50 border border-red-200 rounded text-red-700">
+                    {{ parseError }}
+                </div>
+            </div>
+
+            <!-- Filter Mapping Section -->
+            <div v-if="filterIds.length > 0" class="bg-white rounded-lg shadow p-6 mb-6">
+                <h2 class="text-xl font-bold mb-4">Step 2: Map Filter IDs ({{ filterIds.length }} found)</h2>
+
+                <div class="space-y-4">
+                    <div v-for="filterId in filterIds" :key="filterId" class="border rounded-lg p-4" :class="filterMappings[filterId].isExisting ? 'bg-yellow-50 border-yellow-300' : ''">
+                        <h3 class="font-bold text-lg mb-3">
+                            AstroBin ID: {{ filterId }}
+                            <a :href="'https://app.astrobin.com/equipment/explorer/filter/' + filterId"
+                               target="_blank"
+                               class="ml-2 text-blue-600 hover:text-blue-800 text-sm font-normal"
+                               title="View on AstroBin">
+                                🔗 View on AstroBin
+                            </a>
+                            <span v-if="filterMappings[filterId].isExisting" class="ml-2 text-sm text-yellow-700 font-normal">
+                                (Existing - Editing)
+                            </span>
+                        </h3>
+
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium mb-1">Filter Name *</label>
+                                <textarea
+                                    v-model="filterMappings[filterId].name"
+                                    class="form-input text-base w-full"
+                                    rows="2"
+                                    placeholder="e.g., Antlia 3nm Narrowband H-alpha 1.25&quot;"
+                                    required></textarea>
+                                <p class="text-xs text-gray-500 mt-1">Full descriptive name of the filter</p>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium mb-1">Standard Name *</label>
+                                <input
+                                    v-model="filterMappings[filterId].standard_name"
+                                    type="text"
+                                    class="form-input text-base w-full"
+                                    placeholder="e.g., Ha-3nm"
+                                    required>
+                                <p class="text-xs text-gray-500 mt-1">Standardized short name</p>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Filter Type</label>
+                                    <select v-model="filterMappings[filterId].filter_type" class="form-input text-base w-full">
+                                        <option value="narrowband">Narrowband</option>
+                                        <option value="broadband">Broadband</option>
+                                        <option value="rgb">RGB</option>
+                                        <option value="luminance">Luminance</option>
+                                        <option value="light_pollution_suppression">Light Pollution Suppression</option>
+                                        <option value="other">Other</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Bandpass</label>
+                                    <input
+                                        v-model="filterMappings[filterId].bandpass"
+                                        type="text"
+                                        class="form-input text-base w-full"
+                                        placeholder="e.g., 3nm, 7nm">
+                                    <p class="text-xs text-gray-500 mt-1">Optional: bandwidth specification</p>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-6 flex space-x-4">
+                    <button @click="saveMappings" class="btn btn-green" :disabled="!canSave">
+                        Save Mappings
+                    </button>
+                    <button @click="loadExistingMappings" class="btn btn-gray">
+                        Load Existing Mappings
+                    </button>
+                </div>
+
+                <div v-if="saveMessage" class="mt-4 p-4 rounded" :class="saveSuccess ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'">
+                    {{ saveMessage }}
+                </div>
+            </div>
+
+            <!-- Current Mappings Section -->
+            <div v-if="existingMappings.length > 0" class="bg-white rounded-lg shadow p-6">
+                <h2 class="text-xl font-bold mb-4">Current AstroBin Filter Mappings ({{ existingMappings.length }})</h2>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead>
+                            <tr class="bg-gray-50">
+                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">AstroBin ID</th>
+                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Filter Name</th>
+                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Standard Name</th>
+                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Type</th>
+                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Bandpass</th>
+                                <th class="px-4 py-2 text-center text-sm font-semibold text-gray-700">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="mapping in existingMappings" :key="mapping.id" class="border-t hover:bg-gray-50">
+                                <td class="px-4 py-2 text-left font-mono text-sm">
+                                    <a :href="'https://app.astrobin.com/equipment/explorer/filter/' + mapping.id"
+                                       target="_blank"
+                                       class="text-blue-600 hover:text-blue-800 hover:underline"
+                                       title="View on AstroBin">
+                                        {{ mapping.id }}
+                                    </a>
+                                </td>
+                                <td class="px-4 py-2 text-left">{{ mapping.name }}</td>
+                                <td class="px-4 py-2 text-left font-semibold">{{ mapping.standard_name }}</td>
+                                <td class="px-4 py-2 text-left">{{ mapping.filter_type }}</td>
+                                <td class="px-4 py-2 text-left">{{ mapping.bandpass || '-' }}</td>
+                                <td class="px-4 py-2 text-center">
+                                    <button @click="editExistingFilter(mapping)" class="text-blue-600 hover:text-blue-800">
+                                        Edit
+                                    </button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    csvData: '',
+                    filterIds: [],
+                    filterMappings: {},
+                    existingMappings: [],
+                    parseError: '',
+                    saveMessage: '',
+                    saveSuccess: false
+                };
+            },
+
+            computed: {
+                canSave() {
+                    if (this.filterIds.length === 0) return false;
+
+                    // Check if all mappings have required fields
+                    for (const id of this.filterIds) {
+                        const mapping = this.filterMappings[id];
+                        if (!mapping.name || !mapping.standard_name) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+            },
+
+            methods: {
+                async parseCSV() {
+                    this.parseError = '';
+                    this.saveMessage = '';
+
+                    try {
+                        const response = await axios.post('/api/equipment/astrobin/parse-csv', {
+                            csv_data: this.csvData
+                        });
+
+                        this.filterIds = response.data.filter_ids;
+
+                        // Get existing mappings data as a lookup
+                        const existingLookup = {};
+                        for (const mapping of this.existingMappings) {
+                            existingLookup[mapping.id] = mapping;
+                        }
+
+                        // Initialize filter mappings - check if they already exist
+                        this.filterMappings = {};
+                        for (const id of this.filterIds) {
+                            if (existingLookup[id]) {
+                                // Pre-populate with existing data
+                                this.filterMappings[id] = {
+                                    name: existingLookup[id].name,
+                                    standard_name: existingLookup[id].standard_name,
+                                    filter_type: existingLookup[id].filter_type || 'narrowband',
+                                    bandpass: existingLookup[id].bandpass || '',
+                                    isExisting: true
+                                };
+                            } else {
+                                // New filter - initialize with empty values
+                                this.filterMappings[id] = {
+                                    name: '',
+                                    standard_name: '',
+                                    filter_type: 'narrowband',
+                                    bandpass: '',
+                                    isExisting: false
+                                };
+                            }
+                        }
+
+                        if (this.filterIds.length === 0) {
+                            this.parseError = 'No numeric filter IDs found in CSV. Make sure the CSV has a "filter" column with AstroBin equipment IDs.';
+                        }
+                    } catch (error) {
+                        this.parseError = error.response?.data?.detail || error.message;
+                    }
+                },
+
+                editExistingFilter(mapping) {
+                    // Add this filter to the edit list
+                    if (!this.filterIds.includes(mapping.id)) {
+                        this.filterIds.push(mapping.id);
+                    }
+
+                    // Pre-populate the form
+                    this.filterMappings[mapping.id] = {
+                        name: mapping.name,
+                        standard_name: mapping.standard_name,
+                        filter_type: mapping.filter_type || 'narrowband',
+                        bandpass: mapping.bandpass || '',
+                        isExisting: true
+                    };
+
+                    // Scroll to the mapping section
+                    setTimeout(() => {
+                        const mappingSection = document.querySelector('.space-y-4');
+                        if (mappingSection) {
+                            mappingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    }, 100);
+                },
+
+                clearCSV() {
+                    this.csvData = '';
+                    this.filterIds = [];
+                    this.filterMappings = {};
+                    this.parseError = '';
+                    this.saveMessage = '';
+                },
+
+                async saveMappings() {
+                    this.saveMessage = '';
+
+                    try {
+                        const response = await axios.post('/api/equipment/astrobin/filters', {
+                            filters: this.filterMappings
+                        });
+
+                        this.saveSuccess = true;
+                        this.saveMessage = response.data.message;
+
+                        // Reload existing mappings
+                        await this.loadExistingMappings();
+
+                        // Clear the form
+                        setTimeout(() => {
+                            this.clearCSV();
+                        }, 2000);
+                    } catch (error) {
+                        this.saveSuccess = false;
+                        this.saveMessage = error.response?.data?.detail || error.message;
+                    }
+                },
+
+                async loadExistingMappings() {
+                    try {
+                        const response = await axios.get('/api/equipment/astrobin/filters');
+                        const filters = response.data.filters;
+
+                        this.existingMappings = Object.entries(filters).map(([id, data]) => ({
+                            id,
+                            ...data
+                        }));
+                    } catch (error) {
+                        console.error('Error loading existing mappings:', error);
+                    }
+                }
+            },
+
+            mounted() {
+                // Load existing mappings on page load
+                this.loadExistingMappings();
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

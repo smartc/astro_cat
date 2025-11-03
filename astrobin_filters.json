@@ -1,0 +1,21 @@
+{
+  "_comment": "AstroBin filter ID mappings. Each key is an AstroBin equipment ID, and the value contains the filter details.",
+  "4386": {
+    "name": "Antlia 3nm Narrowband H-alpha 1.25\"",
+    "standard_name": "Ha-3nm",
+    "filter_type": "narrowband",
+    "bandpass": "3nm"
+  },
+  "4390": {
+    "name": "Antlia 3nm Narrowband Oxygen III 1.25\"",
+    "standard_name": "Oiii-3nm",
+    "filter_type": "narrowband",
+    "bandpass": "3nm"
+  },
+  "4394": {
+    "name": "Antlia 3nm Narrowband Sulfur II 1.25\"",
+    "standard_name": "Sii-3nm",
+    "filter_type": "narrowband",
+    "bandpass": "3nm"
+  }
+}
