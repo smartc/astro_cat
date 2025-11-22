@@ -1,0 +1,16 @@
+[Unit]
+Description=Astro Cat - Astrophotography Data Management Web Interface
+After=network.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__WORKDIR__
+ExecStart=__WORKDIR__/venv/bin/python __WORKDIR__/run_web.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
