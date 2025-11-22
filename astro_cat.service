@@ -4,16 +4,13 @@ After=network.target
 
 [Service]
 Type=simple
-User=user
-WorkingDirectory=/home/user/astro_cat
-ExecStart=/home/user/astro_cat/venv/bin/python /home/user/astro_cat/run_web.py
+User=__USER__
+WorkingDirectory=__WORKDIR__
+ExecStart=__WORKDIR__/venv/bin/python __WORKDIR__/run_web.py
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-
-# Environment variables (uncomment and modify if needed)
-# Environment=HOME=/home/user
 
 [Install]
 WantedBy=multi-user.target

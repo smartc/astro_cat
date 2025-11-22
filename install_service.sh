@@ -20,15 +20,32 @@ fi
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Get the user who invoked sudo (the actual user, not root)
+if [ -n "$SUDO_USER" ]; then
+    ACTUAL_USER="$SUDO_USER"
+else
+    ACTUAL_USER="$(whoami)"
+fi
+
+echo "Installing for user: $ACTUAL_USER"
+echo "Working directory: $SCRIPT_DIR"
+
 # Check if service file exists
 if [ ! -f "$SCRIPT_DIR/$SERVICE_FILE" ]; then
     echo "Error: $SERVICE_FILE not found in $SCRIPT_DIR"
     exit 1
 fi
 
-# Copy service file to systemd directory
+# Check if venv exists
+if [ ! -f "$SCRIPT_DIR/venv/bin/python" ]; then
+    echo "Error: Python virtual environment not found at $SCRIPT_DIR/venv"
+    echo "Please run setup.sh first to create the virtual environment."
+    exit 1
+fi
+
+# Copy service file to systemd directory with substitutions
 echo "Copying service file to /etc/systemd/system/..."
-cp "$SCRIPT_DIR/$SERVICE_FILE" /etc/systemd/system/
+sed -e "s|__USER__|$ACTUAL_USER|g" -e "s|__WORKDIR__|$SCRIPT_DIR|g" "$SCRIPT_DIR/$SERVICE_FILE" > /etc/systemd/system/$SERVICE_FILE
 
 # Reload systemd daemon
 echo "Reloading systemd daemon..."
