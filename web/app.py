@@ -3,6 +3,7 @@ FastAPI application initialization for FITS Cataloger.
 """
 
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -10,6 +11,17 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+
+
+def get_service_bind_host():
+    """Get the bind host for secondary services.
+
+    Returns '0.0.0.0' if ASTROCAT_BIND_EXTERNAL=true, otherwise '127.0.0.1'.
+    When behind a reverse proxy, use 127.0.0.1 (default) for security.
+    For direct network access without proxy, set ASTROCAT_BIND_EXTERNAL=true.
+    """
+    bind_external = os.environ.get('ASTROCAT_BIND_EXTERNAL', '').lower() in ('true', '1', 'yes')
+    return '0.0.0.0' if bind_external else '127.0.0.1'
 
 from version import __version__
 from config import load_config
@@ -70,16 +82,17 @@ def start_sqlite_web(db_path: str, port: int = 8081):
     """Start sqlite_web in a separate process."""
     global sqlite_web_process
     try:
-        logger.info(f"Starting sqlite_web on port {port}...")
+        bind_host = get_service_bind_host()
+        logger.info(f"Starting sqlite_web on {bind_host}:{port}...")
         sqlite_web_process = subprocess.Popen(
             [sys.executable, "-m", "sqlite_web", db_path,
-             "--host", "127.0.0.1",
+             "--host", bind_host,
              "--port", str(port),
              "--no-browser"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
-        logger.info(f"✓ sqlite_web started - Database browser at http://127.0.0.1:{port}")
+        logger.info(f"✓ sqlite_web started - Database browser at http://{bind_host}:{port}")
     except Exception as e:
         logger.warning(f"Could not start sqlite_web: {e}")
         logger.warning("Install with: pip install sqlite-web")
@@ -89,13 +102,14 @@ def start_s3_backup_web(port: int = 8083):
     """Start S3 backup web interface."""
     global s3_backup_process
     try:
-        logger.info(f"Starting S3 backup web interface on port {port}...")
+        bind_host = get_service_bind_host()
+        logger.info(f"Starting S3 backup web interface on {bind_host}:{port}...")
         s3_backup_process = subprocess.Popen(
             [sys.executable, "-m", "s3_backup.run_web"],
             stdout=None,  # Changed from subprocess.PIPE
             stderr=None   # Changed from subprocess.PIPE
         )
-        logger.info(f"✓ S3 backup interface at http://127.0.0.1:{port}")
+        logger.info(f"✓ S3 backup interface at http://{bind_host}:{port}")
     except Exception as e:
         logger.warning(f"Could not start S3 backup interface: {e}")
         
