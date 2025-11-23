@@ -24,6 +24,18 @@ def get_service_bind_host():
     """
     return os.environ.get('ASTROCAT_BIND_HOST', '127.0.0.1')
 
+
+def get_service_ports():
+    """Get ports for all services from environment variables.
+
+    Returns dict with ports for each service.
+    """
+    return {
+        'db_browser': int(os.environ.get('ASTROCAT_DB_BROWSER_PORT', '8081')),
+        'webdav': int(os.environ.get('ASTROCAT_WEBDAV_PORT', '8082')),
+        's3_backup': int(os.environ.get('ASTROCAT_S3_BACKUP_PORT', '8083')),
+    }
+
 from version import __version__
 from config import load_config
 from models import DatabaseManager, DatabaseService
@@ -118,7 +130,9 @@ def start_s3_backup_web(port: int = 8083):
 def restart_s3_backup_web():
     """Restart S3 backup web interface."""
     global s3_backup_process
-    
+
+    ports = get_service_ports()
+
     # Stop existing
     if s3_backup_process:
         try:
@@ -126,9 +140,9 @@ def restart_s3_backup_web():
             s3_backup_process.wait(timeout=3)
         except:
             pass
-    
+
     # Restart
-    start_s3_backup_web(port=8083)
+    start_s3_backup_web(port=ports['s3_backup'])
 
 
 @app.on_event("startup")
@@ -187,14 +201,17 @@ async def startup_event():
         else:
             logger.info("✓ Dashboard cache initialized (empty)")
         
+        # Get service ports from environment
+        ports = get_service_ports()
+
         # Start WebDAV server (add this near the end, before the final success message)
         if config and config.paths.processing_dir:
             try:
                 from pathlib import Path
                 from webdav_server import start_webdav_server
-                
+
                 processing_dir = Path(config.paths.processing_dir)
-                webdav_server = start_webdav_server(processing_dir, port=8082)
+                webdav_server = start_webdav_server(processing_dir, port=ports['webdav'])
                 if webdav_server:
                     logger.info("✓ WebDAV server ready for file access")
                 else:
@@ -207,11 +224,11 @@ async def startup_event():
         # Start sqlite_web for database management
         db_path = Path(config.paths.database_path)
         if db_path.exists():
-            start_sqlite_web(str(db_path), port=8081)
+            start_sqlite_web(str(db_path), port=ports['db_browser'])
 
 
         # Start S3 backup interface
-        start_s3_backup_web(port=8083)
+        start_s3_backup_web(port=ports['s3_backup'])
 
         
         logger.info("=" * 60)

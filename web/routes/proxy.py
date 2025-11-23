@@ -6,6 +6,7 @@ behind a single Apache/nginx reverse proxy.
 """
 
 import logging
+import os
 import re
 import httpx
 from fastapi import APIRouter, Request, Response, HTTPException
@@ -15,12 +16,26 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Service endpoints (internal)
-SERVICES = {
-    "db-browser": {"host": "127.0.0.1", "port": 8081, "rewrite_urls": True},
-    "s3-backup": {"host": "127.0.0.1", "port": 8083, "rewrite_urls": False},
-    "webdav": {"host": "127.0.0.1", "port": 8082, "rewrite_urls": False},
-}
+
+def get_services():
+    """Get service configuration with ports from environment variables."""
+    return {
+        "db-browser": {
+            "host": "127.0.0.1",
+            "port": int(os.environ.get('ASTROCAT_DB_BROWSER_PORT', '8081')),
+            "rewrite_urls": True
+        },
+        "s3-backup": {
+            "host": "127.0.0.1",
+            "port": int(os.environ.get('ASTROCAT_S3_BACKUP_PORT', '8083')),
+            "rewrite_urls": False
+        },
+        "webdav": {
+            "host": "127.0.0.1",
+            "port": int(os.environ.get('ASTROCAT_WEBDAV_PORT', '8082')),
+            "rewrite_urls": False
+        },
+    }
 
 # Timeout for proxy requests
 PROXY_TIMEOUT = 30.0
@@ -52,10 +67,11 @@ def rewrite_html_urls(content: bytes, base_path: str) -> bytes:
 
 async def proxy_request(request: Request, service_name: str, path: str) -> Response:
     """Proxy a request to an internal service."""
-    if service_name not in SERVICES:
+    services = get_services()
+    if service_name not in services:
         raise HTTPException(status_code=404, detail=f"Unknown service: {service_name}")
 
-    service = SERVICES[service_name]
+    service = services[service_name]
     target_url = f"http://{service['host']}:{service['port']}/{path}"
 
     logger.info(f"Proxying {request.method} {request.url.path} -> {target_url}")
