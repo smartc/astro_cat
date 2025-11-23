@@ -401,7 +401,7 @@ window.ImagingSessionDetailModal = {
             this.s3BackupError = false;
             try {
                 // First check if S3 backup service is running
-                const statusResponse = await fetch(`http://${window.location.hostname}:8083/api/status`);
+                const statusResponse = await fetch(`/s3-backup/api/status`);
                 if (!statusResponse.ok) {
                     this.s3BackupEnabled = false;
                     this.loadingBackupStatus = false;
@@ -417,7 +417,7 @@ window.ImagingSessionDetailModal = {
                 }
                 
                 // Check if there's an active backup task for this session
-                const taskStatusResponse = await fetch(`http://${window.location.hostname}:8083/api/backup/session/${sessionId}/status`);
+                const taskStatusResponse = await fetch(`/s3-backup/api/backup/session/${sessionId}/status`);
                 if (taskStatusResponse.ok) {
                     const taskStatus = await taskStatusResponse.json();
                     if (taskStatus.has_active_task) {
@@ -441,7 +441,7 @@ window.ImagingSessionDetailModal = {
                 }
                 
                 // Check if already backed up (in database)
-                const sessionsResponse = await fetch(`http://${window.location.hostname}:8083/api/sessions?limit=1000`);
+                const sessionsResponse = await fetch(`/s3-backup/api/sessions?limit=1000`);
                 if (sessionsResponse.ok) {
                     const sessions = await sessionsResponse.json();
                     const session = sessions.find(s => s.session_id === sessionId);
@@ -463,7 +463,7 @@ window.ImagingSessionDetailModal = {
             
             this.backingUp = true;
             try {
-                const response = await fetch(`http://${window.location.hostname}:8083/api/backup/session/${this.selectedSessionId}`, {
+                const response = await fetch(`/s3-backup/api/backup/session/${this.selectedSessionId}`, {
                     method: 'POST'
                 });
                 
@@ -500,7 +500,7 @@ window.ImagingSessionDetailModal = {
             // Poll every 2 seconds
             this.backupStatusPollInterval = setInterval(async () => {
                 try {
-                    const response = await fetch(`http://${window.location.hostname}:8083/api/backup/session/${sessionId}/status`);
+                    const response = await fetch(`/s3-backup/api/backup/session/${sessionId}/status`);
                     if (response.ok) {
                         const status = await response.json();
                         

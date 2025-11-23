@@ -1720,4 +1720,7 @@ async def backup_processing_final_single(session_id: str, force: bool = Query(Fa
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8083)
+    import os
+    bind_host = os.environ.get('ASTROCAT_BIND_HOST', '127.0.0.1')
+    port = int(os.environ.get('ASTROCAT_S3_BACKUP_PORT', '8083'))
+    uvicorn.run(app, host=bind_host, port=port)

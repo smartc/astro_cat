@@ -4,6 +4,7 @@ Startup script for S3 Backup web interface.
 Run: python -m s3_backup.run_web
 """
 
+import os
 import sys
 import logging
 from pathlib import Path
@@ -20,18 +21,22 @@ if __name__ == "__main__":
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    
+
+    # Check environment variables for bind host and port
+    bind_host = os.environ.get('ASTROCAT_BIND_HOST', '127.0.0.1')
+    port = int(os.environ.get('ASTROCAT_S3_BACKUP_PORT', '8083'))
+
     print("=" * 70)
     print("Starting S3 Backup Manager Web Interface")
     print("=" * 70)
-    print(f"Server: http://0.0.0.0:8083")
-    print(f"Access via main app: http://localhost:8000/s3-backup-viewer.html")
+    print(f"Server: http://{bind_host}:{port}")
+    print(f"Access via main app: http://localhost:8000/s3-backup-viewer")
     print("=" * 70)
-    
+
     uvicorn.run(
         "s3_backup.web_app:app",
-        host="0.0.0.0",
-        port=8083,
+        host=bind_host,
+        port=port,
         reload=False,
         log_level="info"
     )

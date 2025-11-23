@@ -73,9 +73,8 @@
             },
             mounted() {
                 const iframe = document.getElementById('database-frame');
-                // Use the same protocol (http or https) as the parent page
-                const protocol = window.location.protocol; // 'http:' or 'https:'
-                iframe.src = `${protocol}//${window.location.hostname}:8081`;
+                // Use proxy path to access database browser through main app
+                iframe.src = '/db-browser';
             }
         }).mount('#app');
     </script>

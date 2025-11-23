@@ -95,7 +95,8 @@ const AppHeader = {
             return window.Icons;
         },
         databaseUrl() {
-            return `http://${window.location.hostname}:8081`;
+            // Use proxy path for database browser
+            return '/db-browser';
         }
     },
 

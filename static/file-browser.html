@@ -133,10 +133,14 @@
                         }
 
                         const webdavInfo = await response.json();
-                        
+
                         // Set the WebDAV base URL
                         this.webdavUrl = webdavInfo.webdav_base;
                         this.iframeSrc = webdavInfo.webdav_root;
+
+                        // Debug logging
+                        console.log('WebDAV info:', webdavInfo);
+                        console.log('Setting iframe src to:', this.iframeSrc);
 
                     } catch (error) {
                         console.error('Error loading WebDAV info:', error);

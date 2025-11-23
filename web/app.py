@@ -3,6 +3,7 @@ FastAPI application initialization for FITS Cataloger.
 """
 
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -10,6 +11,30 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+
+
+def get_service_bind_host():
+    """Get the bind host for secondary services.
+
+    Uses ASTROCAT_BIND_HOST env var if set, otherwise defaults to '127.0.0.1'.
+    Examples:
+        127.0.0.1 - localhost only (default, secure for reverse proxy)
+        0.0.0.0   - all interfaces (for direct network access)
+        192.168.1.100 - specific interface
+    """
+    return os.environ.get('ASTROCAT_BIND_HOST', '127.0.0.1')
+
+
+def get_service_ports():
+    """Get ports for all services from environment variables.
+
+    Returns dict with ports for each service.
+    """
+    return {
+        'db_browser': int(os.environ.get('ASTROCAT_DB_BROWSER_PORT', '8081')),
+        'webdav': int(os.environ.get('ASTROCAT_WEBDAV_PORT', '8082')),
+        's3_backup': int(os.environ.get('ASTROCAT_S3_BACKUP_PORT', '8083')),
+    }
 
 from version import __version__
 from config import load_config
@@ -70,16 +95,17 @@ def start_sqlite_web(db_path: str, port: int = 8081):
     """Start sqlite_web in a separate process."""
     global sqlite_web_process
     try:
-        logger.info(f"Starting sqlite_web on port {port}...")
+        bind_host = get_service_bind_host()
+        logger.info(f"Starting sqlite_web on {bind_host}:{port}...")
         sqlite_web_process = subprocess.Popen(
-            [sys.executable, "-m", "sqlite_web", db_path, 
-             "--host", "0.0.0.0",
-             "--port", str(port), 
+            [sys.executable, "-m", "sqlite_web", db_path,
+             "--host", bind_host,
+             "--port", str(port),
              "--no-browser"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
-        logger.info(f"✓ sqlite_web started - Database browser at http://0.0.0.0:{port}")
+        logger.info(f"✓ sqlite_web started - Database browser at http://{bind_host}:{port}")
     except Exception as e:
         logger.warning(f"Could not start sqlite_web: {e}")
         logger.warning("Install with: pip install sqlite-web")
@@ -89,13 +115,14 @@ def start_s3_backup_web(port: int = 8083):
     """Start S3 backup web interface."""
     global s3_backup_process
     try:
-        logger.info(f"Starting S3 backup web interface on port {port}...")
+        bind_host = get_service_bind_host()
+        logger.info(f"Starting S3 backup web interface on {bind_host}:{port}...")
         s3_backup_process = subprocess.Popen(
             [sys.executable, "-m", "s3_backup.run_web"],
             stdout=None,  # Changed from subprocess.PIPE
             stderr=None   # Changed from subprocess.PIPE
         )
-        logger.info(f"✓ S3 backup interface at http://0.0.0.0:{port}")
+        logger.info(f"✓ S3 backup interface at http://{bind_host}:{port}")
     except Exception as e:
         logger.warning(f"Could not start S3 backup interface: {e}")
         
@@ -103,7 +130,9 @@ def start_s3_backup_web(port: int = 8083):
 def restart_s3_backup_web():
     """Restart S3 backup web interface."""
     global s3_backup_process
-    
+
+    ports = get_service_ports()
+
     # Stop existing
     if s3_backup_process:
         try:
@@ -111,9 +140,9 @@ def restart_s3_backup_web():
             s3_backup_process.wait(timeout=3)
         except:
             pass
-    
+
     # Restart
-    start_s3_backup_web(port=8083)
+    start_s3_backup_web(port=ports['s3_backup'])
 
 
 @app.on_event("startup")
@@ -172,14 +201,17 @@ async def startup_event():
         else:
             logger.info("✓ Dashboard cache initialized (empty)")
         
+        # Get service ports from environment
+        ports = get_service_ports()
+
         # Start WebDAV server (add this near the end, before the final success message)
         if config and config.paths.processing_dir:
             try:
                 from pathlib import Path
                 from webdav_server import start_webdav_server
-                
+
                 processing_dir = Path(config.paths.processing_dir)
-                webdav_server = start_webdav_server(processing_dir, port=8082)
+                webdav_server = start_webdav_server(processing_dir, port=ports['webdav'])
                 if webdav_server:
                     logger.info("✓ WebDAV server ready for file access")
                 else:
@@ -192,11 +224,11 @@ async def startup_event():
         # Start sqlite_web for database management
         db_path = Path(config.paths.database_path)
         if db_path.exists():
-            start_sqlite_web(str(db_path), port=8081)
+            start_sqlite_web(str(db_path), port=ports['db_browser'])
 
 
         # Start S3 backup interface
-        start_s3_backup_web(port=8083)
+        start_s3_backup_web(port=ports['s3_backup'])
 
         
         logger.info("=" * 60)
@@ -270,7 +302,8 @@ from web.routes import (
     equipment,
     config as config_routes,
     database,
-    webdav
+    webdav,
+    proxy
 )
 
 # Register all routers
@@ -286,5 +319,6 @@ app.include_router(config_routes.router)
 app.include_router(database.router)
 app.include_router(webdav.router)
 app.include_router(processed_files.router)
+app.include_router(proxy.router)
 
 logger.info("✓ All routes registered")

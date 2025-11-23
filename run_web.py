@@ -4,6 +4,7 @@ Startup script for FITS Cataloger Web Interface.
 Replaces the old web_interface.py.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -79,16 +80,21 @@ def main():
     print("✓ Configuration found")
     print("✓ Frontend libraries installed")
     print()
+
+    # Get configuration from environment
+    host = os.environ.get('ASTROCAT_HOST', '127.0.0.1')
+    port = int(os.environ.get('ASTROCAT_PORT', '8000'))
+
     print("Starting web interface...")
-    print("Open your browser to: http://localhost:8000")
+    print(f"Open your browser to: http://{host if host != '0.0.0.0' else 'localhost'}:{port}")
     print("Press Ctrl+C to stop")
     print()
-    
+
     # Import and run
     try:
         from web import app
         import uvicorn
-        uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)
+        uvicorn.run(app, host=host, port=port, reload=False)
     except ImportError as e:
         print(f"Error: Could not import web modules: {e}")
         print("Make sure the 'web' package is in the current directory")

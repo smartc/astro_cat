@@ -972,7 +972,7 @@ const ProcessingSessionDetailsModal = {
             
             try {
                 const response = await fetch(
-                    `http://${window.location.hostname}:8083/api/processing-session/${this.currentSessionDetails.id}/backup-status`
+                    `/s3-backup/api/processing-session/${this.currentSessionDetails.id}/backup-status`
                 );
                 
                 if (!response.ok) {
@@ -1002,7 +1002,7 @@ const ProcessingSessionDetailsModal = {
             
             try {
                 const response = await fetch(
-                    `http://${window.location.hostname}:8083/api/processing-session/${this.currentSessionDetails.id}/backup-intermediate`,
+                    `/s3-backup/api/processing-session/${this.currentSessionDetails.id}/backup-intermediate`,
                     {
                         method: 'POST',
                         headers: {
@@ -1041,7 +1041,7 @@ const ProcessingSessionDetailsModal = {
             
             try {
                 const response = await fetch(
-                    `http://${window.location.hostname}:8083/api/processing-session/${this.currentSessionDetails.id}/backup-final`,
+                    `/s3-backup/api/processing-session/${this.currentSessionDetails.id}/backup-final`,
                     {
                         method: 'POST',
                         headers: {

@@ -493,6 +493,30 @@ See `lifecycle_policy.json` for the complete policy with all 10 rules.
 | GLACIER_FLEXIBLE | $0.0036 | 3-5 hours | Processing sessions |
 | DEEP_ARCHIVE | $0.00099 | 12 hours | Raw data long-term |
 
+## Web Interface
+
+Launch the S3 backup web interface:
+
+```bash
+python -m s3_backup.run_web
+```
+
+By default, it runs on `http://127.0.0.1:8083`. When running through the main AstroCat app, access it via the `/s3-backup` proxy route.
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ASTROCAT_BIND_HOST` | `127.0.0.1` | Bind address for the web server |
+| `ASTROCAT_S3_BACKUP_PORT` | `8083` | Port for the web server |
+
+**Example - Custom port:**
+```bash
+ASTROCAT_S3_BACKUP_PORT=9083 python -m s3_backup.run_web
+```
+
+When running behind a reverse proxy (Apache/nginx), the S3 backup interface is automatically accessible at `/s3-backup` through the main AstroCat app on port 8000.
+
 ## Recommended Workflow
 
 ### Initial Backup

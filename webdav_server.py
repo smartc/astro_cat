@@ -4,9 +4,15 @@ Provides file access to processing sessions via WebDAV protocol.
 """
 
 import logging
+import os
 import threading
 from pathlib import Path
 from typing import Optional
+
+
+def _get_default_bind_host():
+    """Get the default bind host based on environment variable."""
+    return os.environ.get('ASTROCAT_BIND_HOST', '127.0.0.1')
 
 from wsgidav.wsgidav_app import WsgiDAVApp
 from wsgidav.fs_dav_provider import FilesystemProvider
@@ -18,7 +24,7 @@ logger = logging.getLogger(__name__)
 class WebDAVServer:
     """WebDAV server for serving processing session files."""
     
-    def __init__(self, processing_dir: Path, host: str = "0.0.0.0", port: int = 8082):
+    def __init__(self, processing_dir: Path, host: str = "127.0.0.1", port: int = 8082):
         """
         Initialize WebDAV server.
         
@@ -135,24 +141,27 @@ class WebDAVServer:
 _webdav_server: Optional[WebDAVServer] = None
 
 
-def start_webdav_server(processing_dir: Path, host: str = "0.0.0.0", port: int = 8082) -> Optional[WebDAVServer]:
+def start_webdav_server(processing_dir: Path, host: str = None, port: int = 8082) -> Optional[WebDAVServer]:
     """
     Start the global WebDAV server instance.
-    
+
     Args:
         processing_dir: Root directory for processing sessions
-        host: Host to bind to
+        host: Host to bind to (default: based on ASTROCAT_BIND_EXTERNAL env var)
         port: Port to listen on
-        
+
     Returns:
         WebDAVServer instance if successful, None otherwise
     """
     global _webdav_server
-    
+
+    if host is None:
+        host = _get_default_bind_host()
+
     if _webdav_server and _webdav_server.is_running():
         logger.warning("WebDAV server already running")
         return _webdav_server
-    
+
     try:
         _webdav_server = WebDAVServer(processing_dir, host, port)
         if _webdav_server.start():
