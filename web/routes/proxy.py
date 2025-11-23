@@ -164,26 +164,26 @@ async def proxy_s3_backup_root(request: Request):
 
 
 # WebDAV proxy - browser access methods
-@router.get("/webdav-files/{path:path}")
+@router.get("/webdav/{path:path}")
 async def proxy_webdav_get(request: Request, path: str):
     """Proxy GET requests to WebDAV server."""
     logger.info(f"WebDAV proxy route hit: path={path}")
     return await proxy_request(request, "webdav", path)
 
 
-@router.get("/webdav-files")
+@router.get("/webdav")
 async def proxy_webdav_root(request: Request):
     """Proxy root GET request to WebDAV."""
     return await proxy_request(request, "webdav", "")
 
 
-@router.options("/webdav-files/{path:path}")
+@router.options("/webdav/{path:path}")
 async def proxy_webdav_options(request: Request, path: str):
     """Proxy OPTIONS requests to WebDAV server."""
     return await proxy_request(request, "webdav", path)
 
 
-@router.options("/webdav-files")
+@router.options("/webdav")
 async def proxy_webdav_root_options(request: Request):
     """Proxy root OPTIONS request to WebDAV."""
     return await proxy_request(request, "webdav", "")

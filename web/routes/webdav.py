@@ -52,7 +52,7 @@ async def get_session_webdav_info(session_id: str, request: Request):
             # Use proxy path when behind reverse proxy
             # Get the full host with port if present
             full_host = request.headers.get("host", host_header)
-            base_url = f"{scheme}://{full_host}/webdav-files"
+            base_url = f"{scheme}://{full_host}/webdav"
             logger.info(f"WebDAV proxy mode - returning base_url: {base_url}")
 
             return {
