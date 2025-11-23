@@ -82,7 +82,7 @@ def main():
     print()
 
     # Get configuration from environment
-    host = os.environ.get('ASTROCAT_HOST', '0.0.0.0')
+    host = os.environ.get('ASTROCAT_HOST', '127.0.0.1')
     port = int(os.environ.get('ASTROCAT_PORT', '8000'))
 
     print("Starting web interface...")

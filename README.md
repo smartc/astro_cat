@@ -223,7 +223,7 @@ Configure the web server using environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ASTROCAT_HOST` | `0.0.0.0` | Main app bind address |
+| `ASTROCAT_HOST` | `127.0.0.1` | Main app bind address |
 | `ASTROCAT_PORT` | `8000` | Main app port |
 | `ASTROCAT_BIND_HOST` | `127.0.0.1` | Secondary services bind address |
 | `ASTROCAT_DB_BROWSER_PORT` | `8081` | Database browser (sqlite_web) port |
