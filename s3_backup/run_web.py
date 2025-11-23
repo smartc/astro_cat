@@ -23,8 +23,7 @@ if __name__ == "__main__":
     )
 
     # Check environment variable for bind host
-    bind_external = os.environ.get('ASTROCAT_BIND_EXTERNAL', '').lower() in ('true', '1', 'yes')
-    bind_host = '0.0.0.0' if bind_external else '127.0.0.1'
+    bind_host = os.environ.get('ASTROCAT_BIND_HOST', '127.0.0.1')
 
     print("=" * 70)
     print("Starting S3 Backup Manager Web Interface")

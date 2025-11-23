@@ -16,12 +16,13 @@ from fastapi.middleware.cors import CORSMiddleware
 def get_service_bind_host():
     """Get the bind host for secondary services.
 
-    Returns '0.0.0.0' if ASTROCAT_BIND_EXTERNAL=true, otherwise '127.0.0.1'.
-    When behind a reverse proxy, use 127.0.0.1 (default) for security.
-    For direct network access without proxy, set ASTROCAT_BIND_EXTERNAL=true.
+    Uses ASTROCAT_BIND_HOST env var if set, otherwise defaults to '127.0.0.1'.
+    Examples:
+        127.0.0.1 - localhost only (default, secure for reverse proxy)
+        0.0.0.0   - all interfaces (for direct network access)
+        192.168.1.100 - specific interface
     """
-    bind_external = os.environ.get('ASTROCAT_BIND_EXTERNAL', '').lower() in ('true', '1', 'yes')
-    return '0.0.0.0' if bind_external else '127.0.0.1'
+    return os.environ.get('ASTROCAT_BIND_HOST', '127.0.0.1')
 
 from version import __version__
 from config import load_config

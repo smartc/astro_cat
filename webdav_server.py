@@ -12,8 +12,7 @@ from typing import Optional
 
 def _get_default_bind_host():
     """Get the default bind host based on environment variable."""
-    bind_external = os.environ.get('ASTROCAT_BIND_EXTERNAL', '').lower() in ('true', '1', 'yes')
-    return '0.0.0.0' if bind_external else '127.0.0.1'
+    return os.environ.get('ASTROCAT_BIND_HOST', '127.0.0.1')
 
 from wsgidav.wsgidav_app import WsgiDAVApp
 from wsgidav.fs_dav_provider import FilesystemProvider
