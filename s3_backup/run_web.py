@@ -24,13 +24,13 @@ if __name__ == "__main__":
     print("=" * 70)
     print("Starting S3 Backup Manager Web Interface")
     print("=" * 70)
-    print(f"Server: http://0.0.0.0:8083")
-    print(f"Access via main app: http://localhost:8000/s3-backup-viewer.html")
+    print(f"Server: http://127.0.0.1:8083")
+    print(f"Access via main app: http://localhost:8000/s3-backup-viewer")
     print("=" * 70)
-    
+
     uvicorn.run(
         "s3_backup.web_app:app",
-        host="0.0.0.0",
+        host="127.0.0.1",
         port=8083,
         reload=False,
         log_level="info"

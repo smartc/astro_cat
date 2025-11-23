@@ -54,9 +54,9 @@
             },
             mounted() {
                 const iframe = document.getElementById('backup-frame');
-                const protocol = window.location.protocol;
-                const mainOrigin = `${protocol}//${window.location.hostname}:8000`;
-                iframe.src = `${protocol}//${window.location.hostname}:8083?mainOrigin=${encodeURIComponent(mainOrigin)}`;
+                // Use proxy path to access S3 backup through main app
+                const mainOrigin = window.location.origin;
+                iframe.src = `/s3-backup?mainOrigin=${encodeURIComponent(mainOrigin)}`;
             }
         }).mount('#app');
     </script>

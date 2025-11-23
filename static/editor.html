@@ -73,7 +73,8 @@
                     this.menuOpen = false;
                 },
                 openDatabaseBrowser() {
-                    window.open('http://localhost:8081', '_blank');
+                    // Use proxy path for database browser
+                    window.open('/db-browser', '_blank');
                     this.menuOpen = false;
                 }
             }

@@ -72,14 +72,14 @@ def start_sqlite_web(db_path: str, port: int = 8081):
     try:
         logger.info(f"Starting sqlite_web on port {port}...")
         sqlite_web_process = subprocess.Popen(
-            [sys.executable, "-m", "sqlite_web", db_path, 
-             "--host", "0.0.0.0",
-             "--port", str(port), 
+            [sys.executable, "-m", "sqlite_web", db_path,
+             "--host", "127.0.0.1",
+             "--port", str(port),
              "--no-browser"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
-        logger.info(f"✓ sqlite_web started - Database browser at http://0.0.0.0:{port}")
+        logger.info(f"✓ sqlite_web started - Database browser at http://127.0.0.1:{port}")
     except Exception as e:
         logger.warning(f"Could not start sqlite_web: {e}")
         logger.warning("Install with: pip install sqlite-web")
@@ -95,7 +95,7 @@ def start_s3_backup_web(port: int = 8083):
             stdout=None,  # Changed from subprocess.PIPE
             stderr=None   # Changed from subprocess.PIPE
         )
-        logger.info(f"✓ S3 backup interface at http://0.0.0.0:{port}")
+        logger.info(f"✓ S3 backup interface at http://127.0.0.1:{port}")
     except Exception as e:
         logger.warning(f"Could not start S3 backup interface: {e}")
         
@@ -270,7 +270,8 @@ from web.routes import (
     equipment,
     config as config_routes,
     database,
-    webdav
+    webdav,
+    proxy
 )
 
 # Register all routers
@@ -286,5 +287,6 @@ app.include_router(config_routes.router)
 app.include_router(database.router)
 app.include_router(webdav.router)
 app.include_router(processed_files.router)
+app.include_router(proxy.router)
 
 logger.info("✓ All routes registered")

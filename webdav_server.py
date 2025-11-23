@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class WebDAVServer:
     """WebDAV server for serving processing session files."""
     
-    def __init__(self, processing_dir: Path, host: str = "0.0.0.0", port: int = 8082):
+    def __init__(self, processing_dir: Path, host: str = "127.0.0.1", port: int = 8082):
         """
         Initialize WebDAV server.
         
@@ -135,7 +135,7 @@ class WebDAVServer:
 _webdav_server: Optional[WebDAVServer] = None
 
 
-def start_webdav_server(processing_dir: Path, host: str = "0.0.0.0", port: int = 8082) -> Optional[WebDAVServer]:
+def start_webdav_server(processing_dir: Path, host: str = "127.0.0.1", port: int = 8082) -> Optional[WebDAVServer]:
     """
     Start the global WebDAV server instance.
     
