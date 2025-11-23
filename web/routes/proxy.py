@@ -97,6 +97,7 @@ async def proxy_request(request: Request, service_name: str, path: str) -> Respo
                 if key_lower not in ('transfer-encoding', 'connection', 'keep-alive', 'content-length'):
                     # Rewrite Location header for redirects
                     if key_lower == 'location' and response.status_code in (301, 302, 303, 307, 308):
+                        original_value = value
                         # Replace internal URL with proxy URL
                         internal_base = f"http://{service['host']}:{service['port']}"
                         if value.startswith(internal_base):
@@ -104,6 +105,7 @@ async def proxy_request(request: Request, service_name: str, path: str) -> Respo
                         elif value.startswith('/'):
                             # Relative redirect - prepend proxy path
                             value = f"/{service_name}{value}"
+                        logger.info(f"Rewriting Location header: {original_value} -> {value}")
                     response_headers[key] = value
 
             # Get response content
@@ -165,6 +167,7 @@ async def proxy_s3_backup_root(request: Request):
 @router.get("/webdav-files/{path:path}")
 async def proxy_webdav_get(request: Request, path: str):
     """Proxy GET requests to WebDAV server."""
+    logger.info(f"WebDAV proxy route hit: path={path}")
     return await proxy_request(request, "webdav", path)
 
 
