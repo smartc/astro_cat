@@ -40,6 +40,9 @@ async def get_session_webdav_info(session_id: str, request: Request):
         forwarded_proto = request.headers.get("x-forwarded-proto", "")
         is_behind_proxy = bool(forwarded_proto)
 
+        # Debug logging
+        logger.info(f"WebDAV session request - X-Forwarded-Proto: '{forwarded_proto}', is_behind_proxy: {is_behind_proxy}")
+
         # Detect if main app is using HTTPS
         scheme = "https" if forwarded_proto == "https" or request.url.scheme == "https" else "http"
 
@@ -50,6 +53,7 @@ async def get_session_webdav_info(session_id: str, request: Request):
             # Get the full host with port if present
             full_host = request.headers.get("host", host_header)
             base_url = f"{scheme}://{full_host}/webdav-files"
+            logger.info(f"WebDAV proxy mode - returning base_url: {base_url}")
 
             return {
                 "session_id": session_id,
@@ -77,6 +81,7 @@ async def get_session_webdav_info(session_id: str, request: Request):
             # Direct access mode - use port directly
             webdav_port = server.port
             base_url = f"{scheme}://{host_header}:{webdav_port}"
+            logger.info(f"WebDAV direct mode - returning base_url: {base_url}")
 
             # For Windows UNC path, use the hostname without http/https
             windows_unc = f"\\\\{host_header}@{webdav_port}\\{session_id}"
