@@ -95,6 +95,15 @@ async def proxy_request(request: Request, service_name: str, path: str) -> Respo
             for key, value in response.headers.items():
                 key_lower = key.lower()
                 if key_lower not in ('transfer-encoding', 'connection', 'keep-alive', 'content-length'):
+                    # Rewrite Location header for redirects
+                    if key_lower == 'location' and response.status_code in (301, 302, 303, 307, 308):
+                        # Replace internal URL with proxy URL
+                        internal_base = f"http://{service['host']}:{service['port']}"
+                        if value.startswith(internal_base):
+                            value = f"/{service_name}" + value[len(internal_base):]
+                        elif value.startswith('/'):
+                            # Relative redirect - prepend proxy path
+                            value = f"/{service_name}{value}"
                     response_headers[key] = value
 
             # Get response content
