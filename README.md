@@ -217,6 +217,89 @@ python run_web.py
 
 The server will start on `http://localhost:8000`. Open this URL in your browser.
 
+### Environment Variables
+
+Configure the web server using environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ASTROCAT_HOST` | `0.0.0.0` | Main app bind address |
+| `ASTROCAT_PORT` | `8000` | Main app port |
+| `ASTROCAT_BIND_HOST` | `127.0.0.1` | Secondary services bind address |
+| `ASTROCAT_DB_BROWSER_PORT` | `8081` | Database browser (sqlite_web) port |
+| `ASTROCAT_WEBDAV_PORT` | `8082` | WebDAV server port |
+| `ASTROCAT_S3_BACKUP_PORT` | `8083` | S3 backup web interface port |
+
+**Example - Custom ports:**
+```bash
+ASTROCAT_PORT=9000 ASTROCAT_DB_BROWSER_PORT=9081 python run_web.py
+```
+
+**Example - Bind to specific interface:**
+```bash
+ASTROCAT_HOST=192.168.1.100 python run_web.py
+```
+
+### Running Behind a Reverse Proxy (HTTPS)
+
+For production deployments with HTTPS, run AstroCat behind Apache or nginx. The application includes built-in proxy routes that forward requests to secondary services, so your reverse proxy only needs to connect to port 8000.
+
+**Proxy Routes:**
+- `/db-browser/*` → Database browser (sqlite_web on port 8081)
+- `/s3-backup/*` → S3 backup manager (port 8083)
+- `/webdav/*` → WebDAV server (port 8082)
+
+**Apache Configuration:**
+
+See `docs/apache-reverse-proxy.conf` for a complete example. The key configuration:
+
+```apache
+<VirtualHost *:443>
+    ServerName your-server.example.com
+
+    SSLEngine on
+    SSLCertificateFile /path/to/certificate.crt
+    SSLCertificateKeyFile /path/to/private.key
+
+    ProxyPreserveHost On
+    RequestHeader set X-Forwarded-Proto "https"
+
+    # All requests go through main app
+    ProxyPass / http://127.0.0.1:8000/
+    ProxyPassReverse / http://127.0.0.1:8000/
+</VirtualHost>
+```
+
+**Systemd Service with Environment Variables:**
+
+Create `/etc/systemd/system/astrocat.service`:
+
+```ini
+[Unit]
+Description=AstroCat Web Interface
+After=network.target
+
+[Service]
+Type=simple
+User=your-user
+WorkingDirectory=/path/to/astro_cat
+Environment=ASTROCAT_HOST=127.0.0.1
+Environment=ASTROCAT_PORT=8000
+ExecStart=/path/to/astro_cat/venv/bin/python run_web.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+```bash
+sudo systemctl enable astrocat
+sudo systemctl start astrocat
+```
+
+**Note:** When running behind a reverse proxy, secondary services bind to `127.0.0.1` by default for security. The `ASTROCAT_BIND_HOST` variable is rarely needed since the proxy handles external access.
+
 ### Dashboard
 
 The main dashboard shows:
