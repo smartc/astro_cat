@@ -19,6 +19,7 @@ router = APIRouter()
 SERVICES = {
     "db-browser": {"host": "127.0.0.1", "port": 8081, "rewrite_urls": True},
     "s3-backup": {"host": "127.0.0.1", "port": 8083, "rewrite_urls": False},
+    "webdav": {"host": "127.0.0.1", "port": 8082, "rewrite_urls": False},
 }
 
 # Timeout for proxy requests
@@ -147,6 +148,19 @@ async def proxy_s3_backup(request: Request, path: str = ""):
 async def proxy_s3_backup_root(request: Request):
     """Proxy root request to S3 backup."""
     return await proxy_request(request, "s3-backup", "")
+
+
+# WebDAV proxy - supports all WebDAV methods
+@router.api_route("/webdav-files/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "PROPFIND", "PROPPATCH", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"])
+async def proxy_webdav(request: Request, path: str = ""):
+    """Proxy requests to WebDAV server."""
+    return await proxy_request(request, "webdav", path)
+
+
+@router.api_route("/webdav-files", methods=["GET", "OPTIONS", "PROPFIND"])
+async def proxy_webdav_root(request: Request):
+    """Proxy root request to WebDAV."""
+    return await proxy_request(request, "webdav", "")
 
 
 # API endpoint to get proxy configuration (useful for frontend)
