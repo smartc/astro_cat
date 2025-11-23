@@ -268,7 +268,12 @@
                 
                 createApp({
                     data() {
+                        // Detect if we're being accessed through the proxy
+                        const path = window.location.pathname;
+                        const apiBase = path.startsWith('/s3-backup') ? '/s3-backup' : '';
+
                         return {
+                            apiBase: apiBase,
                             status: {
                                 total_sessions: 0, backed_up: 0, remaining: 0, progress_percentage: 0,
                                 total_files: 0, total_compressed_size: 0, bucket: '', region: '', enabled: false,
@@ -335,15 +340,15 @@
                     },
                     methods: {
                         async loadStatus() {
-                            const res = await axios.get('/api/status');
+                            const res = await axios.get(`${this.apiBase}/api/status`);
                             this.status = res.data;
                         },
                         async loadTempInfo() {
-                            const res = await axios.get('/api/temp-info');
+                            const res = await axios.get(`${this.apiBase}/api/temp-info`);
                             this.tempInfo = res.data;
                         },
                         async loadStorageCategories(forceRefresh = false) {
-                            const url = forceRefresh ? '/api/storage-categories?force_refresh=true' : '/api/storage-categories';
+                            const url = forceRefresh ? `${this.apiBase}/api/storage-categories?force_refresh=true` : `${this.apiBase}/api/storage-categories`;
                             const res = await axios.get(url);
                             this.storageCategories = res.data.categories || res.data;
                             this.usingFallbackPricing = res.data.using_fallback_pricing || false;
@@ -358,7 +363,7 @@
                         },
                         async toggleEnabled() {
                             try {
-                                const response = await axios.post('/api/toggle-enabled');
+                                const response = await axios.post(`${this.apiBase}/api/toggle-enabled`);
                                 if (response.data.requires_restart) {
                                     this.configMessage = response.data.message;
                                     this.requiresRestart = true;
@@ -370,7 +375,7 @@
                         },
                         async loadConfig() {
                             try {
-                                const response = await axios.get('/api/config');
+                                const response = await axios.get(`${this.apiBase}/api/config`);
                                 this.configForm = {
                                     enabled: response.data.enabled,
                                     aws_region: response.data.aws_region || '',
@@ -383,7 +388,7 @@
                         },
                         async loadActiveBackups() {
                             try {
-                                const response = await axios.get('/api/backup/tasks/active');
+                                const response = await axios.get(`${this.apiBase}/api/backup/tasks/active`);
                                 const activeTasks = response.data.active_tasks;
 
                                 // Restore backup state for each active task
@@ -401,7 +406,7 @@
                         async saveConfig() {
                             try {
                                 this.validationStatus = null;
-                                const response = await axios.post('/api/config', this.configForm);
+                                const response = await axios.post(`${this.apiBase}/api/config`, this.configForm);
 
                                 if (response.data.success) {
                                     this.configMessage = response.data.message;
@@ -419,10 +424,10 @@
                                 this.validationError = null;
 
                                 // First save the config
-                                await axios.post('/api/config', this.configForm);
+                                await axios.post(`${this.apiBase}/api/config`, this.configForm);
 
                                 // Then test the connection
-                                const response = await axios.post('/api/config/validate');
+                                const response = await axios.post(`${this.apiBase}/api/config/validate`);
                                 this.validationStatus = response.data;
 
                                 if (!response.data.valid) {
@@ -443,12 +448,12 @@
                         },
                         getCategoryEndpoint(categoryName) {
                             const endpoints = {
-                                'Imaging Sessions': '/api/backup/raw-files',
-                                'Imaging Session Notes': '/api/backup/session-notes',
-                                'Processing Session Notes': '/api/backup/processing-notes',
-                                'Processing Sessions - Intermediate': '/api/backup/processed-intermediate',
-                                'Processing Sessions - Final': '/api/backup/processed-final',
-                                'Database Backups': '/api/backup/database'
+                                'Imaging Sessions': `${this.apiBase}/api/backup/raw-files`,
+                                'Imaging Session Notes': `${this.apiBase}/api/backup/session-notes`,
+                                'Processing Session Notes': `${this.apiBase}/api/backup/processing-notes`,
+                                'Processing Sessions - Intermediate': `${this.apiBase}/api/backup/processed-intermediate`,
+                                'Processing Sessions - Final': `${this.apiBase}/api/backup/processed-final`,
+                                'Database Backups': `${this.apiBase}/api/backup/database`
                             };
                             return endpoints[categoryName];
                         },
@@ -526,7 +531,7 @@
                             
                             const poll = async () => {
                                 try {
-                                    const response = await axios.get(`/api/backup/task/${taskId}`);
+                                    const response = await axios.get(`${this.apiBase}/api/backup/task/${taskId}`);
                                     const taskStatus = response.data;
                                     
                                     if (taskStatus.status === 'complete') {
