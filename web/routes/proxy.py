@@ -6,6 +6,7 @@ behind a single Apache/nginx reverse proxy.
 """
 
 import logging
+import re
 import httpx
 from fastapi import APIRouter, Request, Response, HTTPException
 from fastapi.responses import StreamingResponse
@@ -16,12 +17,36 @@ router = APIRouter()
 
 # Service endpoints (internal)
 SERVICES = {
-    "db-browser": {"host": "127.0.0.1", "port": 8081},
-    "s3-backup": {"host": "127.0.0.1", "port": 8083},
+    "db-browser": {"host": "127.0.0.1", "port": 8081, "rewrite_urls": True},
+    "s3-backup": {"host": "127.0.0.1", "port": 8083, "rewrite_urls": False},
 }
 
 # Timeout for proxy requests
 PROXY_TIMEOUT = 30.0
+
+
+def rewrite_html_urls(content: bytes, base_path: str) -> bytes:
+    """Rewrite absolute URLs in HTML to use the proxy base path."""
+    try:
+        html = content.decode('utf-8')
+
+        # Rewrite common absolute URL patterns
+        # /static/ -> /db-browser/static/
+        html = re.sub(r'(href|src|action)="(/static/)', rf'\1="{base_path}\2', html)
+        html = re.sub(r"(href|src|action)='(/static/)", rf"\1='{base_path}\2", html)
+
+        # Rewrite other absolute paths that sqlite_web might use
+        # /query, /table, etc.
+        html = re.sub(r'(href|src|action)="(/(?:query|table|index|row|import|export|sql))', rf'\1="{base_path}\2', html)
+        html = re.sub(r"(href|src|action)='(/(?:query|table|index|row|import|export|sql))", rf"\1='{base_path}\2", html)
+
+        # Rewrite form actions
+        html = re.sub(r'(action)="(/)', rf'\1="{base_path}\2', html)
+
+        return html.encode('utf-8')
+    except Exception as e:
+        logger.warning(f"Failed to rewrite HTML URLs: {e}")
+        return content
 
 
 async def proxy_request(request: Request, service_name: str, path: str) -> Response:
@@ -66,14 +91,25 @@ async def proxy_request(request: Request, service_name: str, path: str) -> Respo
             response_headers = {}
             for key, value in response.headers.items():
                 key_lower = key.lower()
-                if key_lower not in ('transfer-encoding', 'connection', 'keep-alive'):
+                if key_lower not in ('transfer-encoding', 'connection', 'keep-alive', 'content-length'):
                     response_headers[key] = value
 
+            # Get response content
+            content = response.content
+            content_type = response.headers.get('content-type', '')
+
+            # Rewrite URLs in HTML responses if enabled for this service
+            if service.get('rewrite_urls') and 'text/html' in content_type:
+                base_path = f"/{service_name}"
+                content = rewrite_html_urls(content, base_path)
+                # Update content-length after rewriting
+                response_headers['content-length'] = str(len(content))
+
             return Response(
-                content=response.content,
+                content=content,
                 status_code=response.status_code,
                 headers=response_headers,
-                media_type=response.headers.get('content-type')
+                media_type=content_type
             )
 
     except httpx.TimeoutException:
