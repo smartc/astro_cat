@@ -71,7 +71,7 @@ async def get_session_webdav_info(session_id: str, request: Request):
                 "instructions": {
                     "windows_map": f"Map network drive: {base_url}",
                     "windows_cmd": f'net use Z: "{base_url}" /persistent:yes',
-                    "windows_explorer": f"Use web browser: {base_url}/{session_path}",
+                    "windows_explorer": f"{base_url}/{session_path}",
                     "macos": f"Finder → Go → Connect to Server → {base_url}",
                     "linux": f"Mount with davfs2: {base_url}"
                 },
