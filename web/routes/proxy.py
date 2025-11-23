@@ -58,6 +58,8 @@ async def proxy_request(request: Request, service_name: str, path: str) -> Respo
     service = SERVICES[service_name]
     target_url = f"http://{service['host']}:{service['port']}/{path}"
 
+    logger.info(f"Proxying {request.method} {request.url.path} -> {target_url}")
+
     # Build headers, excluding hop-by-hop headers
     headers = {}
     for key, value in request.headers.items():
