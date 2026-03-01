@@ -394,10 +394,12 @@ async def delete_imaging_session(
     import os
     from pathlib import Path as FilePath
 
-    CALIBRATION_TYPES = {'DARK', 'FLAT', 'BIAS', 'FLAT_DARK', 'MASTER DARK', 'MASTER BIAS', 'MASTER FLAT'}
+    DARK_TYPES  = {'DARK', 'FLAT_DARK', 'MASTER DARK'}
+    FLAT_TYPES  = {'FLAT', 'MASTER FLAT'}
+    BIAS_TYPES  = {'BIAS', 'MASTER BIAS'}
 
-    # Validate scope
-    if scope not in ('all', 'lights', 'calibration', 'db_only'):
+    VALID_SCOPES = ('all', 'lights', 'darks', 'flats', 'bias', 'db_only')
+    if scope not in VALID_SCOPES:
         raise HTTPException(status_code=400, detail=f"Invalid scope '{scope}'")
 
     # Load session
@@ -429,8 +431,12 @@ async def delete_imaging_session(
             if object_filter is not None:
                 return bool(f.object and f.object in object_filter)
             return True
-        if scope == 'calibration':
-            return frame in CALIBRATION_TYPES
+        if scope == 'darks':
+            return frame in DARK_TYPES
+        if scope == 'flats':
+            return frame in FLAT_TYPES
+        if scope == 'bias':
+            return frame in BIAS_TYPES
         return False  # db_only handled separately
 
     files_in_scope = [f for f in all_files if _matches_scope(f)] if scope != 'db_only' else all_files

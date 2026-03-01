@@ -283,7 +283,7 @@ window.ImagingSessionDetailModal = {
                         </div>
 
                         <!-- Delete Confirmation Panel (inside scrollable body so it doesn't overflow the modal) -->
-                        <div v-if="showDeleteConfirm" class="border-t-2 border-red-300 bg-red-50 rounded-lg p-5">
+                        <div v-if="showDeleteConfirm" ref="deletePanel" class="border-t-2 border-red-300 bg-red-50 rounded-lg p-5">
                             <h3 class="text-lg font-bold text-red-800 mb-3">🗑️ Delete Session</h3>
                             <p class="text-sm text-red-700 mb-4">
                                 Select what to remove for session
@@ -301,11 +301,19 @@ window.ImagingSessionDetailModal = {
                                     </label>
                                     <label class="flex items-center space-x-2 cursor-pointer">
                                         <input type="radio" v-model="deleteScope" value="lights" class="text-red-600">
-                                        <span class="text-sm">Light frames only</span>
+                                        <span class="text-sm">Light frames</span>
                                     </label>
                                     <label class="flex items-center space-x-2 cursor-pointer">
-                                        <input type="radio" v-model="deleteScope" value="calibration" class="text-red-600">
-                                        <span class="text-sm">Calibration frames only (darks, flats, bias)</span>
+                                        <input type="radio" v-model="deleteScope" value="darks" class="text-red-600">
+                                        <span class="text-sm">Dark frames</span>
+                                    </label>
+                                    <label class="flex items-center space-x-2 cursor-pointer">
+                                        <input type="radio" v-model="deleteScope" value="flats" class="text-red-600">
+                                        <span class="text-sm">Flat frames</span>
+                                    </label>
+                                    <label class="flex items-center space-x-2 cursor-pointer">
+                                        <input type="radio" v-model="deleteScope" value="bias" class="text-red-600">
+                                        <span class="text-sm">Bias frames</span>
                                     </label>
                                     <label class="flex items-center space-x-2 cursor-pointer">
                                         <input type="radio" v-model="deleteScope" value="db_only" class="text-red-600">
@@ -756,6 +764,11 @@ window.ImagingSessionDetailModal = {
             this.deleteTargetObjects = [];
             this.deleteConfirmed = false;
             this.deleteResultMsg = null;
+            this.$nextTick(() => {
+                if (this.$refs.deletePanel) {
+                    this.$refs.deletePanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            });
         },
 
         cancelDelete() {
