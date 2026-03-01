@@ -17,5 +17,29 @@
     "standard_name": "Sii-3nm",
     "filter_type": "narrowband",
     "bandpass": "3nm"
+  },
+  "2148": {
+    "name": "Optolong L-Pro 2\"",
+    "standard_name": "L-Pro",
+    "filter_type": "light_pollution_suppression",
+    "bandpass": ""
+  },
+  "1955": {
+    "name": "ZWO H-alpha 7nm 1.25\"",
+    "standard_name": "Ha-7nm",
+    "filter_type": "narrowband",
+    "bandpass": "7nm"
+  },
+  "2260": {
+    "name": "ZWO S-II 7nm 1.25\"",
+    "standard_name": "Sii-7nm",
+    "filter_type": "narrowband",
+    "bandpass": "7nm"
+  },
+  "2707": {
+    "name": "ZWO O-III 7nm 1.25\"",
+    "standard_name": "Oiii-7nm",
+    "filter_type": "narrowband",
+    "bandpass": "7nm"
   }
 }
