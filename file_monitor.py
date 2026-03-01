@@ -10,6 +10,8 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
+UPLOAD_TOKEN_PREFIX = ".upload_token."
+
 
 class FileMonitor:
     """Simple file monitoring with manual and periodic scan capabilities."""
@@ -103,6 +105,35 @@ class FileMonitor:
         logger.info(f"Found {len(fits_files)} FITS files in {directory}")
         return sorted(fits_files)
     
+    def _find_upload_tokens(self, directory: str) -> List[str]:
+        """
+        Find active upload token files in the directory.
+
+        Token files are named ``.upload_token.<machinename>`` and are placed
+        in the quarantine root by the uploading machine before rsync starts,
+        then removed once the transfer is complete.  One token file per machine
+        means multiple simultaneous uploaders are each tracked independently.
+
+        Example usage on the remote imaging rig::
+
+            # At the start of your rsync/transfer script:
+            ssh user@server "touch /path/to/quarantine/.upload_token.$(hostname)"
+            rsync -av /local/data/ user@server:/path/to/quarantine/
+            # On successful completion:
+            ssh user@server "rm -f /path/to/quarantine/.upload_token.$(hostname)"
+
+        Returns:
+            List of token file paths that were found.
+        """
+        directory_path = Path(directory)
+        if not directory_path.exists():
+            return []
+        return [
+            str(p)
+            for p in directory_path.glob(f"{UPLOAD_TOKEN_PREFIX}*")
+            if p.is_file()
+        ]
+
     def _is_bad_file(self, filepath: str) -> bool:
         """Check if file is marked as bad."""
         filename = Path(filepath).name
@@ -122,14 +153,34 @@ class FileMonitor:
         except (IOError, PermissionError, OSError):
             return True
     
-    def scan_quarantine(self, skip_recent: bool = False) -> List[str]:
+    def scan_quarantine(self, skip_recent: bool = False,
+                        respect_upload_tokens: bool = False) -> List[str]:
         """
         Perform manual scan of quarantine directory.
-        
+
         Args:
-            skip_recent: If True, skip recently modified files (for auto-scan)
+            skip_recent: If True, skip recently modified files (for auto-scan).
+            respect_upload_tokens: If True, abort the scan when any
+                ``.upload_token.<machine>`` file is present, returning an empty
+                list.  Automatic/periodic scans should pass ``True`` here;
+                explicit user-initiated scans may leave it ``False`` to scan
+                regardless of in-progress uploads.
         """
         logger.info(f"Performing quarantine scan (skip_recent={skip_recent})...")
+
+        if respect_upload_tokens:
+            tokens = self._find_upload_tokens(self.config.paths.quarantine_dir)
+            if tokens:
+                uploaders = [
+                    Path(t).name[len(UPLOAD_TOKEN_PREFIX):]
+                    for t in tokens
+                ]
+                logger.info(
+                    f"Upload in progress from {uploaders} — skipping scan. "
+                    f"Remove token file(s) to allow scanning."
+                )
+                return []
+
         files = self.find_fits_files(self.config.paths.quarantine_dir, skip_recent=skip_recent)
         self.last_scan_time = time.time()
         return files
@@ -137,24 +188,41 @@ class FileMonitor:
     def scan_for_new_files(self, skip_recent: bool = True) -> List[str]:
         """
         Scan for new files since last scan.
-        
+
+        Upload token files are always respected here — if any
+        ``.upload_token.<machine>`` file is present the scan is deferred and
+        an empty list is returned.  The token set is intentionally *not*
+        updated so that the next cycle will re-compare against the same
+        baseline and no files are silently missed during an upload window.
+
         Args:
-            skip_recent: If True, skip recently modified files (default for auto-scan)
+            skip_recent: If True, skip recently modified files (default for auto-scan).
         """
+        tokens = self._find_upload_tokens(self.config.paths.quarantine_dir)
+        if tokens:
+            uploaders = [
+                Path(t).name[len(UPLOAD_TOKEN_PREFIX):]
+                for t in tokens
+            ]
+            logger.info(
+                f"Upload in progress from {uploaders} — deferring automatic scan."
+            )
+            return []
+
         current_files = set(self.find_fits_files(
-            self.config.paths.quarantine_dir, 
+            self.config.paths.quarantine_dir,
             skip_recent=skip_recent
         ))
-        
+
         # Find new files
         new_files = current_files - self.last_scan_files
         self.last_scan_files = current_files
         self.last_scan_time = time.time()
-        
+
         if new_files:
             logger.info(f"Found {len(new_files)} new files since last scan")
             return list(new_files)
-        
+
         return []
     
     async def start_periodic_monitoring(self, interval_minutes: Optional[int] = None):
@@ -180,11 +248,17 @@ class FileMonitor:
         
         logger.info(f"Starting periodic monitoring (every {interval_minutes} minutes)")
         
-        # Perform initial scan to establish baseline
-        self.last_scan_files = set(self.find_fits_files(
-            self.config.paths.quarantine_dir,
-            skip_recent=True  # Skip recent files on initial scan too
-        ))
+        # Perform initial scan to establish baseline.
+        # Honour upload tokens even here so that an upload already in progress
+        # at daemon start-up does not cause partial sets to be catalogued.
+        if self._find_upload_tokens(self.config.paths.quarantine_dir):
+            logger.info("Upload token present at monitoring start — baseline scan deferred.")
+            self.last_scan_files = set()
+        else:
+            self.last_scan_files = set(self.find_fits_files(
+                self.config.paths.quarantine_dir,
+                skip_recent=True  # Skip recent files on initial scan too
+            ))
         self.last_scan_time = time.time()
         logger.info(f"Initial scan found {len(self.last_scan_files)} existing files")
         
