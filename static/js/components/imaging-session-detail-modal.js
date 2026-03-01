@@ -281,88 +281,87 @@ window.ImagingSessionDetailModal = {
                                 Files from this imaging session are not used in any processing sessions yet.
                             </div>
                         </div>
-                    </div>
-                </div>
 
-                <!-- Delete Confirmation Panel -->
-                <div v-if="showDeleteConfirm" class="border-t-2 border-red-300 bg-red-50 p-5">
-                    <h3 class="text-lg font-bold text-red-800 mb-3">🗑️ Delete Session</h3>
-                    <p class="text-sm text-red-700 mb-4">
-                        Select what to remove for session
-                        <strong>{{ sessionDetails && sessionDetails.session.session_date }}</strong>.
-                        Deleted files <strong>cannot be recovered</strong>.
-                    </p>
+                        <!-- Delete Confirmation Panel (inside scrollable body so it doesn't overflow the modal) -->
+                        <div v-if="showDeleteConfirm" class="border-t-2 border-red-300 bg-red-50 rounded-lg p-5">
+                            <h3 class="text-lg font-bold text-red-800 mb-3">🗑️ Delete Session</h3>
+                            <p class="text-sm text-red-700 mb-4">
+                                Select what to remove for session
+                                <strong>{{ sessionDetails && sessionDetails.session.session_date }}</strong>.
+                                Deleted files <strong>cannot be recovered</strong>.
+                            </p>
 
-                    <!-- Scope Selection -->
-                    <div class="mb-4 space-y-2">
-                        <label class="text-sm font-semibold text-gray-700">What to delete:</label>
-                        <div class="space-y-1 pl-2">
-                            <label class="flex items-center space-x-2 cursor-pointer">
-                                <input type="radio" v-model="deleteScope" value="all" class="text-red-600">
-                                <span class="text-sm">Everything — all light &amp; calibration files</span>
+                            <!-- Scope Selection -->
+                            <div class="mb-4 space-y-2">
+                                <label class="text-sm font-semibold text-gray-700">What to delete:</label>
+                                <div class="space-y-1 pl-2">
+                                    <label class="flex items-center space-x-2 cursor-pointer">
+                                        <input type="radio" v-model="deleteScope" value="all" class="text-red-600">
+                                        <span class="text-sm">Everything — all light &amp; calibration files</span>
+                                    </label>
+                                    <label class="flex items-center space-x-2 cursor-pointer">
+                                        <input type="radio" v-model="deleteScope" value="lights" class="text-red-600">
+                                        <span class="text-sm">Light frames only</span>
+                                    </label>
+                                    <label class="flex items-center space-x-2 cursor-pointer">
+                                        <input type="radio" v-model="deleteScope" value="calibration" class="text-red-600">
+                                        <span class="text-sm">Calibration frames only (darks, flats, bias)</span>
+                                    </label>
+                                    <label class="flex items-center space-x-2 cursor-pointer">
+                                        <input type="radio" v-model="deleteScope" value="db_only" class="text-red-600">
+                                        <span class="text-sm">Remove database records only — leave files on disk</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Object Filter (only shown when lights are included) -->
+                            <div v-if="deleteScope === 'lights' || deleteScope === 'all'" class="mb-4">
+                                <label class="text-sm font-semibold text-gray-700 block mb-1">
+                                    Limit to specific targets
+                                    <span class="font-normal text-gray-500">(leave all unchecked to include every target)</span>:
+                                </label>
+                                <div v-if="sessionObjects.length === 0" class="text-sm text-gray-500 pl-2 italic">
+                                    No light frame targets in this session.
+                                </div>
+                                <div v-else class="pl-2 grid grid-cols-2 gap-1">
+                                    <label v-for="obj in sessionObjects" :key="obj.name"
+                                           class="flex items-center space-x-2 cursor-pointer">
+                                        <input type="checkbox" :value="obj.name"
+                                               v-model="deleteTargetObjects"
+                                               class="text-red-600">
+                                        <span class="text-sm">{{ obj.name }}</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Confirmation Checkbox -->
+                            <label class="flex items-center space-x-2 cursor-pointer mb-4">
+                                <input type="checkbox" v-model="deleteConfirmed" class="text-red-600">
+                                <span class="text-sm font-semibold text-red-700">
+                                    I understand this action is permanent and cannot be undone.
+                                </span>
                             </label>
-                            <label class="flex items-center space-x-2 cursor-pointer">
-                                <input type="radio" v-model="deleteScope" value="lights" class="text-red-600">
-                                <span class="text-sm">Light frames only</span>
-                            </label>
-                            <label class="flex items-center space-x-2 cursor-pointer">
-                                <input type="radio" v-model="deleteScope" value="calibration" class="text-red-600">
-                                <span class="text-sm">Calibration frames only (darks, flats, bias)</span>
-                            </label>
-                            <label class="flex items-center space-x-2 cursor-pointer">
-                                <input type="radio" v-model="deleteScope" value="db_only" class="text-red-600">
-                                <span class="text-sm">Remove database records only — leave files on disk</span>
-                            </label>
+
+                            <!-- Delete Result Message -->
+                            <div v-if="deleteResultMsg"
+                                 :class="deleteResultMsg.ok ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-800 border-red-300'"
+                                 class="rounded border p-3 mb-3 text-sm">
+                                {{ deleteResultMsg.text }}
+                            </div>
+
+                            <!-- Buttons -->
+                            <div class="flex space-x-3">
+                                <button @click="executeDelete"
+                                        :disabled="!deleteConfirmed || deleteInProgress"
+                                        class="btn btn-red text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <span v-if="deleteInProgress">Deleting…</span>
+                                    <span v-else>Confirm Delete</span>
+                                </button>
+                                <button @click="cancelDelete" class="btn btn-gray text-sm">
+                                    Cancel
+                                </button>
+                            </div>
                         </div>
-                    </div>
-
-                    <!-- Object Filter (only shown when lights are included) -->
-                    <div v-if="deleteScope === 'lights' || deleteScope === 'all'"
-                         class="mb-4">
-                        <label class="text-sm font-semibold text-gray-700 block mb-1">
-                            Limit to specific targets
-                            <span class="font-normal text-gray-500">(leave all unchecked to include every target)</span>:
-                        </label>
-                        <div v-if="sessionObjects.length === 0" class="text-sm text-gray-500 pl-2 italic">
-                            No light frame targets in this session.
-                        </div>
-                        <div v-else class="pl-2 grid grid-cols-2 gap-1">
-                            <label v-for="obj in sessionObjects" :key="obj.name"
-                                   class="flex items-center space-x-2 cursor-pointer">
-                                <input type="checkbox" :value="obj.name"
-                                       v-model="deleteTargetObjects"
-                                       class="text-red-600">
-                                <span class="text-sm">{{ obj.name }}</span>
-                            </label>
-                        </div>
-                    </div>
-
-                    <!-- Confirmation Checkbox -->
-                    <label class="flex items-center space-x-2 cursor-pointer mb-4">
-                        <input type="checkbox" v-model="deleteConfirmed" class="text-red-600">
-                        <span class="text-sm font-semibold text-red-700">
-                            I understand this action is permanent and cannot be undone.
-                        </span>
-                    </label>
-
-                    <!-- Delete Result Message -->
-                    <div v-if="deleteResultMsg"
-                         :class="deleteResultMsg.ok ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-800 border-red-300'"
-                         class="rounded border p-3 mb-3 text-sm">
-                        {{ deleteResultMsg.text }}
-                    </div>
-
-                    <!-- Buttons -->
-                    <div class="flex space-x-3">
-                        <button @click="executeDelete"
-                                :disabled="!deleteConfirmed || deleteInProgress"
-                                class="btn btn-red text-sm disabled:opacity-50 disabled:cursor-not-allowed">
-                            <span v-if="deleteInProgress">Deleting…</span>
-                            <span v-else>Confirm Delete</span>
-                        </button>
-                        <button @click="cancelDelete" class="btn btn-gray text-sm">
-                            Cancel
-                        </button>
                     </div>
                 </div>
 
