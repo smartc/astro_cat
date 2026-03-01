@@ -63,9 +63,19 @@ async def periodic_scan_task(interval_minutes: int, initial_delay_minutes: int =
     """
     Periodic scanning task with optional initial delay.
 
+    Each iteration uses FileMonitor.scan_for_new_files() to detect only files
+    that arrived since the previous check.  The full scan → validate → migrate
+    chain is only triggered when genuinely new files are present, preventing the
+    double-scan that occurred when the old code counted all quarantine files
+    (including already-catalogued ones) as a trigger condition.
+
+    Upload tokens (.upload_token.<machine>) are respected automatically via
+    FileMonitor — if any token is present the check is skipped and the baseline
+    set is not updated, so those files are still detected when the upload finishes.
+
     Args:
-        interval_minutes: Minutes between scans
-        initial_delay_minutes: Minutes to wait before first scan (0 = scan immediately)
+        interval_minutes: Minutes between checks
+        initial_delay_minutes: Minutes to wait before the first check
     """
     global monitoring_enabled, last_scan
 
@@ -80,47 +90,53 @@ async def periodic_scan_task(interval_minutes: int, initial_delay_minutes: int =
 
     logger.info(f"Periodic scanning active (interval: {interval_minutes} minutes)")
 
+    # Create a single FileMonitor instance whose last_scan_files set persists
+    # across iterations, so only files that are NEW since the previous cycle
+    # trigger the catalog chain.
+    from file_monitor import FileMonitor
+    file_monitor = FileMonitor(config, lambda files: None, db_service)
+
+    # Seed the baseline (skip files modified very recently so they are picked
+    # up properly once they stop changing).
+    file_monitor.last_scan_files = set(
+        file_monitor.find_fits_files(config.paths.quarantine_dir, skip_recent=True)
+    )
+    logger.info(f"Periodic scan baseline: {len(file_monitor.last_scan_files)} existing file(s)")
+
     while monitoring_enabled:
         try:
             last_scan = datetime.now().isoformat()
-            logger.info("Running scheduled scan...")
+            logger.info("Checking quarantine for new files...")
 
-            # Scan quarantine
-            from fits_processor import OptimizedFitsProcessor
-            processor = OptimizedFitsProcessor(
-                config,
-                app_module.cameras,
-                app_module.telescopes,
-                app_module.filter_mappings,
-                db_service
-            )
+            # Returns only files added since last check; respects upload tokens.
+            new_files = file_monitor.scan_for_new_files()
 
-            df, sessions = processor.scan_quarantine()
-            logger.info(f"Scan complete: {len(df)} raw files found")
+            if new_files:
+                logger.info(
+                    f"{len(new_files)} new file(s) detected — "
+                    "starting scan → validate → migrate chain"
+                )
+                await monitoring_callback(new_files)
+            else:
+                logger.info("No new raw files; cataloging processed outputs...")
 
-            # Catalog processed files (final and intermediate outputs)
-            from pathlib import Path
-            from processed_catalog.cataloger import ProcessedFileCataloger
-
-            logger.info("Cataloging processed files...")
-            processed_cataloger = ProcessedFileCataloger(config.paths.database_path)
-            processing_dir = Path(config.paths.processing_dir)
-
-            # Get sessions and catalog files
-            sessions_to_catalog = processed_cataloger.get_processing_sessions(processing_dir)
-            logger.info(f"Found {len(sessions_to_catalog)} processing session(s) to catalog")
-
-            for session_info in sessions_to_catalog:
-                processed_cataloger.catalog_session(session_info)
-
-            processed_stats = processed_cataloger.stats
-            logger.info(f"Processed file cataloging: {processed_stats['files_cataloged']} cataloged, "
-                       f"{processed_stats['files_updated']} updated, "
-                       f"{processed_stats['files_skipped']} skipped")
-
-            # If raw files were found, trigger the full scan/validate/migrate chain
-            if len(df) > 0:
-                await monitoring_callback([])
+            # Catalog processed files on every cycle regardless of raw files.
+            try:
+                from pathlib import Path
+                from processed_catalog.cataloger import ProcessedFileCataloger
+                processed_cataloger = ProcessedFileCataloger(config.paths.database_path)
+                processing_dir = Path(config.paths.processing_dir)
+                sessions_to_catalog = processed_cataloger.get_processing_sessions(processing_dir)
+                for session_info in sessions_to_catalog:
+                    processed_cataloger.catalog_session(session_info)
+                stats = processed_cataloger.stats
+                if stats['files_cataloged'] or stats['files_updated']:
+                    logger.info(
+                        f"Processed files: {stats['files_cataloged']} cataloged, "
+                        f"{stats['files_updated']} updated"
+                    )
+            except Exception as e:
+                logger.warning(f"Error cataloging processed files: {e}")
 
         except Exception as e:
             logger.error(f"Error in periodic scan: {e}", exc_info=True)
@@ -298,13 +314,20 @@ async def start_monitoring_with_delay(config: MonitoringConfigModel, delay_secon
         db_service.set_setting('monitoring.ignore_newer_than_minutes', config.ignore_files_newer_than_minutes)
         
         monitoring_enabled = True
-        
-        # Start monitoring task with NO initial delay (first scan runs immediately)
+
+        # Use the full interval as the initial delay so that the first automatic
+        # check fires after one complete interval rather than immediately.  This
+        # prevents the auto-scan from overlapping with a manual scan the user may
+        # run right after restarting the server.
         monitoring_task = asyncio.create_task(
-            periodic_scan_task(config.interval_minutes, initial_delay_minutes=0)
+            periodic_scan_task(config.interval_minutes,
+                               initial_delay_minutes=config.interval_minutes)
         )
-        
-        logger.info(f"✓ Monitoring started: {config.interval_minutes}min interval, first scan starting now")
+
+        logger.info(
+            f"✓ Monitoring started: {config.interval_minutes}min interval, "
+            f"first automatic check in {config.interval_minutes} minute(s)"
+        )
         
     except Exception as e:
         logger.error(f"Error starting delayed monitoring: {e}", exc_info=True)

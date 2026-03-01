@@ -185,14 +185,18 @@ class OptimizedFitsProcessor:
         
         # Convert to DataFrame
         if results:
-            df = pl.DataFrame(results)
+            # infer_schema_length=None scans all rows before locking in column types.
+            # Without this, Polars may infer a column (e.g. bayerpat) as Null when the
+            # first N rows all have None, then fail when it encounters a string value
+            # (e.g. "RGGB" from NINA files) further in the list.
+            df = pl.DataFrame(results, infer_schema_length=None)
             # Convert session dict to list
             session_list = list(sessions.values())
             return df, session_list
         else:
             # Return empty DataFrame with expected schema
             return pl.DataFrame(), []
-    
+
     def process_files_metadata_only(self, filepaths: List[str]) -> Tuple[pl.DataFrame, List[dict]]:
         """
         Process files extracting only metadata (no MD5 calculation).
@@ -258,12 +262,12 @@ class OptimizedFitsProcessor:
         
         # Convert to DataFrame
         if results:
-            df = pl.DataFrame(results)
+            df = pl.DataFrame(results, infer_schema_length=None)
             session_list = list(sessions.values())
             return df, session_list
         else:
             return pl.DataFrame(), []
-    
+
     def scan_quarantine(self) -> Tuple[pl.DataFrame, List[dict]]:
         """
         Scan the quarantine directory and process all FITS files.

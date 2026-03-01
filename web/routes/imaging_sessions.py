@@ -363,10 +363,139 @@ async def get_imaging_session_ids(
         logger.error(f"Error fetching imaging session IDs: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-"""
-Add this endpoint to web/routes/imaging_sessions.py
-Place it after the get_imaging_session_details endpoint
-"""
+@router.delete("/{session_id}")
+async def delete_imaging_session(
+    session_id: str,
+    scope: str = Query(
+        "all",
+        description="Which files to act on: 'all', 'lights', 'calibration', or 'db_only'"
+    ),
+    target_objects: Optional[str] = Query(
+        None,
+        description="Comma-separated object names; limits light-frame deletion when scope='lights' or 'all'"
+    ),
+    session: Session = Depends(get_db_session),
+    config = Depends(get_config)
+):
+    """
+    Delete an imaging session and, optionally, its physical files.
+
+    scope:
+      - all         — delete all physical files (lights + calibration) then DB records
+      - lights      — delete only LIGHT frame files (optionally filtered by target_objects)
+      - calibration — delete only DARK / FLAT / BIAS frame files
+      - db_only     — remove DB records only; leave files on disk
+
+    If all files belonging to the session are removed from the database the
+    ImagingSession record itself is also deleted.  If only a subset is removed
+    (e.g. scope='lights') the session record stays and the remaining files keep
+    their association.
+    """
+    import os
+    from pathlib import Path as FilePath
+
+    DARK_TYPES  = {'DARK', 'FLAT_DARK', 'MASTER DARK'}
+    FLAT_TYPES  = {'FLAT', 'MASTER FLAT'}
+    BIAS_TYPES  = {'BIAS', 'MASTER BIAS'}
+
+    VALID_SCOPES = ('all', 'lights', 'darks', 'flats', 'bias', 'db_only')
+    if scope not in VALID_SCOPES:
+        raise HTTPException(status_code=400, detail=f"Invalid scope '{scope}'")
+
+    # Load session
+    imaging_session = session.query(SessionModel).filter(
+        SessionModel.id == session_id
+    ).first()
+    if not imaging_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    all_files = session.query(FitsFile).filter(
+        FitsFile.imaging_session_id == session_id
+    ).all()
+
+    # Parse optional object filter
+    object_filter: Optional[set] = None
+    if target_objects:
+        object_filter = {o.strip() for o in target_objects.split(',') if o.strip()}
+
+    # -----------------------------------------------------------------------
+    # Determine which records / files to act on
+    # -----------------------------------------------------------------------
+    def _matches_scope(f: FitsFile) -> bool:
+        frame = (f.frame_type or '').upper()
+        if scope == 'all':
+            return True
+        if scope == 'lights':
+            if frame != 'LIGHT':
+                return False
+            if object_filter is not None:
+                return bool(f.object and f.object in object_filter)
+            return True
+        if scope == 'darks':
+            return frame in DARK_TYPES
+        if scope == 'flats':
+            return frame in FLAT_TYPES
+        if scope == 'bias':
+            return frame in BIAS_TYPES
+        return False  # db_only handled separately
+
+    files_in_scope = [f for f in all_files if _matches_scope(f)] if scope != 'db_only' else all_files
+
+    # -----------------------------------------------------------------------
+    # Delete physical files (skip for db_only)
+    # -----------------------------------------------------------------------
+    deleted_from_disk = 0
+    failed_deletes: list = []
+
+    if scope != 'db_only':
+        for f in files_in_scope:
+            file_path = (
+                FilePath(f.folder) / f.file if f.folder else FilePath(f.file)
+            )
+            try:
+                if file_path.exists():
+                    file_path.unlink()
+                    deleted_from_disk += 1
+                else:
+                    logger.warning(f"File not found on disk (skipping): {file_path}")
+            except OSError as e:
+                logger.error(f"Could not delete {file_path}: {e}")
+                failed_deletes.append(str(file_path))
+
+    # -----------------------------------------------------------------------
+    # Remove DB records
+    # -----------------------------------------------------------------------
+    for f in files_in_scope:
+        session.delete(f)
+
+    # Flush so the subsequent count reflects the deletions
+    session.flush()
+
+    remaining_count = session.query(FitsFile).filter(
+        FitsFile.imaging_session_id == session_id
+    ).count()
+
+    session_deleted = remaining_count == 0
+    if session_deleted:
+        session.delete(imaging_session)
+
+    session.commit()
+
+    logger.info(
+        f"Deleted session {session_id}: scope={scope}, "
+        f"disk={deleted_from_disk}, db={len(files_in_scope)}, "
+        f"session_record_removed={session_deleted}"
+    )
+
+    return {
+        "session_id": session_id,
+        "session_deleted": session_deleted,
+        "files_removed_from_disk": deleted_from_disk,
+        "files_removed_from_db": len(files_in_scope),
+        "files_remaining_in_session": remaining_count,
+        "failed_deletes": failed_deletes
+    }
+
 
 @router.get("/{session_id}/processing-sessions")
 async def get_processing_sessions_for_imaging_session(
