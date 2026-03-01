@@ -284,18 +284,100 @@ window.ImagingSessionDetailModal = {
                     </div>
                 </div>
 
+                <!-- Delete Confirmation Panel -->
+                <div v-if="showDeleteConfirm" class="border-t-2 border-red-300 bg-red-50 p-5">
+                    <h3 class="text-lg font-bold text-red-800 mb-3">🗑️ Delete Session</h3>
+                    <p class="text-sm text-red-700 mb-4">
+                        Select what to remove for session
+                        <strong>{{ sessionDetails && sessionDetails.session.session_date }}</strong>.
+                        Deleted files <strong>cannot be recovered</strong>.
+                    </p>
+
+                    <!-- Scope Selection -->
+                    <div class="mb-4 space-y-2">
+                        <label class="text-sm font-semibold text-gray-700">What to delete:</label>
+                        <div class="space-y-1 pl-2">
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="radio" v-model="deleteScope" value="all" class="text-red-600">
+                                <span class="text-sm">Everything — all light &amp; calibration files</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="radio" v-model="deleteScope" value="lights" class="text-red-600">
+                                <span class="text-sm">Light frames only</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="radio" v-model="deleteScope" value="calibration" class="text-red-600">
+                                <span class="text-sm">Calibration frames only (darks, flats, bias)</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="radio" v-model="deleteScope" value="db_only" class="text-red-600">
+                                <span class="text-sm">Remove database records only — leave files on disk</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Object Filter (only shown when lights are included) -->
+                    <div v-if="deleteScope === 'lights' || deleteScope === 'all'"
+                         class="mb-4">
+                        <label class="text-sm font-semibold text-gray-700 block mb-1">
+                            Limit to specific targets
+                            <span class="font-normal text-gray-500">(leave all unchecked to include every target)</span>:
+                        </label>
+                        <div v-if="sessionObjects.length === 0" class="text-sm text-gray-500 pl-2 italic">
+                            No light frame targets in this session.
+                        </div>
+                        <div v-else class="pl-2 grid grid-cols-2 gap-1">
+                            <label v-for="obj in sessionObjects" :key="obj.name"
+                                   class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" :value="obj.name"
+                                       v-model="deleteTargetObjects"
+                                       class="text-red-600">
+                                <span class="text-sm">{{ obj.name }}</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Confirmation Checkbox -->
+                    <label class="flex items-center space-x-2 cursor-pointer mb-4">
+                        <input type="checkbox" v-model="deleteConfirmed" class="text-red-600">
+                        <span class="text-sm font-semibold text-red-700">
+                            I understand this action is permanent and cannot be undone.
+                        </span>
+                    </label>
+
+                    <!-- Delete Result Message -->
+                    <div v-if="deleteResultMsg"
+                         :class="deleteResultMsg.ok ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-800 border-red-300'"
+                         class="rounded border p-3 mb-3 text-sm">
+                        {{ deleteResultMsg.text }}
+                    </div>
+
+                    <!-- Buttons -->
+                    <div class="flex space-x-3">
+                        <button @click="executeDelete"
+                                :disabled="!deleteConfirmed || deleteInProgress"
+                                class="btn btn-red text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                            <span v-if="deleteInProgress">Deleting…</span>
+                            <span v-else>Confirm Delete</span>
+                        </button>
+                        <button @click="cancelDelete" class="btn btn-gray text-sm">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Modal Footer with Navigation -->
                 <div class="bg-gray-50 p-4 border-t border-gray-200">
                     <div class="flex justify-between items-center">
                         <!-- Navigation Buttons -->
                         <div class="flex space-x-2">
-                            <button @click="navigateToPrevSession" 
+                            <button @click="navigateToPrevSession"
                                     :disabled="!hasPreviousSession"
                                     :class="hasPreviousSession ? 'btn btn-blue' : 'btn btn-gray cursor-not-allowed'"
                                     class="text-sm">
                                 ← Previous Session
                             </button>
-                            <button @click="navigateToNextSession" 
+                            <button @click="navigateToNextSession"
                                     :disabled="!hasNextSession"
                                     :class="hasNextSession ? 'btn btn-blue' : 'btn btn-gray cursor-not-allowed'"
                                     class="text-sm">
@@ -305,6 +387,11 @@ window.ImagingSessionDetailModal = {
 
                         <!-- Action Buttons -->
                         <div class="flex space-x-3">
+                            <button @click="toggleDeleteConfirm"
+                                    v-if="!showDeleteConfirm && sessionDetails"
+                                    class="btn btn-red text-sm">
+                                🗑️ Delete Session
+                            </button>
                             <button @click="closeSessionDetails" class="btn btn-gray text-sm">Close</button>
                         </div>
                     </div>
@@ -333,7 +420,14 @@ window.ImagingSessionDetailModal = {
             s3BackupError: false,
             backupInProgress: false,
             backupTaskId: null,
-            backupStatusPollInterval: null
+            backupStatusPollInterval: null,
+            // Delete session
+            showDeleteConfirm: false,
+            deleteScope: 'all',
+            deleteTargetObjects: [],
+            deleteConfirmed: false,
+            deleteInProgress: false,
+            deleteResultMsg: null
         };
     },
 
@@ -347,6 +441,10 @@ window.ImagingSessionDetailModal = {
         },
         hasNextSession() {
             return this.currentSessionIndex < this.allSessionIds.length - 1;
+        },
+        sessionObjects() {
+            if (!this.sessionDetails || !this.sessionDetails.summary) return [];
+            return this.sessionDetails.summary.objects || [];
         }
     },
     
@@ -653,16 +751,93 @@ window.ImagingSessionDetailModal = {
             return labels[status] || status;
         },
         
+        toggleDeleteConfirm() {
+            this.showDeleteConfirm = true;
+            this.deleteScope = 'all';
+            this.deleteTargetObjects = [];
+            this.deleteConfirmed = false;
+            this.deleteResultMsg = null;
+        },
+
+        cancelDelete() {
+            this.showDeleteConfirm = false;
+            this.deleteResultMsg = null;
+            this.deleteConfirmed = false;
+        },
+
+        async executeDelete() {
+            if (!this.deleteConfirmed || this.deleteInProgress) return;
+
+            this.deleteInProgress = true;
+            this.deleteResultMsg = null;
+
+            try {
+                const params = new URLSearchParams({ scope: this.deleteScope });
+                if (
+                    (this.deleteScope === 'lights' || this.deleteScope === 'all') &&
+                    this.deleteTargetObjects.length > 0
+                ) {
+                    params.set('target_objects', this.deleteTargetObjects.join(','));
+                }
+
+                const response = await fetch(
+                    `/api/imaging-sessions/${this.selectedSessionId}?${params}`,
+                    { method: 'DELETE' }
+                );
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Delete failed');
+                }
+
+                const parts = [];
+                if (data.files_removed_from_disk > 0)
+                    parts.push(`${data.files_removed_from_disk} file(s) deleted from disk`);
+                if (data.files_removed_from_db > 0)
+                    parts.push(`${data.files_removed_from_db} record(s) removed from database`);
+                if (data.failed_deletes && data.failed_deletes.length > 0)
+                    parts.push(`${data.failed_deletes.length} file(s) could not be deleted`);
+
+                this.deleteResultMsg = {
+                    ok: true,
+                    text: parts.length > 0 ? parts.join('; ') + '.' : 'Done.'
+                };
+
+                // Refresh the session list in the background
+                if (this.$root && this.$root.loadImagingSessions) {
+                    this.$root.loadImagingSessions();
+                }
+
+                // If the session record itself was deleted, close the modal
+                if (data.session_deleted) {
+                    setTimeout(() => this.closeSessionDetails(), 1200);
+                } else {
+                    // Reload details to reflect remaining files
+                    setTimeout(() => {
+                        this.cancelDelete();
+                        this.viewSessionDetails(this.selectedSessionId, this.allSessionIds);
+                    }, 1200);
+                }
+
+            } catch (error) {
+                console.error('Delete error:', error);
+                this.deleteResultMsg = { ok: false, text: 'Error: ' + error.message };
+            } finally {
+                this.deleteInProgress = false;
+            }
+        },
+
         closeSessionDetails() {
             this.showDetailModal = false;
             this.sessionDetails = null;
             this.selectedSessionId = null;
             this.processingSessions = null;
             this.processingSessionsLoading = false;
-            
+
             // Stop backup status polling
             this.stopBackupStatusPolling();
-            
+
             // Reset S3 backup status
             this.isBackedUp = false;
             this.loadingBackupStatus = false;
@@ -671,6 +846,11 @@ window.ImagingSessionDetailModal = {
             this.backupTaskId = null;
             this.s3BackupEnabled = null;
             this.s3BackupError = false;
+
+            // Reset delete state
+            this.showDeleteConfirm = false;
+            this.deleteConfirmed = false;
+            this.deleteResultMsg = null;
         },
 
         openMarkdownEditor() {
