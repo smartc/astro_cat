@@ -21,6 +21,7 @@ createApp({
         'imaging-session-detail-modal': ImagingSessionDetailModal,
         'calibration-modal': CalibrationModalComponent,
         'processing-session-details-modal': ProcessingSessionDetailsModal,
+        'calibration-scoring-modal': CalibrationScoringModal,
         'processing-session-modals': ProcessingSessionModals,
         'app-header': AppHeader,
         'app-footer': AppFooter,

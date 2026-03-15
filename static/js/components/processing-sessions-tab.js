@@ -75,6 +75,9 @@ const ProcessingSessionsTab = {
                                     <button @click.stop="$root.findCalibrationFiles(session.id)" class="btn btn-purple text-sm">
                                         🔍 Find Calibration
                                     </button>
+                                    <button @click.stop="runCalibrationScoring(session.id, session.name, $event)" class="btn btn-blue text-sm">
+                                        📊 Cal. Scoring
+                                    </button>
                                     <button @click.stop="$root.updateProcessingSessionStatus(session.id)" class="btn btn-yellow text-sm">
                                         Update Status
                                     </button>
@@ -142,6 +145,11 @@ const ProcessingSessionsTab = {
             event.stopPropagation(); // Prevent modal from opening
             const url = `/editor?session_id=${sessionId}&session_name=${encodeURIComponent(sessionName)}`;
             window.open(url, '_blank');
+        },
+
+        runCalibrationScoring(sessionId, sessionName, event) {
+            event.stopPropagation();
+            this.$root.$refs.calibrationScoringModal.runScoring(sessionId, sessionName);
         }
     },
     
