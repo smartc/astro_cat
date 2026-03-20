@@ -106,6 +106,13 @@ def _catalog_raw_files(config, cameras, telescopes, filter_mappings, verbose):
         db_service
     )
 
+    # Dispose the connection pool before forking child processes.
+    # process_files_optimized uses ProcessPoolExecutor which fork()s on Linux.
+    # Forked workers inherit open SQLite fds; when they exit those fds are
+    # closed, leaving the parent pool with dead connections that cause
+    # "unable to open database file" on the next write.
+    db_service.db_manager.engine.dispose()
+
     # Extract metadata
     click.echo("Extracting metadata from FITS files...")
     df, session_data = fits_processor.process_files_optimized(fits_files)

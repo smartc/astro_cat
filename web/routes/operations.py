@@ -68,12 +68,21 @@ def _run_scan_sync(task_id: str):
             raise ValueError("Configuration or database service not initialized")
         
         logger.info(f"Loaded config and services, creating processor...")
-        
+
         # Create processor
         processor = OptimizedFitsProcessor(config, cameras, telescopes, filter_mappings, db_service)
-        
+
+        # Dispose the connection pool before forking child processes.
+        # ProcessPoolExecutor uses fork() on Linux, so worker processes inherit
+        # all open file descriptors — including SQLite connections sitting idle
+        # in the pool.  When those workers exit they close the inherited fds,
+        # leaving the parent pool holding dead connections.  The next DB write
+        # (add_imaging_session) then fails with "unable to open database file".
+        # Disposing here ensures no live SQLite fds are inherited by workers.
+        db_service.db_manager.engine.dispose()
+
         logger.info("Scanning quarantine directory...")
-        
+
         # Scan and process files
         df, sessions = processor.scan_quarantine()
         

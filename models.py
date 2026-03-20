@@ -444,7 +444,7 @@ class DatabaseManager:
     """Database connection and session management."""
 
     def __init__(self, connection_string: str):
-        self.engine = create_engine(connection_string, echo=False)
+        self.engine = create_engine(connection_string, echo=False, pool_pre_ping=True)
 
         if 'sqlite' in connection_string:
             @event.listens_for(self.engine, "connect")

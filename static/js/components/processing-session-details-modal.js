@@ -63,6 +63,9 @@ const ProcessingSessionDetailsModal = {
                                         <button @click="findCalibrationFromDetails" class="btn btn-green text-sm">
                                             🔍 Find Calibration
                                         </button>
+                                        <button @click="openCalibrationScoring" class="btn btn-blue text-sm">
+                                            📊 Calibration Scoring
+                                        </button>
                                     </div>
                                     
                                     <!-- S3 Backup Status Badges -->
@@ -824,6 +827,15 @@ const ProcessingSessionDetailsModal = {
             const app = this.$root;
             app.$refs.calibrationModal.findCalibrationFiles(this.currentSessionDetails.id);
             this.closeSessionDetailsModal();
+        },
+
+        openCalibrationScoring() {
+            const id   = this.currentSessionDetails.id;
+            const name = this.currentSessionDetails.name;
+            this.closeSessionDetailsModal();
+            this.$nextTick(() => {
+                this.$root.$refs.calibrationScoringModal.runScoring(id, name);
+            });
         },
 
         openMarkdownEditor() {

@@ -4,6 +4,8 @@ Processing session routes.
 
 import json
 import logging
+import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 
@@ -524,6 +526,194 @@ async def preselect_files_for_session(
         }
     except Exception as e:
         logger.error(f"Error preselecting files: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Calibration scoring helpers
+# ---------------------------------------------------------------------------
+
+def _build_calibration_markdown(match_data: dict) -> str:
+    """Generate a markdown calibration scoring report from match_calibrations output."""
+    session = match_data.get("session", {})
+    summary = match_data.get("summary", {})
+    groups  = match_data.get("light_group_matches", [])
+    diag    = match_data.get("diagnosis", [])
+
+    lines = []
+    lines.append(f"# Calibration Scoring Report: {session.get('name', session.get('id', ''))}")
+    lines.append(f"\n**Generated:** {match_data.get('matched_at', datetime.utcnow().isoformat()+'Z')}")
+    lines.append(f"**Session ID:** `{session.get('id', '')}`\n")
+
+    lines.append("## Summary\n")
+    lines.append(f"| Frame Type | Count | Unique Groups/Sets |")
+    lines.append(f"|---|---|---|")
+    lines.append(f"| Light | {summary.get('lights', 0)} | {summary.get('unique_light_groups', 0)} groups |")
+    lines.append(f"| Dark | {summary.get('darks', 0)} | {summary.get('unique_dark_sets', 0)} sets |")
+    lines.append(f"| Flat | {summary.get('flats', 0)} | {summary.get('unique_flat_sets', 0)} sets |")
+    lines.append(f"| Bias | {summary.get('bias', 0)} | {summary.get('unique_bias_sets', 0)} sets |")
+    lines.append("")
+
+    def _status_icon(flags):
+        mismatches = [f for f in flags if f.startswith("MISMATCH")]
+        unknowns   = [f for f in flags if "UNKNOWN" in f]
+        if mismatches:
+            return "⚠️ WARNING"
+        if unknowns:
+            return "ℹ️ INFO"
+        return "✅ OK"
+
+    def _score_bar(score, max_score=300):
+        pct = max(0, min(100, int(score / max_score * 100)))
+        filled = pct // 10
+        return "█" * filled + "░" * (10 - filled) + f" {score:.0f}"
+
+    def _calib_section(title, best, candidates, calib_type):
+        section = []
+        if not best:
+            section.append(f"### {title} — ❌ NO CANDIDATES\n")
+            section.append("No calibration frames of this type are included in the session.\n")
+            return section
+
+        icon = _status_icon(best.get("flags", []))
+        section.append(f"### {title} — {icon}\n")
+
+        key = best.get("key", {})
+        section.append(f"**Best match:** {best['count']} frames | score `{_score_bar(best['score'])}`")
+        dates = ", ".join(best.get("obs_dates", [])) or "unknown"
+        isessions = ", ".join(best.get("imaging_session_ids", [])) or "—"
+        section.append(f"**Calibration dates:** {dates}")
+        section.append(f"**Imaging sessions:** {isessions}\n")
+
+        # Field-by-field table
+        section.append("| Field | Status | Notes |")
+        section.append("|---|---|---|")
+        for flag in best.get("flags", []):
+            if flag.startswith("MISMATCH"):
+                section.append(f"| — | ❌ Mismatch | `{flag}` |")
+            elif "UNKNOWN" in flag:
+                section.append(f"| — | ❓ Unknown | `{flag}` |")
+            elif flag.startswith("temporal_bonus"):
+                section.append(f"| Temporal | ✅ Bonus | `{flag}` |")
+        if not any(f.startswith("MISMATCH") or "UNKNOWN" in f for f in best.get("flags", [])):
+            section.append("| all fields | ✅ Match | Perfect match |")
+        section.append("")
+
+        # Action recommendations
+        mismatches = [f for f in best.get("flags", []) if f.startswith("MISMATCH")]
+        unknowns   = [f for f in best.get("flags", []) if "UNKNOWN" in f]
+        if mismatches or unknowns:
+            section.append("**Recommendations:**")
+        for flag in mismatches:
+            # Parse "MISMATCH: field (need X, have Y)"
+            section.append(f"- {flag.replace('MISMATCH: ', '').strip()}: consider acquiring new {calib_type} frames to match the light frame settings.")
+        for flag in unknowns:
+            field = flag.split(":")[-1].strip().split(" ")[0]
+            section.append(f"- `{field}` is null/missing in one or both frame sets — verify the FITS header is populated for this field.")
+        if mismatches or unknowns:
+            section.append("")
+
+        # All candidates
+        if len(candidates) > 1:
+            section.append("<details><summary>All candidates (ranked)</summary>\n")
+            section.append("| Score | Count | Dates | Key summary |")
+            section.append("|---|---|---|---|")
+            for c in candidates:
+                c_dates = ", ".join(c.get("obs_dates", [])[:2]) or "—"
+                k = c["key"]
+                key_str = " ".join(f"{k2}={v}" for k2, v in k.items() if v is not None)[:60]
+                section.append(f"| {c['score']:.0f} | {c['count']} | {c_dates} | `{key_str}` |")
+            section.append("\n</details>\n")
+
+        return section
+
+    for lg in groups:
+        key    = lg["light_key"]
+        filt   = key.get("filter") or "No Filter"
+        exp    = key.get("exposure")
+        cam    = key.get("camera") or "Unknown camera"
+        scope  = key.get("telescope") or ""
+        count  = lg.get("light_count", 0)
+        dates  = ", ".join(lg.get("obs_dates", [])) or "unknown"
+
+        lines.append("---\n")
+        lines.append(f"## Light Group: {filt} filter · {exp}s × {count} frames\n")
+        lines.append(f"**Camera:** {cam} | **Telescope:** {scope}")
+        lines.append(f"**Imaging dates:** {dates}")
+        gain = key.get("gain"); offset = key.get("offset"); rm = key.get("readout_mode")
+        lines.append(f"**Sensor config:** gain={gain} offset={offset} readout_mode={rm} binning={key.get('binning_x')}×{key.get('binning_y')}\n")
+
+        lines.extend(_calib_section("Darks", lg.get("best_dark"), lg.get("dark_candidates", []), "dark"))
+        lines.extend(_calib_section("Flats", lg.get("best_flat"), lg.get("flat_candidates", []), "flat"))
+        lines.extend(_calib_section("Bias",  lg.get("best_bias"),  lg.get("bias_candidates", []),  "bias"))
+
+    lines.append("---\n")
+    lines.append("## Diagnosis Summary\n")
+    for d in diag:
+        emoji = "✅" if d.startswith("OK") else ("⚠️" if d.startswith("WARNING") else ("❌" if d.startswith("ERROR") else "ℹ️"))
+        lines.append(f"- {emoji} {d}")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+@router.get("/{session_id}/calibration-scoring")
+async def get_calibration_scoring(
+    session_id: str,
+    session: Session = Depends(get_db_session),
+    config = Depends(get_config),
+):
+    """
+    Run full calibration scoring analysis for a processing session.
+
+    Returns match data JSON + markdown report, and saves both to the
+    Session_Notes folder for later retrieval.
+    """
+    try:
+        # Lazy-import to keep startup fast and avoid circular deps
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        if str(repo_root) not in sys.path:
+            sys.path.insert(0, str(repo_root))
+
+        from export_calibration_analysis import build_calibration_analysis
+        from match_calibrations import match_calibrations
+
+        analysis   = build_calibration_analysis(session_id, session)
+        match_data = match_calibrations(analysis)
+
+        markdown = _build_calibration_markdown(match_data)
+
+        # Persist both artefacts to notes folder
+        try:
+            year = int(session_id[:4])
+        except (ValueError, IndexError):
+            year = datetime.now().year
+
+        notes_dir = Path(config.paths.notes_dir) / "Processing_Sessions" / str(year)
+        notes_dir.mkdir(parents=True, exist_ok=True)
+
+        json_filename = f"{session_id}_calibration_scoring.json"
+        md_filename   = f"{session_id}_calibration_scoring.md"
+        (notes_dir / json_filename).write_text(
+            json.dumps(match_data, indent=2, default=str, ensure_ascii=False),
+            encoding="utf-8"
+        )
+        (notes_dir / md_filename).write_text(markdown, encoding="utf-8")
+
+        logger.info(f"Calibration scoring complete for {session_id}: "
+                    f"{len(match_data['light_group_matches'])} light groups analysed")
+
+        return {
+            "match_data":     match_data,
+            "markdown":       markdown,
+            "json_filename":  json_filename,
+            "md_filename":    md_filename,
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Calibration scoring failed for {session_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
