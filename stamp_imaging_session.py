@@ -49,6 +49,7 @@ directory, or supplied with --db).
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -79,10 +80,20 @@ def _find_db(explicit_path: str | None) -> Path:
         if config_file.exists():
             try:
                 cfg = json.loads(config_file.read_text(encoding="utf-8"))
+
+                # Resolve the {{database_path}} template the same way the
+                # main app does: substitute paths.database_path first.
+                db_path_raw = cfg.get("paths", {}).get("database_path", "")
+                db_path_expanded = os.path.expanduser(os.path.expandvars(db_path_raw))
+
                 raw = (
                     cfg.get("database", {}).get("connection_string", "")
-                    or cfg.get("paths", {}).get("database_path", "")
+                    or db_path_raw
                 )
+                # Substitute template placeholder before stripping prefix
+                raw = raw.replace("{{database_path}}", db_path_expanded)
+                raw = os.path.expanduser(os.path.expandvars(raw))
+
                 # Strip SQLAlchemy prefix if present
                 for prefix in ("sqlite:///", "sqlite://"):
                     if raw.startswith(prefix):
