@@ -78,12 +78,12 @@ def create_directories_if_needed(config: Config) -> None:
     
     for path_str in paths_to_check:
         path = Path(path_str)
-        if not path.exists():
-            try:
+        try:
+            if not path.exists():
                 path.mkdir(parents=True, exist_ok=True)
                 print(f"Created directory: {path}")
-            except Exception as e:
-                print(f"Warning: Could not create directory {path}: {e}")
+        except Exception as e:
+            print(f"Warning: Could not check/create directory {path}: {e}")
 
 
 def load_config(config_path: str = "config.json"):
