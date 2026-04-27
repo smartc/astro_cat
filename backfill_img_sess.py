@@ -1,4 +1,4 @@
-"""Backfill the IMG_SESS FITS header keyword for cataloged files that are missing it.
+"""Backfill the IMGSESS FITS header keyword for cataloged files that are missing it.
 
 Queries the astro_cat database for every fits_file record that has an
 imaging_session_id, then checks whether the corresponding file on disk
@@ -441,7 +441,7 @@ def run(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Backfill the IMG_SESS FITS header keyword for cataloged files\n"
+            "Backfill the IMGSESS FITS header keyword for cataloged files\n"
             "that are missing it.\n\n"
             "Queries the astro_cat database for all fits_file records that\n"
             "have an imaging_session_id, checks whether the keyword is already\n"
@@ -515,8 +515,8 @@ def main() -> None:
     parser.add_argument(
         "--keyword",
         metavar="KEY",
-        default="IMG_SESS",
-        help="FITS header keyword to write (max 8 chars, default: IMG_SESS).",
+        default="IMGSESS",
+        help="FITS header keyword to write (max 8 chars, default: IMGSESS).",
     )
 
     args = parser.parse_args()

@@ -171,7 +171,7 @@ class FileOrganizer:
         self,
         fits_path: Path,
         imaging_session_id: str,
-        keyword: str = "IMG_SESS",
+        keyword: str = "IMGSESS",
     ) -> bool:
         """Write imaging session ID into a FITS header keyword.
 
@@ -455,7 +455,7 @@ class FileOrganizer:
                                     new_filepath = Path(dest_path) / new_filename
                                     orig_filename = self.strip_catalog_prefix(file_record['file'])
 
-                                    # Stamp IMG_SESS header before move (MD5 already stored in DB)
+                                    # Stamp IMGSESS header before move (MD5 already stored in DB)
                                     img_sess = file_record.get('imaging_session_id')
                                     if img_sess:
                                         self._stamp_fits_header(old_filepath, img_sess)
