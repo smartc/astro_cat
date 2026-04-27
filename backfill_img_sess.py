@@ -97,10 +97,16 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def _fetch_candidates(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Return all fits_file rows that have a non-null imaging_session_id."""
+def _fetch_candidates(conn: sqlite3.Connection, include_calibrations: bool = False) -> list[sqlite3.Row]:
+    """Return fits_file rows that have a non-null imaging_session_id.
+
+    Dark and bias frames are excluded by default because they are reusable
+    across sessions and don't need session matching in WBPP.
+    Pass include_calibrations=True to override.
+    """
+    extra = "" if include_calibrations else "AND UPPER(ff.frame_type) NOT IN ('DARK', 'BIAS')"
     cur = conn.execute(
-        """
+        f"""
         SELECT
             ff.id               AS fits_file_id,
             ff.file             AS filename,
@@ -116,6 +122,7 @@ def _fetch_candidates(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         FROM fits_files ff
         WHERE ff.imaging_session_id IS NOT NULL
           AND ff.imaging_session_id != ''
+          {extra}
         ORDER BY ff.imaging_session_id, ff.id
         """
     )
@@ -264,13 +271,17 @@ def run(args: argparse.Namespace) -> None:
         mode_parts.append("verify ON" + (" (read-only check)" if args.dry_run else ""))
     if args.all:
         mode_parts.append("--all: re-stamp files that already have the keyword")
+    if args.include_calibrations:
+        mode_parts.append("--include-calibrations: including DARK and BIAS frames")
     if mode_parts:
         print(f"Mode     : {', '.join(mode_parts)}")
     if args.limit:
         print(f"Limit    : {args.limit} files")
+    if not args.include_calibrations:
+        print("Skipping  : DARK and BIAS frames (use --include-calibrations to override)")
     print()
 
-    rows = _fetch_candidates(conn)
+    rows = _fetch_candidates(conn, include_calibrations=args.include_calibrations)
     conn.close()
 
     total_in_db = len(rows)
@@ -472,6 +483,14 @@ def main() -> None:
         help=(
             "Re-stamp files that already carry the keyword "
             "(useful to force an update to the current imaging_session_id)."
+        ),
+    )
+    parser.add_argument(
+        "--include-calibrations",
+        action="store_true",
+        help=(
+            "Also stamp DARK and BIAS frames "
+            "(excluded by default since they are reused across sessions)."
         ),
     )
     parser.add_argument(

@@ -455,9 +455,12 @@ class FileOrganizer:
                                     new_filepath = Path(dest_path) / new_filename
                                     orig_filename = self.strip_catalog_prefix(file_record['file'])
 
-                                    # Stamp IMGSESS header before move (MD5 already stored in DB)
+                                    # Stamp IMGSESS header before move (MD5 already stored in DB).
+                                    # Dark and bias frames are excluded: they are reusable across
+                                    # sessions and don't need session matching in WBPP.
                                     img_sess = file_record.get('imaging_session_id')
-                                    if img_sess:
+                                    ft = (file_record.get('frame_type') or '').upper()
+                                    if img_sess and ft not in ('DARK', 'BIAS'):
                                         self._stamp_fits_header(old_filepath, img_sess)
 
                                     shutil.move(str(old_filepath), str(new_filepath))
