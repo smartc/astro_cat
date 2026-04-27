@@ -167,6 +167,35 @@ class FileOrganizer:
         
         return groups
     
+    def _stamp_fits_header(
+        self,
+        fits_path: Path,
+        imaging_session_id: str,
+        keyword: str = "IMG_SESS",
+    ) -> bool:
+        """Write imaging session ID into a FITS header keyword.
+
+        Called during migration, after the MD5 is already stored in the
+        database, so duplicate detection is never affected by the change.
+        """
+        try:
+            from astropy.io import fits as astrofits
+            with astrofits.open(fits_path, mode="update") as hdul:
+                hdr = hdul[0].header
+                value = str(imaging_session_id)[:68]
+                if keyword in hdr:
+                    hdr[keyword] = value
+                else:
+                    hdr.append(
+                        (keyword, value, "astro_cat imaging session identifier"),
+                        end=True,
+                    )
+                hdul.flush()
+            return True
+        except Exception as exc:
+            logger.warning(f"Could not stamp FITS header for {fits_path}: {exc}")
+            return False
+
     def _get_file_md5(self, filepath: str) -> str:
         """Calculate MD5 hash of file."""
         hash_md5 = hashlib.md5()
@@ -390,7 +419,8 @@ class FileOrganizer:
                             'obs_date': db_file.obs_date,
                             'obs_timestamp': db_file.obs_timestamp,
                             'md5sum': db_file.md5sum,
-                            'mosaic': getattr(db_file, 'mosaic', None)
+                            'mosaic': getattr(db_file, 'mosaic', None),
+                            'imaging_session_id': db_file.imaging_session_id,
                         }
                         migration_records.append(record)
                     
@@ -424,7 +454,12 @@ class FileOrganizer:
                                     new_filename = self.generate_standardized_filename(file_record, seq_num)
                                     new_filepath = Path(dest_path) / new_filename
                                     orig_filename = self.strip_catalog_prefix(file_record['file'])
-                                    
+
+                                    # Stamp IMG_SESS header before move (MD5 already stored in DB)
+                                    img_sess = file_record.get('imaging_session_id')
+                                    if img_sess:
+                                        self._stamp_fits_header(old_filepath, img_sess)
+
                                     shutil.move(str(old_filepath), str(new_filepath))
                                     
                                     db_record = session.query(FitsFile).filter_by(id=file_record['id']).first()
