@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 
 from models import ImagingSession as SessionModel, FitsFile
 from web.dependencies import get_db_session, get_config
@@ -52,11 +52,13 @@ async def get_imaging_sessions(
         total = query.count()
         offset = (page - 1) * limit
         sessions = query.offset(offset).limit(limit).all()
-        
+
         # Get file counts for each session
         session_data = []
         for s in sessions:
-            file_count = session.query(FitsFile).filter(FitsFile.imaging_session_id == s.id).count()
+            file_count = session.query(func.count(FitsFile.id)).filter(
+                FitsFile.imaging_session_id == s.id
+            ).scalar() or 0
             session_data.append({
                 "session_id": s.id,
                 "session_date": s.date,
@@ -471,9 +473,9 @@ async def delete_imaging_session(
     # Flush so the subsequent count reflects the deletions
     session.flush()
 
-    remaining_count = session.query(FitsFile).filter(
+    remaining_count = session.query(func.count(FitsFile.id)).filter(
         FitsFile.imaging_session_id == session_id
-    ).count()
+    ).scalar() or 0
 
     session_deleted = remaining_count == 0
     if session_deleted:

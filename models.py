@@ -12,17 +12,20 @@ Changes from Phase 2:
 - Kept deprecated Session alias temporarily with deprecation warning
 """
 
+import logging
 import warnings
 from datetime import datetime
 from typing import Optional, List, Dict, Tuple
 
 from sqlalchemy import (
     Boolean, DateTime, Float, Integer, String, Text,
-    create_engine, Column, Index, ForeignKey, event
+    create_engine, Column, Index, ForeignKey, event, inspect, text
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, synonym
 from sqlalchemy.sql import func
+
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
@@ -450,14 +453,43 @@ class DatabaseManager:
             @event.listens_for(self.engine, "connect")
             def set_sqlite_pragma(dbapi_connection, connection_record):
                 cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA busy_timeout=30000")
                 cursor.execute("PRAGMA foreign_keys=ON")
                 cursor.close()
 
         self.SessionLocal = sessionmaker(bind=self.engine)
 
     def create_tables(self):
-        """Create all tables."""
+        """Create all tables and add any columns missing from existing tables."""
         Base.metadata.create_all(bind=self.engine)
+        self._add_missing_columns()
+
+    def _add_missing_columns(self):
+        """Add columns present in the model but absent from the database.
+
+        Handles databases created before schema additions (e.g. extended
+        metadata columns added after initial deployment). Uses ALTER TABLE
+        ADD COLUMN which is safe and non-destructive.
+        """
+        inspector = inspect(self.engine)
+
+        for table_name, table in Base.metadata.tables.items():
+            if not inspector.has_table(table_name):
+                continue
+
+            existing = {col["name"] for col in inspector.get_columns(table_name)}
+
+            with self.engine.connect() as conn:
+                for column in table.columns:
+                    if column.name in existing:
+                        continue
+                    col_type = column.type.compile(dialect=self.engine.dialect)
+                    conn.execute(
+                        text(f"ALTER TABLE {table_name} ADD COLUMN {column.name} {col_type}")
+                    )
+                    logger.info("Added missing column: %s.%s", table_name, column.name)
+                conn.commit()
 
     def get_session(self):
         """Get a database session."""
