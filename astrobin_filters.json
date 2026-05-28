@@ -41,5 +41,11 @@
     "standard_name": "Oiii-7nm",
     "filter_type": "narrowband",
     "bandpass": "7nm"
+  },
+  "38050": {
+    "name": "Leviathan Optical Spectral Pro",
+    "standard_name": "Spectral-Pro",
+    "filter_type": "light_pollution_suppression",
+    "bandpass": ""
   }
 }

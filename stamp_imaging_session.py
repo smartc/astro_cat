@@ -1,13 +1,13 @@
 """Stamp the Imaging Session ID into raw FITS file headers.
 
 Reads a Processing Session from the astro_cat database, finds all staged
-source files that belong to it, and writes the IMG_SESS (or a custom
+source files that belong to it, and writes the IMGSESS (or a custom
 keyword) FITS header card so that downstream tools can identify which
 imaging session each frame came from.
 
 Keywords written
 ----------------
-IMG_SESS  – imaging_session_id from the astro_cat catalog (e.g. 20241103_A3F2C1D9)
+IMGSESS  – imaging_session_id from the astro_cat catalog (e.g. 20241103_A3F2C1D9)
             Can be overridden with --keyword.
 
 Safe by default
@@ -585,7 +585,7 @@ def main():
         description=(
             "Stamp the astro_cat Imaging Session ID into raw FITS file headers.\n\n"
             "Reads all source files belonging to a Processing Session and writes\n"
-            "the IMG_SESS header keyword to each file on disk."
+            "the IMGSESS header keyword to each file on disk."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -673,8 +673,8 @@ def main():
     parser.add_argument(
         "--keyword",
         metavar="KEY",
-        default="IMG_SESS",
-        help="FITS header keyword to write (max 8 chars, default: IMG_SESS).",
+        default="IMGSESS",
+        help="FITS header keyword to write (max 8 chars, default: IMGSESS).",
     )
 
     args = parser.parse_args()
