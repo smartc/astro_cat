@@ -303,7 +303,8 @@ from web.routes import (
     config as config_routes,
     database,
     webdav,
-    proxy
+    proxy,
+    review_queue,
 )
 
 # Register all routers
@@ -320,5 +321,6 @@ app.include_router(database.router)
 app.include_router(webdav.router)
 app.include_router(processed_files.router)
 app.include_router(proxy.router)
+app.include_router(review_queue.router)
 
 logger.info("✓ All routes registered")
