@@ -4,7 +4,7 @@
 
 const OperationsTab = {
     components: {
-        'review-queue-panel': ReviewQueuePanel,
+        'review-queue-panel': window.ReviewQueuePanel,
     },
 
     template: `

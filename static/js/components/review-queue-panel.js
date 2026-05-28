@@ -355,14 +355,19 @@ const ReviewQueuePanel = {
             this.loading = true;
             this.error = null;
             try {
-                const data = await fetch('/api/review-queue').then(r => r.json());
-                this.groups = data.groups;
-                this.totalFiles = data.total_files;
-                this.knownFilters = data.known_filters;
-                this.knownCameras = data.known_cameras;
-                this.knownTelescopes = data.known_telescopes;
+                const resp = await fetch('/api/review-queue');
+                if (!resp.ok) {
+                    throw new Error(`Server returned ${resp.status}`);
+                }
+                const data = await resp.json();
+                this.groups = Array.isArray(data.groups) ? data.groups : [];
+                this.totalFiles = data.total_files || 0;
+                this.knownFilters = Array.isArray(data.known_filters) ? data.known_filters : [];
+                this.knownCameras = Array.isArray(data.known_cameras) ? data.known_cameras : [];
+                this.knownTelescopes = Array.isArray(data.known_telescopes) ? data.known_telescopes : [];
             } catch (e) {
                 this.error = 'Failed to load review queue';
+                this.groups = [];
             } finally {
                 this.loading = false;
             }
