@@ -8,7 +8,8 @@
     "brand": "ZWO",
     "pixel": 3.8,
     "rgb": true,
-    "comments": "Mono cooled camera"
+    "comments": "Mono cooled camera",
+    "instrument_match": ["ASI1600"]
   },
   {
     "camera": "ASI183",
@@ -19,7 +20,8 @@
     "brand": "ZWO",
     "pixel": 2.4,
     "rgb": true,
-    "comments": "Color cooled camera"
+    "comments": "Color cooled camera",
+    "instrument_match": ["ASI183"]
   },
   {
     "camera": "EOST4i",
@@ -30,7 +32,8 @@
     "pixel": 4.3,
     "bin": 1,
     "rgb": true,
-    "comments": "Modified DSLR"
+    "comments": "Modified DSLR",
+    "instrument_match": ["T4i", "Rebel T4i", "EOS T4i"]
   },
   {
     "camera": "EOSRP",
@@ -41,7 +44,8 @@
     "pixel": 4.4,
     "bin": 1,
     "rgb": true,
-    "comments": "Mirrorless full frame"
+    "comments": "Mirrorless full frame",
+    "instrument_match": ["EOS RP"]
   },
   {
     "camera": "QSI683",
@@ -52,7 +56,8 @@
     "brand": "QSI",
     "pixel": 5.4,
     "rgb": false,
-    "comments": "Cooled CCD camera"
+    "comments": "Cooled CCD camera",
+    "instrument_match": ["QSI683", "QSI 683"]
   },
   {
     "camera": "ASI2600",
@@ -63,6 +68,7 @@
     "brand": "ZWO",
     "pixel": 3.76,
     "rgb": true,
-    "comments": ""
+    "comments": "",
+    "instrument_match": ["ASI2600MC", "ASI2600 MC", "ASI2600"]
   }
 ]

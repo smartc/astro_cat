@@ -50,6 +50,11 @@ class OptimizedFitsProcessor:
         self.telescopes = {tel.scope: tel for tel in telescopes}
         self.filter_mappings = filter_mappings
         self.db_service = db_service
+        # Learned camera-matching fingerprints (pixel dims + INSTRUME -> camera),
+        # used to auto-resolve cameras a human has already confirmed once before.
+        self.camera_fingerprints = (
+            db_service.get_camera_fingerprints() if db_service is not None else {}
+        )
         
         # Determine optimal number of workers
         self.cpu_count = mp.cpu_count()
@@ -140,7 +145,8 @@ class OptimizedFitsProcessor:
                 extract_fits_metadata_with_streaming_hash,
                 cameras_dict=self.cameras,
                 telescopes_dict=self.telescopes,
-                filter_mappings=self.filter_mappings
+                filter_mappings=self.filter_mappings,
+                camera_fingerprints=self.camera_fingerprints
             )
             
             # Process in parallel with ProcessPoolExecutor
@@ -226,7 +232,8 @@ class OptimizedFitsProcessor:
                 extract_fits_metadata_worker,
                 cameras_dict=self.cameras,
                 telescopes_dict=self.telescopes,
-                filter_mappings=self.filter_mappings
+                filter_mappings=self.filter_mappings,
+                camera_fingerprints=self.camera_fingerprints
             )
             
             # Process in parallel
