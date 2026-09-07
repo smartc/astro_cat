@@ -535,12 +535,15 @@ async def get_stats(db_service = Depends(get_db_service), config = Depends(get_c
         ).count()
         
         needs_review = session.query(FitsFile).filter(
-            FitsFile.validation_score.between(80, 95)
+            FitsFile.validation_score >= 80,
+            FitsFile.validation_score < 95,
+            FitsFile.folder.like(f"%{config.paths.quarantine_dir}%")
         ).count()
-        
+
         manual_only = session.query(FitsFile).filter(
             FitsFile.validation_score < 80,
-            FitsFile.validation_score > 0
+            FitsFile.validation_score >= 0,
+            FitsFile.folder.like(f"%{config.paths.quarantine_dir}%")
         ).count()
         
         no_score = session.query(FitsFile).filter(

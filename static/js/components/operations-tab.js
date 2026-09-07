@@ -3,8 +3,15 @@
  */
 
 const OperationsTab = {
+    components: {
+        'review-queue-panel': window.ReviewQueuePanel,
+    },
+
     template: `
         <div class="space-y-6">
+            <!-- Review Queue -->
+            <review-queue-panel @fix-applied="onFixApplied"></review-queue-panel>
+
             <!-- Main Operations -->
             <div class="bg-white rounded-lg shadow p-6">
                 <h2 class="text-xl font-bold mb-4">File Operations</h2>
@@ -279,10 +286,16 @@ const OperationsTab = {
     },
     
     methods: {
+        onFixApplied() {
+            if (this.$root && this.$root.loadStats) {
+                this.$root.loadStats();
+            }
+        },
+
         startOperation(type) {
             this.$root.startOperation(type);
         },
-        
+
         clearOperation() {
             this.$root.clearOperation();
         },
