@@ -147,10 +147,9 @@ const ReviewQueuePanel = {
                                             <div class="text-sm font-semibold text-blue-800">Add camera to list</div>
                                             <div class="grid grid-cols-2 gap-3">
                                                 <div>
-                                                    <label class="block text-xs text-gray-600 mb-1">Camera name (from FITS)</label>
-                                                    <input type="text" :value="activeForm[group.group_id].formData.camera"
-                                                           readonly
-                                                           class="w-full px-2 py-1 text-sm border border-gray-300 rounded bg-gray-100 text-gray-500"/>
+                                                    <label class="block text-xs text-gray-600 mb-1">Camera name</label>
+                                                    <input type="text" v-model="activeForm[group.group_id].formData.camera"
+                                                           class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-400"/>
                                                 </div>
                                                 <div>
                                                     <label class="block text-xs text-gray-600 mb-1">Brand</label>
@@ -271,6 +270,19 @@ const ReviewQueuePanel = {
                                                     <option value="">— select —</option>
                                                     <option v-for="opt in renameOptions(fix.params.field)"
                                                             :key="opt" :value="opt">{{ opt }}</option>
+                                                </select>
+                                            </div>
+                                        </template>
+
+                                        <!-- assign_camera_fingerprint form -->
+                                        <template v-else-if="fix.fix_id === 'assign_camera_fingerprint'">
+                                            <div class="text-sm font-semibold text-blue-800">Assign to existing camera</div>
+                                            <div>
+                                                <label class="block text-xs text-gray-600 mb-1">Camera</label>
+                                                <select v-model="activeForm[group.group_id].formData.camera_name"
+                                                        class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-400">
+                                                    <option value="">— select —</option>
+                                                    <option v-for="opt in knownCameras" :key="opt" :value="opt">{{ opt }}</option>
                                                 </select>
                                             </div>
                                         </template>
@@ -455,6 +467,7 @@ const ReviewQueuePanel = {
             if (fixId === 'add_telescope_to_list') return 'Add Telescope';
             if (fixId === 'rename_value_in_db') return `Rename in ${n}`;
             if (fixId === 'change_frame_type') return `Change Frame Type`;
+            if (fixId === 'assign_camera_fingerprint') return `Assign in ${n}`;
             return 'Apply';
         },
 

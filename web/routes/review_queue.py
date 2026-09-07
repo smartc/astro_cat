@@ -176,6 +176,57 @@ def _build_review_groups(files, filter_mappings: dict, cameras, telescopes) -> l
                 {"x": f.width_pixels, "y": f.height_pixels, "focal": f.focal_length}
             )
 
+        # camera_unresolved (pixel dims matched, but couldn't be confirmed against
+        # any single camera's instrument/color signature -- see equipment_identifier.py)
+        if "Camera: missing/unknown" in notes and camera_val.upper() == "UNKNOWN":
+            instrument_val = f.instrument or ""
+            gid = f"camera_unresolved__{f.width_pixels}x{f.height_pixels}__{instrument_val or 'NONE'}"
+            meta = {
+                "group_id": gid,
+                "issue_type": "camera_unresolved",
+                "severity": "error",
+                "issue_summary": (
+                    f"Unidentified camera ({f.width_pixels}×{f.height_pixels}px, "
+                    f"INSTRUME='{instrument_val or '(none)'}')"
+                ),
+                "detail": (
+                    "Pixel dimensions didn't uniquely confirm a known camera — either this "
+                    "sensor is shared with another registered camera and the INSTRUME text "
+                    "didn't confirm either one, or this exact INSTRUME string hasn't been "
+                    "seen before. Assign it below; the pairing is remembered, so this exact "
+                    "signature resolves automatically from now on."
+                ),
+                "available_fixes": [
+                    {
+                        "fix_id": "assign_camera_fingerprint",
+                        "label": "Assign to existing camera",
+                        "description": (
+                            "Use if this is really one of your registered cameras — "
+                            "just an INSTRUME string variant it hasn't seen before."
+                        ),
+                        "params": {"camera_name": None},
+                    },
+                    {
+                        "fix_id": "add_camera_to_list",
+                        "label": "This is a new camera",
+                        "description": "Register a brand-new camera and remember its fingerprint.",
+                        "params": {
+                            "camera": instrument_val,
+                            "bin": 1,
+                            "x": f.width_pixels,
+                            "y": f.height_pixels,
+                            "type": "CMOS",
+                            "brand": "",
+                            "pixel": None,
+                            "rgb": True,
+                            "comments": "",
+                            "prefill": {},
+                        },
+                    },
+                ],
+            }
+            add_to_group(gid, meta, fe)
+
         # non_standard_telescope
         if "Telescope: non-standard" in notes:
             gid = f"non_standard_telescope__{telescope_val}"
@@ -347,6 +398,29 @@ def _revalidate_files(db_session, file_ids: list[int], db_service) -> dict:
     return results
 
 
+# ── camera fingerprint helper ─────────────────────────────────────────────────
+
+def _assign_camera_and_learn_fingerprints(session, db_service, file_ids: list[int], camera_name: str):
+    """Set `camera` on the given files and record their (dims, instrument) ->
+    camera fingerprint so this exact signature auto-resolves next time."""
+    files = session.query(FitsFile).filter(FitsFile.id.in_(file_ids)).all()
+    for f in files:
+        f.camera = camera_name
+        if f.width_pixels and f.height_pixels:
+            is_color = None
+            if f.bayerpat:
+                is_color = f.bayerpat.strip().upper() != "NONE"
+            db_service.add_camera_fingerprint(
+                x_pixels=f.width_pixels,
+                y_pixels=f.height_pixels,
+                instrument=(f.instrument or None),
+                camera_name=camera_name,
+                is_color=is_color,
+                source="review",
+            )
+    session.commit()
+
+
 # ── equipment reload helper ───────────────────────────────────────────────────
 
 def _reload_equipment(config):
@@ -435,6 +509,7 @@ async def apply_fix(
             "add_telescope_to_list": _fix_add_telescope,
             "rename_value_in_db": _fix_rename_value,
             "change_frame_type": _fix_change_frame_type,
+            "assign_camera_fingerprint": _fix_assign_camera_fingerprint,
         }
         handler = handlers.get(body.fix_id)
         if handler is None:
@@ -514,6 +589,11 @@ def _fix_add_camera(session, params, file_ids, db_service, config):
     _write_json_atomic(cameras_path, cameras)
     _reload_equipment(config)
 
+    # Explicitly assign the selected files (they may currently be "UNKNOWN",
+    # not the raw camera_val, if they came via the camera_unresolved group)
+    # and remember their fingerprint so this signature auto-resolves next time.
+    _assign_camera_and_learn_fingerprints(session, db_service, file_ids, camera_name)
+
     all_with_camera = session.query(FitsFile).filter(FitsFile.camera == camera_name).all()
     all_ids = [f.id for f in all_with_camera]
     new_scores = _revalidate_files(session, all_ids, db_service)
@@ -522,6 +602,29 @@ def _fix_add_camera(session, params, file_ids, db_service, config):
         "fixed_count": len(file_ids),
         "revalidated_count": len(all_ids),
         "new_scores": {str(fid): new_scores.get(str(fid)) for fid in file_ids},
+        "warnings": [],
+    }
+
+
+def _fix_assign_camera_fingerprint(session, params, file_ids, db_service):
+    camera_name = (params.get("camera_name") or "").strip()
+    if not camera_name:
+        raise HTTPException(status_code=422, detail="camera_name is required")
+
+    app_module = sys.modules["web.app"]
+    known = {c.camera for c in app_module.cameras}
+    if camera_name not in known:
+        raise HTTPException(
+            status_code=422, detail=f"'{camera_name}' is not a known camera name"
+        )
+
+    _assign_camera_and_learn_fingerprints(session, db_service, file_ids, camera_name)
+    new_scores = _revalidate_files(session, file_ids, db_service)
+
+    return {
+        "fixed_count": len(file_ids),
+        "revalidated_count": len(file_ids),
+        "new_scores": new_scores,
         "warnings": [],
     }
 

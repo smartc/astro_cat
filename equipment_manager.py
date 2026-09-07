@@ -11,12 +11,23 @@ class Camera(BaseModel):
     camera: str  # Camera name - required
     bin: int = 1
     x: int       # X resolution - required (from FITS NAXIS1)
-    y: int       # Y resolution - required (from FITS NAXIS2)  
+    y: int       # Y resolution - required (from FITS NAXIS2)
     type: Optional[str] = None     # CMOS/CCD - optional, may be unknown
     brand: str                     # Brand - can be "Unknown"
     pixel: Optional[float] = None  # Pixel size in microns - optional, may be unknown
     rgb: Optional[bool] = True     # True for OSC/color, False for mono
     comments: Optional[str] = None
+    # Substrings expected to appear in the FITS INSTRUME header for this camera,
+    # e.g. ["ASI2600MC", "ASI2600 MC"]. Used to disambiguate cameras that share
+    # a sensor (and therefore identical x/y/pixel) — matched case-insensitively.
+    instrument_match: List[str] = []
+
+    @validator('instrument_match', pre=True)
+    def empty_to_list(cls, v):
+        """Convert missing/None to an empty list."""
+        if v is None:
+            return []
+        return v
 
     @validator('pixel', pre=True)
     def empty_string_to_none_float(cls, v):

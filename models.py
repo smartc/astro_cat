@@ -77,6 +77,9 @@ class FitsFile(Base):
     # Equipment
     camera = Column(String(50))
     telescope = Column(String(50))
+    # Raw FITS INSTRUME header value, kept for camera-matching review/audit
+    # (pixel dims alone can't disambiguate cameras sharing a sensor).
+    instrument = Column(String(100))
 
     # File hash
     md5sum = Column(String(32), unique=True, index=True)
@@ -210,6 +213,36 @@ class Camera(Base):
     binning_support = Column(String(20), default="1,2,3,4")
     notes = Column(Text)
     active = Column(Boolean, default=True)
+
+
+class CameraFingerprint(Base):
+    """
+    Learned camera-matching fingerprints.
+
+    Cameras that share a sensor (same x/y/pixel) can't be told apart by pixel
+    dimensions alone. When the matcher can't confirm a pixel-dims match via a
+    camera's curated `instrument_match` aliases, it's flagged for review; once
+    a human resolves it, the exact (pixel dims, INSTRUME string, color/mono)
+    signature is recorded here so every future file with that same signature
+    resolves automatically without another review.
+    """
+    __tablename__ = 'camera_fingerprints'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    x_pixels = Column(Integer, nullable=False)
+    y_pixels = Column(Integer, nullable=False)
+    # Raw INSTRUME string this fingerprint applies to. NULL represents "no
+    # INSTRUME header at all" for this pixel geometry -- itself a learnable
+    # fingerprint (e.g. a capture-software/frame-type combo that never writes it).
+    instrument = Column(String(100), nullable=True)
+    is_color = Column(Boolean, nullable=True)  # from BAYERPAT at learn time, if known
+    camera_name = Column(String(50), nullable=False)
+    source = Column(String(20), default='review')  # 'review' or 'seed'
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_fingerprint_lookup', 'x_pixels', 'y_pixels', 'instrument'),
+    )
 
 
 class Telescope(Base):
@@ -522,6 +555,44 @@ class DatabaseService:
             session.commit()
             return True, False
 
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
+    def get_camera_fingerprints(self) -> Dict[Tuple[int, int, Optional[str]], str]:
+        """Load learned camera fingerprints as {(x, y, instrument): camera_name}."""
+        session = self.db_manager.get_session()
+        try:
+            rows = session.query(CameraFingerprint).all()
+            return {(r.x_pixels, r.y_pixels, r.instrument): r.camera_name for r in rows}
+        finally:
+            session.close()
+
+    def add_camera_fingerprint(self, x_pixels: int, y_pixels: int, instrument: Optional[str],
+                                camera_name: str, is_color: Optional[bool] = None,
+                                source: str = 'review') -> None:
+        """Record a resolved (pixel dims, INSTRUME string) -> camera fingerprint.
+
+        Idempotent: updates the existing row for this exact signature if one
+        exists, rather than accumulating duplicates.
+        """
+        session = self.db_manager.get_session()
+        try:
+            existing = session.query(CameraFingerprint).filter_by(
+                x_pixels=x_pixels, y_pixels=y_pixels, instrument=instrument
+            ).first()
+            if existing:
+                existing.camera_name = camera_name
+                existing.is_color = is_color
+                existing.source = source
+            else:
+                session.add(CameraFingerprint(
+                    x_pixels=x_pixels, y_pixels=y_pixels, instrument=instrument,
+                    camera_name=camera_name, is_color=is_color, source=source,
+                ))
+            session.commit()
         except Exception as e:
             session.rollback()
             raise e

@@ -201,12 +201,18 @@ def parse_coordinate(header, keys: List[str]) -> Optional[float]:
     return None
 
 
-def extract_fits_metadata_simple(filepath: str, header, 
-                                cameras_dict: dict, 
-                                telescopes_dict: dict, 
-                                filter_mappings: dict) -> dict:
+def extract_fits_metadata_simple(filepath: str, header,
+                                cameras_dict: dict,
+                                telescopes_dict: dict,
+                                filter_mappings: dict,
+                                camera_fingerprints: dict = None) -> dict:
     """
     Extract metadata from FITS header with software profile support.
+
+    Args:
+        camera_fingerprints: Previously learned {(x, y, instrument): camera_name}
+            fingerprints, used to auto-resolve cameras whose INSTRUME string
+            doesn't match a curated alias but was confirmed once before.
     """
     from .equipment_identifier import (
         identify_camera_simple, identify_telescope_simple,
@@ -297,8 +303,10 @@ def extract_fits_metadata_simple(filepath: str, header,
         object_name = None
     
     # Identify equipment using current function signatures
+    bayerpat_raw = get_header_value(header, ['BAYERPAT'], str)
     camera_name = identify_camera_simple(
-        width_pixels, height_pixels, instrument, binning, cameras_dict
+        width_pixels, height_pixels, instrument, binning, cameras_dict,
+        bayerpat=bayerpat_raw, fingerprints=camera_fingerprints
     )
 
     telescope_name = identify_telescope_simple(
@@ -341,6 +349,7 @@ def extract_fits_metadata_simple(filepath: str, header,
         'focal_length': focal_len_raw,
         'exposure': get_header_value(header, ['EXPTIME', 'EXPOSURE'], float),
         'camera': camera_name,
+        'instrument': instrument,
         'telescope': telescope_name,
         'latitude': latitude,
         'longitude': longitude,

@@ -8,7 +8,7 @@
     "proper_name": "B"
   },
   {
-    "raw_name": "Green", 
+    "raw_name": "Green",
     "proper_name": "G"
   },
   {
@@ -28,7 +28,7 @@
     "proper_name": "Ha-35nm"
   },
   {
-    "raw_name": "Ha-7nm", 
+    "raw_name": "Ha-7nm",
     "proper_name": "Ha-7nm"
   },
   {
@@ -72,7 +72,7 @@
     "proper_name": "B"
   },
   {
-    "raw_name": "G", 
+    "raw_name": "G",
     "proper_name": "G"
   },
   {
@@ -94,5 +94,9 @@
   {
     "raw_name": "No filter",
     "proper_name": "None"
+  },
+  {
+    "raw_name": "SPECTRAL-PRO",
+    "proper_name": "Spectral-Pro"
   }
 ]
