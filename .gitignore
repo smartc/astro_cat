@@ -228,3 +228,7 @@ astro.images
 utilities/
 certs/
 astrobin_filters.json
+
+# One-off migration/backfill run reports (audit output, not source)
+backfill_report.json
+fix_report.json
