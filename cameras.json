@@ -7,7 +7,7 @@
     "type": "CMOS",
     "brand": "ZWO",
     "pixel": 3.8,
-    "rgb": true,
+    "rgb": false,
     "comments": "Mono cooled camera",
     "instrument_match": ["ASI1600"]
   },

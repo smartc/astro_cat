@@ -85,18 +85,25 @@ def identify_camera_simple(x_pixels: Optional[int], y_pixels: Optional[int],
                           cameras_dict: Dict, bayerpat: Optional[str] = None,
                           fingerprints: Optional[Dict[Tuple[int, int, Optional[str]], str]] = None) -> str:
     """
-    Identify camera from pixel dimensions, corroborated by instrument name
-    and mono/color reading.
+    Identify camera from a learned fingerprint if one exists, otherwise from
+    pixel dimensions corroborated by instrument name and mono/color reading.
 
-    Pixel dimensions alone aren't enough once two cameras share a sensor
-    (identical x/y/pixel) -- every candidate at those dimensions must also be
-    checked against the INSTRUME string and, when available, BAYERPAT before
-    being trusted. A candidate is accepted only if it uniquely corroborates:
-    via a curated `instrument_match` alias or brand name on the camera, via a
-    previously learned fingerprint for this exact (dims, instrument) pair, or
-    (as a tiebreaker) via mono/color agreement. Anything that doesn't clear
-    that bar returns "UNKNOWN" rather than guessing, so it can be resolved
-    once via the review queue and remembered from then on.
+    A learned fingerprint (exact match on pixel dims + INSTRUME string) is
+    checked first and, if present, is trusted outright -- it was recorded
+    from a specific resolved (dims, instrument) signature, so it applies
+    even when those dims don't match any camera currently registered in
+    cameras_dict (e.g. a firmware/software variant that crops differently
+    from the nominal sensor size).
+
+    Absent a fingerprint, pixel dimensions alone aren't enough once two
+    cameras share a sensor (identical x/y/pixel) -- every candidate at those
+    dimensions must also be checked against the INSTRUME string and, when
+    available, BAYERPAT before being trusted. A candidate is accepted only if
+    it uniquely corroborates: via a curated `instrument_match` alias or brand
+    name on the camera, or (as a tiebreaker) via mono/color agreement.
+    Anything that doesn't clear that bar returns "UNKNOWN" rather than
+    guessing, so it can be resolved once via the review queue -- which
+    records a fingerprint so the same signature auto-resolves from then on.
 
     Args:
         x_pixels: Number of X pixels
@@ -112,11 +119,20 @@ def identify_camera_simple(x_pixels: Optional[int], y_pixels: Optional[int],
     Returns:
         Camera name or "UNKNOWN"
     """
-    if not x_pixels:
-        return _instrument_only_fallback(_clean_instrument(instrument), cameras_dict)
+    clean_instrument = _clean_instrument(instrument)
+    fingerprints = fingerprints or {}
 
-    actual_x = x_pixels * binning
-    actual_y = y_pixels * binning if y_pixels else None
+    if x_pixels:
+        actual_x = x_pixels * binning
+        actual_y = y_pixels * binning if y_pixels else None
+        learned_camera = fingerprints.get((actual_x, actual_y, clean_instrument))
+        if learned_camera and learned_camera in cameras_dict:
+            return learned_camera
+    else:
+        actual_x = actual_y = None
+
+    if not x_pixels:
+        return _instrument_only_fallback(clean_instrument, cameras_dict)
 
     candidates = [
         (name, camera) for name, camera in cameras_dict.items()
@@ -124,16 +140,11 @@ def identify_camera_simple(x_pixels: Optional[int], y_pixels: Optional[int],
     ]
 
     if not candidates:
-        return _instrument_only_fallback(_clean_instrument(instrument), cameras_dict)
-
-    clean_instrument = _clean_instrument(instrument)
-    fingerprints = fingerprints or {}
-    fingerprint_key = (actual_x, actual_y, clean_instrument)
-    learned_camera = fingerprints.get(fingerprint_key)
+        return _instrument_only_fallback(clean_instrument, cameras_dict)
 
     scored = []
     for name, camera in candidates:
-        score = 2 if learned_camera == name else _instrument_alias_score(clean_instrument, camera)
+        score = _instrument_alias_score(clean_instrument, camera)
         score += _color_score(bayerpat, camera)
         scored.append((score, name))
 
