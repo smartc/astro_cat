@@ -1,7 +1,7 @@
 alembic==1.16.5
 annotated-doc==0.0.3
 annotated-types==0.7.0
-anyio==4.10.0
+anyio==4.14.2
 astroid==4.0.1
 astropy==6.1.7
 astropy-iers-data==0.2025.9.8.0.36.17
